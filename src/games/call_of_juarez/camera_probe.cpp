@@ -1700,7 +1700,7 @@ void __fastcall HookNativeHeadAudioUpdate(void* camera, void*) {
         g_head_audio_reference.thread!=GetCurrentThreadId())return;
     if(!g_camera_vtable||g_camera_vtable[kNativeCameraUpdateSlot]!=reinterpret_cast<void*>(&HookNativeHeadAudioUpdate))return;
     const auto command=CurrentCommand();
-    if(!command.command.enabled||!command.command.tracking_enabled||!command.command.head_tracked_audio_enabled)return;
+    if (!HeadAudioRequested(command.command)) return;
     CameraHeadTrackingSample tracking;
     if(!g_stereo_callbacks.read_head_tracking(g_stereo_callbacks.context,tracking)||!tracking.available)return;
     auto* bytes=static_cast<std::byte*>(camera);
@@ -8562,7 +8562,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
-    if(g_head_audio_enabled.load(std::memory_order_relaxed)&&submitted&&gameplay_input_ok&&relative_head_pose.position_valid&&
+    if(g_head_audio_enabled.load(std::memory_order_relaxed)&&HeadAudioRequested(snapshot.command)&&
+        submitted&&gameplay_input_ok&&relative_head_pose.position_valid&&
         body_position_update.render_head_pose.position_valid&&g_stereo_callbacks.read_head_tracking) {
         g_head_audio_reference={};
         static_cast<CoJHeadAudioIdentity&>(g_head_audio_reference)={reinterpret_cast<std::uintptr_t>(camera),

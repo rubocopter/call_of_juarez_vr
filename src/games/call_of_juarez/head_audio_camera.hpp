@@ -5,6 +5,10 @@
 #include <cstring>
 
 namespace cojvr::games::call_of_juarez {
+inline bool HeadAudioRequested(const CameraProbeCommand& command) noexcept {
+    return command.tracking_enabled && command.head_tracked_audio_enabled;
+}
+
 struct CoJHeadAudioIdentity {
     std::uintptr_t camera=0,view=0;
     std::uint64_t player=0,context=0,recenter=0,command=0,thread=0;

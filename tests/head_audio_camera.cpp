@@ -6,6 +6,19 @@
 using namespace cojvr::games::call_of_juarez;
 namespace runtime=cojvr::runtime;
 int main() {
+    CameraProbeCommand command;
+    if (!ParseCameraProbeCommand(
+            R"({"enabled":false,"trackingEnabled":true,"headTrackedAudioEnabled":true})", command) ||
+        !HeadAudioRequested(command)) {
+        std::cerr << "ordinary tracked play rejected the explicit head audio opt-in\n";
+        return 16;
+    }
+    command.tracking_enabled = false;
+    if (HeadAudioRequested(command)) return 17;
+    command.tracking_enabled = true;
+    command.head_tracked_audio_enabled = false;
+    if (HeadAudioRequested(command)) return 18;
+
     using Clock=std::chrono::steady_clock;
     const auto now=Clock::now();
     CoJHeadAudioReference reference;
