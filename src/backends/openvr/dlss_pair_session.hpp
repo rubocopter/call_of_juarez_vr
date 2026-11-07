@@ -57,7 +57,8 @@ public:
     // frame.device is the actual Start device pointer encoded as uintptr_t.
     // Both eye stamps must exactly match identity; revisions/context/tokens
     // must be nonzero. guides.history/clip_to_previous are derived internally.
-    [[nodiscard]] bool Reconstruct(ID3D11DeviceContext*,const PairFrame&) noexcept;
+    // Reports whether a successful pair reused history in both eyes.
+    [[nodiscard]] bool Reconstruct(ID3D11DeviceContext*,const PairFrame&,bool* history_reused=nullptr) noexcept;
     // Complete pair or two nulls, never a per-eye publication. Borrowed until
     // next Reconstruct/Invalidate/Stop. A mismatched current snapshot permanently
     // revokes this publication; querying an older snapshot cannot resurrect it.

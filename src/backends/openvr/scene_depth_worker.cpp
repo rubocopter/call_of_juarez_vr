@@ -153,7 +153,7 @@ struct SceneDepthWorker::Impl {
     }
     SceneWorkerReport Process(Job& j,ID3D11Device* device,ID3D11DeviceContext* context,
         Scratch& scratch,D3D9SharedTextureBridge& color,D3D9SharedTextureBridge& depth,PairSession* session,
-        std::uint64_t& history_version,bool& fatal){
+        std::uint64_t& history_version,SceneDepthStamp& history_source,bool& fatal){
         SceneWorkerReport report;report.source=j.work.stamp;report.authority=j.request.authority;
         const auto process_begin=Clock::now();
         report.worker_thread=GetCurrentThreadId();
@@ -178,7 +178,8 @@ struct SceneDepthWorker::Impl {
         report.width=w;report.height=h;
         if(j.request.reconstruct){
             if(!session){Error(report.error,"worker reconstruction not enabled");return report;}
-            if(history_version!=j.version){session->Invalidate();history_version=j.version;}
+            if(history_version!=j.version||!CurrentDomain(history_source,j.work.stamp))
+                session->Invalidate();
             PairFrame pair;
             pair.identity={{reinterpret_cast<std::uintptr_t>(device),j.work.stamp.epoch,j.work.stamp.frame,
                 j.work.stamp.pose,j.work.stamp.owner,w,h,j.request.output_width,j.request.output_height,
@@ -202,7 +203,7 @@ struct SceneDepthWorker::Impl {
                 input.guides.source_qualified=guide.source_qualified;
                 input.guides.depth_encoding=DepthEncoding::packed_device_z_rgb24;
             }
-            if(!session->Reconstruct(context,pair)){Error(report.error,session->last_error());return report;}
+            if(!session->Reconstruct(context,pair,&report.history_reused)){Error(report.error,session->last_error());return report;}
             if(!Live(j)){session->Invalidate();report.outcome=SceneWorkerOutcome::cancelled;return report;}
             if(Expired(j.request)){session->Invalidate();report.outcome=SceneWorkerOutcome::expired;return report;}
             output=session->Outputs(pair);report.width=j.request.output_width;report.height=j.request.output_height;
@@ -219,6 +220,10 @@ struct SceneDepthWorker::Impl {
         }
         if(!Live(j)){if(session)session->Invalidate();report.center_rgba16f={};report.outcome=SceneWorkerOutcome::cancelled;return report;}
         if(Expired(j.request)){if(session)session->Invalidate();report.center_rgba16f={};report.outcome=SceneWorkerOutcome::expired;return report;}
+        if(j.request.reconstruct){
+            history_version=j.version;
+            history_source=j.work.stamp;
+        }
         report.outcome=j.request.reconstruct?SceneWorkerOutcome::reconstructed:SceneWorkerOutcome::copied;
         report.processing_ms=std::chrono::duration<double,std::milli>(Clock::now()-process_begin).count();
         return report;
@@ -237,6 +242,7 @@ struct SceneDepthWorker::Impl {
                 }
             }
             Scratch scratch;D3D9SharedTextureBridge color,depth;std::uint64_t history_version=0;
+            SceneDepthStamp history_source{};
             {
                 std::lock_guard lock(mutex);state.worker_thread=GetCurrentThreadId();
                 if(!stop)state.phase=SceneWorkerPhase::idle;
@@ -248,7 +254,7 @@ struct SceneDepthWorker::Impl {
                     if(stop)break;current=std::move(job);job.reset();
                 }
                 bool fatal=false;
-                auto report=Process(*current,device.Get(),context.Get(),scratch,color,depth,session.get(),history_version,fatal);
+                auto report=Process(*current,device.Get(),context.Get(),scratch,color,depth,session.get(),history_version,history_source,fatal);
                 current->work={}; // Unqueued completion tokens release before result visibility.
                 current.reset();
                 {
@@ -303,6 +309,7 @@ bool SceneDepthWorker::Submit(const std::array<SceneDepthEye,2>& eyes,SceneWorke
         job.version=p.version.load();job.request=std::move(request);
         p.submitted_source=job.work.stamp;p.submitted_request.authority=job.request.authority;
         p.submitted_request.capture_time=job.request.capture_time;p.submitted_request.max_age=job.request.max_age;
+        p.submitted_request.reconstruct=job.request.reconstruct;
         p.submitted_version=job.version;p.has_source=true;p.source_retired=p.source_accepted=p.revoked=false;
         p.job=std::move(job);p.state.phase=SceneWorkerPhase::busy;++p.state.submitted;p.cv.notify_one();return true;
     }catch(...){return false;}
@@ -322,6 +329,8 @@ bool SceneDepthWorker::Poll(const SceneDepthStamp& current,SceneWorkerReport& ou
         else if(!p.source_retired||!p.source_accepted){report.outcome=SceneWorkerOutcome::failed;Error(report.error,"source completion was not accepted");}
     }
     if(report.outcome!=SceneWorkerOutcome::copied&&report.outcome!=SceneWorkerOutcome::reconstructed){
+        if(p.submitted_request.reconstruct)++p.version;
+        report.history_reused=false;
         report.center_rgba16f={};report.center_depth_rgba16f={};
     }
     p.state.error=report.error;p.state.phase=p.fatal_result||!p.source_retired?SceneWorkerPhase::faulted:SceneWorkerPhase::idle;

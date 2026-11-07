@@ -82,6 +82,12 @@ int main()try {
     Check(guides.Generate(device.Get(),context.Get(),pair),"packed native D24 guide generation");
     pixel=Read(device.Get(),context.Get(),guides.EyeInputs(0).depth,4,4,4);std::memcpy(&value,pixel.data(),4);
     Check(std::abs(value-16776960.F/16777215.F)<1e-7F&&value<1,"native D24 far precision lost in transport");
+    pair[1].clip_to_previous[14]=.125F; // Screen position is valid, previous Z is beyond the far clip.
+    Check(guides.Generate(device.Get(),context.Get(),pair),"out-of-depth reprojection guide");
+    pixel=Read(device.Get(),context.Get(),guides.EyeInputs(1).motion,4,4,4);
+    std::memcpy(motion,pixel.data(),4);
+    Check(motion[0]==0&&motion[1]==0&&Read(device.Get(),context.Get(),guides.EyeInputs(1).bias,4,4,1)[0]==255,
+        "point outside the previous depth range consumed history");
     pair[1].source_qualified=false;
     Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"invalid second eye cannot expose stale guides");
     guides.Reset();Check(!guides.EyeInputs(1).color,"reset retains output");

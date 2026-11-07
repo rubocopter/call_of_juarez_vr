@@ -22,7 +22,8 @@ Output PS(float4 position:SV_Position) {
     o.depth=valid?(deviceDepth?z:saturate(standardZ)):1;
     float2 uv=(position.xy+sampling.xy)/optics.zw;
     float4 previous=mul(float4(uv.x*2-1,1-uv.y*2,o.depth,1),reproject);
-    bool projectionValid=isfinite(previous.w)&&previous.w>1e-6;
+    bool projectionValid=isfinite(previous.w)&&previous.w>1e-6&&
+        isfinite(previous.z)&&previous.z>=0&&previous.z<=previous.w;
     float2 oldUV=float2(previous.x/max(previous.w,1e-6)*.5+.5,.5-previous.y/max(previous.w,1e-6)*.5);
     projectionValid=projectionValid&&all(isfinite(oldUV))&&all(oldUV>=0)&&all(oldUV<=1);
     o.motion=(sampling.z>.5&&valid&&projectionValid)?oldUV-uv:float2(0,0);

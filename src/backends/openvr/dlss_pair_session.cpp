@@ -100,7 +100,8 @@ bool PairSession::Start(ID3D11Device* device,const std::filesystem::path& helper
     }
     p.device=device;p.started=true;p.error="";p.executor_error=false;return true;
 }
-bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& input) noexcept {
+bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& input,bool* history_reused) noexcept {
+    if(history_reused)*history_reused=false;
     auto& p=*impl_;
     if(p.busy)return p.Fail("DLSS pair recursive reconstruction rejected");
     // Remove prior publication before any operation that can overwrite one eye.
@@ -171,6 +172,7 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
         p.history[eye].Commit(f);p.matrices[eye]=frame.eyes[eye].unjittered_view_projection;
     }
     p.previous=identity;p.have_previous=true;p.published=frame;p.outputs=outputs;
+    if(history_reused)*history_reused=!reset[0]&&!reset[1];
     return true;
 }
 std::array<ID3D11Texture2D*,2> PairSession::Outputs(const PairFrame& current) noexcept {

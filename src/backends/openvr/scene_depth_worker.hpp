@@ -38,6 +38,7 @@ struct SceneWorkerReport {
     SceneWorkerOutcome outcome=SceneWorkerOutcome::failed;
     unsigned width=0,height=0;
     std::uint32_t worker_thread=0;
+    bool history_reused=false;
     // CPU wall-clock diagnostics, not GPU timestamps or game frame-rate proof.
     double copy_ms=0,processing_ms=0,age_ms=0;
     std::array<std::array<std::uint16_t,4>,2> center_rgba16f{};

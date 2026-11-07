@@ -34,7 +34,7 @@ struct Producer {
     ComPtr<IDirect3DSurface9> surface;
     d::D3D9SampledDepthCapture capture;
     unsigned size,height;
-    std::uint64_t sequence=0;
+    std::uint64_t sequence=0,integrity=1;
     Clock::time_point capture_time{};
     explicit Producer(unsigned extent,unsigned image_height=0):size(extent),height(image_height?image_height:extent){
         const auto create=d::SystemDirect3DCreate9Ex();Require(create!=nullptr,"system D3D9Ex absent");
@@ -55,7 +55,7 @@ struct Producer {
     }
     ~Producer(){(void)device->SetDepthStencilSurface(nullptr);}
     s::SceneDepthStamp Stamp(std::uint64_t frame)const{
-        return {reinterpret_cast<std::uintptr_t>(device.Get()),1,frame,frame,42,1,1};
+        return {reinterpret_cast<std::uintptr_t>(device.Get()),1,frame,frame,42,integrity,1};
     }
     std::array<s::SceneDepthEye,2> Produce(std::uint64_t frame){
         capture_time=Clock::now();
@@ -191,6 +191,27 @@ void ControlledWorker(){
     Wait([&]{return worker.Poll(producer.Stamp(7),report);},"unknown authority result absent");
     Require(report.outcome==s::SceneWorkerOutcome::cancelled,"invalid authority retained old permission");
     Require(worker.SetAuthority(authority),"valid authority restore failed");
+    for(unsigned frame=8;frame<=10;++frame){
+        if(frame==10)++producer.integrity;
+        eyes=producer.Produce(frame);
+        Require(worker.Submit(eyes,Request(producer,authority)),"history fixture submit failed");eyes={};
+        Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"history fixture result absent");
+        Require(report.outcome==s::SceneWorkerOutcome::reconstructed&&report.history_reused==(frame==9),
+            "worker history ignored source integrity or adjacent identity");
+    }
+    eyes=producer.Produce(11);
+    auto late=Request(producer,authority);late.max_age=std::chrono::seconds(1);
+    const auto delivery_deadline=late.capture_time+late.max_age+std::chrono::milliseconds(1);
+    Require(worker.Submit(eyes,std::move(late)),"late-delivery fixture submit failed");eyes={};
+    Wait([&]{return worker.status().phase==s::SceneWorkerPhase::completed;},"completed reconstruction absent");
+    std::this_thread::sleep_until(delivery_deadline);
+    Require(worker.Poll(producer.Stamp(11),report)&&report.outcome==s::SceneWorkerOutcome::expired&&
+        !report.history_reused,"expired delivery preserved a successful-history report");
+    eyes=producer.Produce(12);
+    Require(worker.Submit(eyes,Request(producer,authority)),"post-expiry fixture submit failed");eyes={};
+    Wait([&]{return worker.Poll(producer.Stamp(12),report);},"post-expiry result absent");
+    Require(report.outcome==s::SceneWorkerOutcome::reconstructed&&!report.history_reused,
+        "rejected delivery advanced the next frame's history");
     Require(worker.Stop(),"worker source retirement failed at stop");
     Require(control->stop_thread==control->worker_thread,"session stopped on wrong thread");
     Require(!worker.Start(producer.device.Get()),"stopped worker silently restarted its authority domain");
@@ -204,14 +225,22 @@ void RealWorker(const std::filesystem::path& helper){
     Wait([&]{const auto state=worker.status();Require(state.phase!=s::SceneWorkerPhase::faulted,state.error.data());
         return state.phase==s::SceneWorkerPhase::idle;},"real worker startup timeout");
     unsigned owner=0;
-    for(unsigned frame=1;frame<=3;++frame){
-        ++authority.history_epoch;Require(worker.SetAuthority(authority),"real worker authority");
+    for(unsigned frame=1;frame<=4;++frame){
+        if(frame==3)++producer.integrity;
+        if(frame==4)++authority.history_epoch;
+        Require(worker.SetAuthority(authority),"real worker authority");
         auto eyes=producer.Produce(frame);auto request=Request(producer,authority);
         request.output_width=request.output_height=384;request.quality=s::Quality::quality;
+        for(unsigned eye=0;eye<2;++eye){
+            auto& guide=request.guides[eye];
+            guide.view_projection[12]=float(frame)*(eye?.03125F:.0625F);
+            std::fill(guide.current_color_mask.begin(),guide.current_color_mask.end(),0);
+        }
         Require(worker.Submit(eyes,std::move(request)),"real worker source rejection");eyes={};
         s::SceneWorkerReport report;
         Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"real worker job timeout");
         Require(report.outcome==s::SceneWorkerOutcome::reconstructed,report.error.data());
+        Require(report.history_reused==(frame==2),"history did not follow adjacent source and authority boundaries");
         Require(report.width==384&&report.height==384&&report.center_rgba16f[0]!=report.center_rgba16f[1],
             "real worker output extent/eyes");
         for(const auto& eye:report.center_rgba16f)for(unsigned c=0;c<3;++c)
@@ -219,7 +248,7 @@ void RealWorker(const std::filesystem::path& helper){
         if(!owner)owner=report.worker_thread;Require(owner==report.worker_thread,"real worker thread changed");
     }
     Require(worker.Stop(),"real worker stop failed");
-    std::cout<<"Persistent worker: 3 real NGX Quality stereo pairs at 384x384, reset history, explicit full-current masks.\n";
+    std::cout<<"Persistent worker: 4 real NGX Quality stereo pairs at 384x384, camera motion, adjacent history and integrity/authority resets.\n";
 }
 void NativeAuditCoordinator(unsigned width=64,unsigned height=0){
     Producer producer(width,height);cojvr::games::call_of_juarez::CoJSampledWorkerAudit audit;
