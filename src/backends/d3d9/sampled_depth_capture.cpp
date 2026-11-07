@@ -121,7 +121,8 @@ struct Slot {
     ComPtr<IDirect3DTexture9> color_texture;
     ComPtr<IDirect3DSurface9> color_surface;
     ComPtr<IDirect3DQuery9> query;
-    ComPtr<IDirect3DSurface9> preview_color, preview_depth;
+    ComPtr<IDirect3DSurface9> preview_color, preview_depth, final_preview;
+    D3DFORMAT final_preview_format = D3DFMT_UNKNOWN;
     HANDLE handle = nullptr;
     HANDLE color_handle = nullptr;
     std::weak_ptr<void> lease;
@@ -219,6 +220,7 @@ struct D3D9SampledDepthSnapshot::Impl {
     std::uint64_t sequence = 0;
     std::atomic<HRESULT> ready{S_FALSE};
     UINT preview_width = 0, preview_height = 0;
+    bool final_preview_attached = false;
 };
 bool D3D9SampledDepthSnapshot::valid() const noexcept { return !!impl_; }
 HRESULT D3D9SampledDepthSnapshot::PollReady() const noexcept {
@@ -241,16 +243,58 @@ std::uintptr_t D3D9SampledDepthSnapshot::producer_device() const noexcept {
 std::uint32_t D3D9SampledDepthSnapshot::producer_thread() const noexcept {
     return impl_ ? impl_->pool->thread : 0;
 }
+HRESULT D3D9SampledDepthSnapshot::AttachFinalColorPreview(IDirect3DSurface9* source) noexcept {
+    if (!impl_ || !impl_->pool->Owner() || !source || !impl_->preview_width ||
+        impl_->ready.load() != S_FALSE || impl_->final_preview_attached)
+        return D3DERR_INVALIDCALL;
+    auto& pool = *impl_->pool;
+    auto& slot = pool.slots[impl_->slot];
+    if (!slot.pending || slot.poisoned) return D3DERR_INVALIDCALL;
+    D3DSURFACE_DESC desc{};
+    ComPtr<IDirect3DDevice9> device;
+    auto hr = source->GetDesc(&desc);
+    if (FAILED(hr)) return hr;
+    hr = source->GetDevice(&device);
+    if (FAILED(hr)) return hr;
+    if (device.Get() != static_cast<IDirect3DDevice9*>(pool.device.Get()) ||
+        desc.Width != pool.config.width || desc.Height != pool.config.height ||
+        desc.Pool != D3DPOOL_DEFAULT || desc.MultiSampleType != D3DMULTISAMPLE_NONE ||
+        (desc.Format != D3DFMT_A8R8G8B8 && desc.Format != D3DFMT_X8R8G8B8))
+        return D3DERR_INVALIDCALL;
+    const auto preview_bytes = std::uint64_t{impl_->preview_width} * impl_->preview_height *
+        20 * D3D9SampledDepthCapture::slot_count;
+    if (CaptureBytes(pool.config) + preview_bytes > D3D9SampledDepthCapture::max_payload_bytes)
+        return E_OUTOFMEMORY;
+    if (slot.final_preview_format != desc.Format) slot.final_preview.Reset();
+    if (!slot.final_preview) {
+        hr = pool.device->CreateRenderTarget(impl_->preview_width, impl_->preview_height,
+            desc.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &slot.final_preview, nullptr);
+        if (FAILED(hr)) return hr;
+        slot.final_preview_format = desc.Format;
+    }
+    const auto copy = pool.device->StretchRect(source, nullptr, slot.final_preview.Get(), nullptr, D3DTEXF_POINT);
+    // A new event END fences the earlier HDR/depth work and this final copy.
+    // If the new fence fails, the slot cannot publish or be reused.
+    const auto fence = slot.query->Issue(D3DISSUE_END);
+    slot.flushed = false;
+    if (FAILED(fence)) {
+        slot.poisoned = true;
+        impl_->ready.store(fence);
+        return fence;
+    }
+    impl_->final_preview_attached = SUCCEEDED(copy);
+    return copy;
+}
 HRESULT D3D9SampledDepthSnapshot::ReadDiagnosticPreview(D3D9SampledDepthPreview& output) const noexcept {
     if (!impl_ || !impl_->pool->Owner() || !shared_handle() || !impl_->preview_width)
         return D3DERR_INVALIDCALL;
     try {
         D3D9SampledDepthPreview result;
         result.width = impl_->preview_width; result.height = impl_->preview_height;
-        const auto read = [&](IDirect3DSurface9* source, std::vector<std::uint16_t>& pixels) {
+        const auto read = [&](IDirect3DSurface9* source, D3DFORMAT pixel_format, auto& pixels) {
             ComPtr<IDirect3DSurface9> system;
             auto* device = impl_->pool->device.Get();
-            auto hr = device->CreateOffscreenPlainSurface(result.width,result.height,format,
+            auto hr = device->CreateOffscreenPlainSurface(result.width,result.height,pixel_format,
                 D3DPOOL_SYSTEMMEM,&system,nullptr);
             if (SUCCEEDED(hr)) hr = device->GetRenderTargetData(source,system.Get());
             if (FAILED(hr)) return hr;
@@ -258,7 +302,7 @@ HRESULT D3D9SampledDepthSnapshot::ReadDiagnosticPreview(D3D9SampledDepthPreview&
             D3DLOCKED_RECT locked{};
             hr = system->LockRect(&locked,nullptr,D3DLOCK_READONLY);
             if (FAILED(hr)) return hr;
-            const auto row_bytes = static_cast<std::size_t>(result.width)*8;
+            const auto row_bytes = static_cast<std::size_t>(result.width)*4*sizeof(pixels[0]);
             if (!locked.pBits || locked.Pitch < static_cast<INT>(row_bytes)) hr = E_FAIL;
             for (UINT y=0; SUCCEEDED(hr) && y<result.height; ++y)
                 std::memcpy(pixels.data()+static_cast<std::size_t>(y)*result.width*4,
@@ -267,9 +311,14 @@ HRESULT D3D9SampledDepthSnapshot::ReadDiagnosticPreview(D3D9SampledDepthPreview&
             return FAILED(hr) ? hr : unlocked;
         };
         const auto& slot = impl_->pool->slots[impl_->slot];
-        auto hr = read(slot.preview_color.Get(),result.color_rgba16f);
-        if (SUCCEEDED(hr)) hr = read(slot.preview_depth.Get(),result.depth_rgba16f);
+        auto hr = read(slot.preview_color.Get(),format,result.color_rgba16f);
+        if (SUCCEEDED(hr)) hr = read(slot.preview_depth.Get(),format,result.depth_rgba16f);
         if (FAILED(hr)) return hr;
+        if (impl_->final_preview_attached) {
+            hr = read(slot.final_preview.Get(),slot.final_preview_format,result.final_color_bgra8);
+            if (SUCCEEDED(hr)) result.final_color_format = slot.final_preview_format;
+            else result.final_color_bgra8.clear();
+        }
         output = std::move(result);
         return S_OK;
     } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }

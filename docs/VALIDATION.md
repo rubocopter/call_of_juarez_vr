@@ -1084,6 +1084,16 @@ hashes, deployment/run identity, matched eye records, exact sample checks and
 shutdown counters. Its copy-audit verdict remains separate from the canonical
 verifier, headset acceptance and reconstruction admission. It does not rewrite
 manifests or turn an unobserved loading-select or menu-back route into PASS.
+The latest collected copy run also supplied two reduced-size real game pairs
+for offline DLSS Quality. NGX evaluated both pairs with zero motion and reset
+history. The game path still presents native color.
+
+The next sampled-source candidate adds the final native BGRA8 eye preview,
+joined to the same native HDR/depth snapshot by frame, pose, eye and device
+generation. Host tests verify source overwrite survival, rejection of foreign
+eye identities and inventoried paired previews. The read-only analyzer counts
+complete final-color pairs separately from worker copies. Live alignment,
+visibility coverage and color transfer remain pending.
 
 The diagnostic candidate also implements joint FP16 color/packed-depth previews
 from the same `1B_16` boundary. They are point-sampled to at most 512 pixels per

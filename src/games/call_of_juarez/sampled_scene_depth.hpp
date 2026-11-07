@@ -238,6 +238,19 @@ public:
         rollback_pending_ = false;
         return true;
     }
+    [[nodiscard]] HRESULT CaptureFinalColor(IDirect3DDevice9* device, IDirect3DSurface9* source,
+        std::uint64_t generation, std::uint64_t frame, unsigned eye, std::uint64_t pose) noexcept {
+        if (owner_thread_ != GetCurrentThreadId() || !device || device_.Get() != device ||
+            !source || rollback_pending_ || generation != capture_generation_)
+            return S_FALSE;
+        for (auto& item : pending_) {
+            if (!item.snapshot.valid() || item.frame != frame || item.eye != eye || item.pose != pose)
+                continue;
+            PrivateCall guard(private_call_);
+            return item.snapshot.AttachFinalColorPreview(source);
+        }
+        return S_FALSE;
+    }
     template<class Report> void Poll(Report&& report) {
         PollItems([&](const Pending& item,HRESULT result) {
             report(item.frame,item.pose,item.owner,item.eye,item.snapshot,result);

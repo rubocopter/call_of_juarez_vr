@@ -413,6 +413,19 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
     ComPtr<IDirect3DSurface9> restored;
     Check(device->GetDepthStencilSurface(&restored), "read restored native depth");
     Require(restored.Get() == original_depth.Get(), "original native depth was not restored");
+    ComPtr<IDirect3DSurface9> final_color;
+    Check(device->CreateRenderTarget(width,height,D3DFMT_A8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,
+        &final_color,nullptr),"allocate final eye fixture");
+    Check(device->ColorFill(final_color.Get(),nullptr,0xff204080),"fill final eye fixture");
+    Require(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,3,0,2)==S_FALSE &&
+        adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,1,2)==S_FALSE &&
+        adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,3)==S_FALSE,
+        "final eye matched a different frame, eye or pose");
+    Check(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2),
+        "copy same-frame final eye");
+    Require(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2)!=S_OK,
+        "duplicate final eye replaced the snapshot");
+    Check(device->ColorFill(final_color.Get(),nullptr,0xff00ff00),"overwrite final eye after capture");
     Check(device->Clear(0,nullptr,D3DCLEAR_TARGET,0xff00ff00,1,0),"overwrite native color after capture");
     bool ready = false;
     D3D9SampledDepthSnapshot retained_preview;
@@ -425,6 +438,10 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
             Require(grid.front() < 16777215 && grid.back() == 16777215, "depth grid lost near/far layout");
             cojvr::backends::d3d9::D3D9SampledDepthPreview preview;
             Check(image.ReadDiagnosticPreview(preview),"read joint color/depth preview");
+            Require(preview.final_color_bgra8.size()==preview.color_rgba16f.size() &&
+                preview.final_color_format==D3DFMT_A8R8G8B8 &&
+                preview.final_color_bgra8[0]==0x80 && preview.final_color_bgra8[1]==0x40 &&
+                preview.final_color_bgra8[2]==0x20,"final eye copy lost its original color");
             retained_preview=image;
             Require(preview.width>0&&preview.height>0&&preview.width<=512&&preview.height<=512&&
                 preview.color_rgba16f.size()==preview.width*preview.height*4&&
@@ -453,6 +470,7 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
             std::ifstream metadata(manifest,std::ios::binary);
             const std::string json{std::istreambuf_iterator<char>(metadata),std::istreambuf_iterator<char>()};
             Require(json.find("\"frame_sequence\":2")!=std::string::npos&&
+                json.find("\"final_color_format\":\"bgra8_le\"")!=std::string::npos&&
                 json.find("\"temporal_admitted\":false")!=std::string::npos,
                 "preview manifest lost source identity or claimed temporal admission");
             metadata.close();
@@ -463,7 +481,7 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
                 ++files;
                 std::filesystem::remove(entry.path());
             }
-            Require(files==3,"preview export left incomplete temporary files");
+            Require(files==4,"preview export left incomplete temporary files");
             std::filesystem::remove(manifest.parent_path());
             std::filesystem::remove(output/"runtime");
             std::filesystem::remove(output);

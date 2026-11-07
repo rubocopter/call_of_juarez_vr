@@ -470,7 +470,15 @@ switch ($Action) {
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
-        if ($SampledSceneDepth) { Write-Host 'Native scene color/depth + persistent-worker copy audit enabled (bounded samples; native output). Inspect native_sampled_depth/native_sampled_worker in the collected log.' }
+        if ($SampledSceneDepth) {
+            Write-Host 'Bounded scene color/depth, final native eye color and worker copy audit enabled. Visor output stays native.'
+            if ($TransportOnly) {
+                Write-Host 'Start SteamVR and CoJ manually. Play normally in a single gameplay area for 25 to 30 seconds so the bounded audit can capture both eyes.'
+                Write-Host 'In the same session, take one desktop capture, then use zoom and open/resume pause. If convenient, try one ordinary manual reload.'
+                Write-Host 'Close the game normally, then run pwsh -File tools/vr_test.ps1 finish.'
+                break
+            }
+        }
         Write-Host "Independent eye prototype: $IndependentEyeResolution (startup only; desktop dimensions preserved; unsupported context falls back to native theater)."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"

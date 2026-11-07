@@ -28,6 +28,8 @@ struct D3D9SampledDepthPreview {
     static constexpr UINT max_extent = 512;
     UINT width = 0, height = 0;
     std::vector<std::uint16_t> color_rgba16f, depth_rgba16f;
+    std::vector<std::uint8_t> final_color_bgra8;
+    D3DFORMAT final_color_format = D3DFMT_UNKNOWN;
 };
 struct D3D9SampledDepthPoint {
     std::array<std::uint16_t,4> color{},depth{};
@@ -58,6 +60,9 @@ public:
     // Raw color and packed depth are immutable copies from the same Snapshot.
     // Readback requires readiness and the producer thread, outside the scene.
     [[nodiscard]] HRESULT ReadDiagnosticPreview(D3D9SampledDepthPreview& output) const noexcept;
+    // Owner-only before readiness. Extends the diagnostic lease with a copy of
+    // the final native eye at the same extent and moves the producer fence.
+    [[nodiscard]] HRESULT AttachFinalColorPreview(IDirect3DSurface9* source) noexcept;
     // Exact center pixel of BOTH private full-size planes. Owner thread only,
     // outside scene after readiness; diagnostic readback, never a hot-path input.
     [[nodiscard]] HRESULT ReadDiagnosticPoint(D3D9SampledDepthPoint& output) const noexcept;

@@ -94,6 +94,7 @@ struct NativeStereoState {
     std::recursive_mutex sampled_depth_mutex;
     cojvr::games::call_of_juarez::SampledSceneDepth sampled_depth;
     cojvr::games::call_of_juarez::CoJSampledWorkerAudit sampled_worker;
+    std::atomic_uint64_t sampled_final_color_frame{0};
     cojvr::backends::openvr::dlss::SceneWorkerPhase sampled_worker_phase=
         cojvr::backends::openvr::dlss::SceneWorkerPhase::stopped;
     cojvr::backends::openvr::dlss::SceneWorkerAuthority sampled_worker_authority{};
@@ -1092,6 +1093,7 @@ void PollSampledDepth() noexcept {
                     << ";frame_sequence=" << frame << ";pose_sequence=" << pose << ";eye=" << eye
                     << ";generation=" << snapshot.generation() << ";width=" << preview.width << ";height=" << preview.height
                     << ";readback_hr=0x" << std::hex << static_cast<unsigned long>(preview_hr)
+                    << ";final_color=" << (preview.final_color_bgra8.empty()?"unavailable":"captured")
                     << ";temporal_admitted=false";
                 if (!exported.empty()) report << ";manifest=" << exported.filename().string();
                 LogLine(report.str());
@@ -1152,6 +1154,7 @@ void ObserveSampledDepth(cojvr::runtime::Eye eye, std::uint64_t frame, std::uint
         bool queued = false;
         const bool restored = g_sampled_depth.End(frame, index, generation, integrity.epoch, owner,
             complete && integrity.intact, queued);
+        if (queued) g_stereo.sampled_final_color_frame.store(frame, std::memory_order_release);
         if (!queued) {
             try {
                 LogLine(std::string("native_sampled_depth: status=") + (restored ? "capture_rejected" : "restore_pending") +
@@ -3055,8 +3058,18 @@ bool CaptureStereoEye(
         if (SUCCEEDED(device->GetRenderTarget(0, &source)))
             QueueFrameLumaProbe(device, source.Get(), eye == cojvr::runtime::Eye::left ? 0 : 1, frame_sequence);
     }
-    const bool captured = state->capture.CaptureEye(
-        device, eye, frame_sequence, generation);
+    Microsoft::WRL::ComPtr<IDirect3DSurface9> sampled_source;
+    if (g_sampled_depth_enabled &&
+        state->sampled_final_color_frame.load(std::memory_order_acquire)==frame_sequence)
+        (void)device->GetRenderTarget(0, &sampled_source);
+    const bool captured = sampled_source
+        ? state->capture.CaptureEyeSurface(device, sampled_source.Get(), eye, frame_sequence, generation)
+        : state->capture.CaptureEye(device, eye, frame_sequence, generation);
+    if (captured && sampled_source) {
+        std::lock_guard lock(g_sampled_depth_mutex);
+        (void)g_sampled_depth.CaptureFinalColor(device, sampled_source.Get(), generation, frame_sequence,
+            eye==cojvr::runtime::Eye::left ? 0U : 1U, state->luma_pose_sequence.load(std::memory_order_acquire));
+    }
     device->Release();
     if (captured && state->fixed_outputs.enabled && !state->capture.gpu_resident_active()) {
         IndependentBankFault(*state, "capture_requires_native_shared_transport");

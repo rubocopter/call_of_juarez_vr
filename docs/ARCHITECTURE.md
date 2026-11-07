@@ -221,7 +221,11 @@ The developer probe sends matched source packets to the worker in copy-only
 mode. Exact center pixels from both private FP16 source planes are compared
 against worker color/depth samples, with native scope identity and independent
 producer/worker thread IDs. The bounded schedule and preview exports remain
-diagnostic. Pause, tracking, settings and native owner observations fence the
+diagnostic. An optional final BGRA8 preview uses the same RT0 surface as the
+successful native eye capture and attaches only to its matching frame, pose,
+eye and device generation. HDR, packed depth and final color share the
+diagnostic lease and its producer completion proof. Pause, tracking, settings
+and native owner observations fence the
 audit; reset/exit retire the worker before the source adapter. CPU wall-clock
 timings are not GPU timestamps or game-performance evidence. Ordinary game
 output and the compositor remain native.

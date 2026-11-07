@@ -31,23 +31,31 @@ inline std::filesystem::path ExportCoJSceneDepthPreview(
             pixels.height!=std::max(1U,id.height*limit/extent) ||
             pixels.color_rgba16f.size()!=static_cast<std::size_t>(pixels.width)*pixels.height*4 ||
             pixels.depth_rgba16f.size()!=pixels.color_rgba16f.size()) return {};
+        const bool has_final_color = !pixels.final_color_bgra8.empty();
+        if (has_final_color && (pixels.final_color_bgra8.size()!=pixels.color_rgba16f.size() ||
+            (pixels.final_color_format!=D3DFMT_A8R8G8B8 && pixels.final_color_format!=D3DFMT_X8R8G8B8)))
+            return {};
         const auto directory=run_directory/"runtime"/"scene-depth";
         const auto stem="f"+std::to_string(id.frame)+"-p"+std::to_string(id.pose)+
             "-g"+std::to_string(id.generation)+"-e"+std::to_string(id.eye);
         const auto color=directory/(stem+".color.f16"), depth=directory/(stem+".depth.f16");
+        const auto final_color=directory/(stem+".final.bgra8");
         const auto manifest=directory/(stem+".json");
         const auto temporary=[](std::filesystem::path file) { file+=".tmp"; return file; };
         for (const auto& file : {color,depth,manifest})
             if (std::filesystem::exists(file) || std::filesystem::exists(temporary(file))) return {};
+        if (has_final_color && (std::filesystem::exists(final_color) ||
+            std::filesystem::exists(temporary(final_color)))) return {};
         std::filesystem::create_directories(directory);
-        const auto write=[&](const std::filesystem::path& path, const std::vector<std::uint16_t>& plane) {
+        const auto write=[&](const std::filesystem::path& path, const auto& plane) {
             std::ofstream out(temporary(path),std::ios::binary);
             out.write(reinterpret_cast<const char*>(plane.data()),
-                static_cast<std::streamsize>(plane.size()*sizeof(std::uint16_t)));
+                static_cast<std::streamsize>(plane.size()*sizeof(plane[0])));
             out.close();
             return out.good();
         };
-        if (!write(color,pixels.color_rgba16f) || !write(depth,pixels.depth_rgba16f)) return {};
+        if (!write(color,pixels.color_rgba16f) || !write(depth,pixels.depth_rgba16f) ||
+            (has_final_color && !write(final_color,pixels.final_color_bgra8))) return {};
         std::ofstream out(temporary(manifest),std::ios::binary);
         out << "{\"schemaVersion\":1,\"runId\":\"" << run_id
             << "\",\"frame_sequence\":" << id.frame << ",\"pose_sequence\":" << id.pose
@@ -58,12 +66,17 @@ inline std::filesystem::path ExportCoJSceneDepthPreview(
             << ",\"source_boundary\":\"1B_16\",\"sampling\":\"point\""
             << ",\"format\":\"rgba16f_le\",\"depth_encoding\":\"device_z_rgb24_integer_bytes\""
             << ",\"color_file\":\"" << color.filename().string()
-            << "\",\"depth_file\":\"" << depth.filename().string()
-            << "\",\"temporal_admitted\":false}\n";
+            << "\",\"depth_file\":\"" << depth.filename().string() << '"';
+        if (has_final_color)
+            out << ",\"final_color_file\":\"" << final_color.filename().string()
+                << "\",\"final_color_format\":\"bgra8_le\",\"final_color_boundary\":\"native_eye_capture_rt0\""
+                << ",\"final_color_d3d9_format\":" << static_cast<unsigned>(pixels.final_color_format);
+        out << ",\"temporal_admitted\":false}\n";
         out.close();
         if (!out.good()) return {};
         std::filesystem::rename(temporary(color),color);
         std::filesystem::rename(temporary(depth),depth);
+        if (has_final_color) std::filesystem::rename(temporary(final_color),final_color);
         std::filesystem::rename(temporary(manifest),manifest);
         return manifest;
     } catch (...) { return {}; }

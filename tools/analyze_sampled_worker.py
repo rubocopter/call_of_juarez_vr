@@ -65,8 +65,57 @@ def _run_interval(text, run_id, build_id):
     return "\n".join(lines[begin + 1:end])
 
 
+def _final_color_pairs(root, inventory, text, run_id, native, read_json):
+    complete = {}
+    directory = root / "runtime/scene-depth"
+    for row in _records(text, "native_sampled_depth_preview"):
+        if row.get("final_color") != "captured":
+            continue
+        frame, pose, generation, eye = (
+            int(row[key], 0) for key in ("frame_sequence", "pose_sequence", "generation", "eye"))
+        matches = [(stamp, source) for stamp, source in native.items()
+                   if (stamp[0], stamp[1], stamp[3], stamp[-1]) == (frame, pose, generation, eye)]
+        if (len(matches) != 1 or row.get("status") != "written" or
+                row.get("temporal_admitted") != "false" or int(row["readback_hr"], 0)):
+            raise ValueError("final color has no successful matching native eye")
+        stamp, source = matches[0]
+        stem = f"f{frame}-p{pose}-g{generation}-e{eye}"
+        filename = stem + ".json"
+        if row.get("manifest") != filename or (directory / filename).resolve() not in inventory:
+            raise ValueError("final color manifest is not inventoried")
+        width, height = (_number(source, key) for key in ("width", "height"))
+        extent = max(width, height)
+        limit = min(extent, 512)
+        small_width, small_height = (max(1, size * limit // extent) for size in (width, height))
+        manifest = read_json(Path("runtime/scene-depth") / filename)
+        expected = {"schemaVersion": 1, "runId": run_id, "frame_sequence": frame, "pose_sequence": pose,
+                    "owner": stamp[2], "generation": generation, "eye": eye,
+                    "capture_sequence": _number(source, "capture_sequence"),
+                    "source_width": width, "source_height": height,
+                    "width": small_width, "height": small_height, "source_boundary": "1B_16",
+                    "sampling": "point", "format": "rgba16f_le",
+                    "depth_encoding": "device_z_rgb24_integer_bytes", "temporal_admitted": False,
+                    "final_color_format": "bgra8_le", "final_color_boundary": "native_eye_capture_rt0"}
+        if (any(manifest.get(key) != value for key, value in expected.items()) or
+                manifest.get("final_color_d3d9_format") not in (21, 22) or
+                (_number(row, "width"), _number(row, "height")) != (small_width, small_height)):
+            raise ValueError("final color and native preview metadata disagree")
+        for field, suffix, stride in (("color_file", ".color.f16", 8), ("depth_file", ".depth.f16", 8),
+                                      ("final_color_file", ".final.bgra8", 4)):
+            name = stem + suffix
+            path = (directory / name).resolve()
+            if manifest.get(field) != name or path not in inventory or path.stat().st_size != small_width * small_height * stride:
+                raise ValueError("final color preview has missing or malformed plane: " + name)
+        eyes = complete.setdefault(stamp[:-1], set())
+        if eye in eyes:
+            raise ValueError("final color preview was replayed")
+        eyes.add(eye)
+    return sum(eyes == {0, 1} for eyes in complete.values())
+
+
 def analyze(run: Path) -> dict:
     result = {"passed": False, "errors": [], "copied_pairs": 0, "canonical_outcome": "unknown",
+              "final_color_pairs": 0,
               "reconstruction_admitted": False, "headset_acceptance": "not_evaluated",
               "timing_basis": "worker_cpu_wall_clock"}
     errors = result["errors"]
@@ -123,6 +172,7 @@ def analyze(run: Path) -> dict:
                 raise ValueError("duplicated native eye/capture identity")
             native[key] = row
             sequences.add(sequence)
+        result["final_color_pairs"] = _final_color_pairs(root, inventory, text, evidence["runId"], native, read_json)
         copied, seen, worker_threads, source_threads = [], set(), set(), set()
         events = _records(text, "native_sampled_worker")
         for row in events:

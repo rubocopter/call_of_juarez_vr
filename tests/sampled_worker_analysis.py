@@ -40,6 +40,56 @@ def fixture(root, *, pixel_match="true", pose=2, source_thread=17, worker_thread
 
 
 class AuditTests(unittest.TestCase):
+    def test_final_color_pairs_require_same_native_eyes_and_inventoried_payloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root)
+            scene = root / "runtime/scene-depth"
+            scene.mkdir()
+            manifest = root / "evidence-manifest.json"
+            evidence = json.loads(manifest.read_text())
+            log = root / "runtime/cojvr.log"
+            final_events = []
+            for eye in (0, 1):
+                stem = f"f1-p2-g1-e{eye}"
+                preview = {"schemaVersion": 1, "runId": "test-run", "frame_sequence": 1,
+                    "pose_sequence": 2, "owner": 42, "generation": 1, "capture_sequence": eye + 1,
+                    "eye": eye, "source_width": 64, "source_height": 64, "width": 64, "height": 64,
+                    "source_boundary": "1B_16", "sampling": "point", "format": "rgba16f_le",
+                    "depth_encoding": "device_z_rgb24_integer_bytes", "temporal_admitted": False,
+                    "final_color_format": "bgra8_le", "final_color_d3d9_format": 21,
+                    "final_color_boundary": "native_eye_capture_rt0"}
+                for field, suffix, stride in (
+                    ("color_file", ".color.f16", 8), ("depth_file", ".depth.f16", 8),
+                    ("final_color_file", ".final.bgra8", 4)):
+                    preview[field] = stem + suffix
+                    (scene / preview[field]).write_bytes(bytes(64 * 64 * stride))
+                (scene / (stem + ".json")).write_text(json.dumps(preview))
+                final_events.append("native_sampled_depth_preview: status=written;frame_sequence=1;pose_sequence=2"
+                    f";generation=1;eye={eye};width=64;height=64;readback_hr=0x0;final_color=captured"
+                    f";temporal_admitted=false;manifest={stem}.json")
+            text = log.read_text()
+            log.write_text(text.replace("run_end:", "\n".join(final_events) + "\nrun_end:"))
+
+            def refresh_inventory():
+                for path in [log, *scene.iterdir()]:
+                    name = path.relative_to(root).as_posix()
+                    evidence["files"] = [entry for entry in evidence["files"] if entry["path"] != name]
+                    data = path.read_bytes()
+                    evidence["files"].append({"path": name, "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest()})
+                manifest.write_text(json.dumps(evidence))
+
+            refresh_inventory()
+            result = audit.analyze(root)
+            self.assertTrue(result["passed"], result["errors"])
+            self.assertEqual(result["final_color_pairs"], 1)
+            (scene / "f1-p2-g1-e1.final.bgra8").write_bytes(bytes(64 * 64 * 3))
+            refresh_inventory()
+            result = audit.analyze(root)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["final_color_pairs"], 0)
+
     def mutate_log(self, transform):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
