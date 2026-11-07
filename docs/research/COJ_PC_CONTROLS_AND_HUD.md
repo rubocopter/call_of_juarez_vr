@@ -830,6 +830,12 @@ are checked before reading. Interaction text comes from
 already performs localization/expression processing; observation never calls it.
 The manager, components and concrete text owners must be actually visible.
 
+The episode-one holster prompt is `E01_HT20_DrawGun` in `Data/Hints.scr`.
+It is a high-priority gameplay hint, lasts until `_EVENT_WEAPON_IN_HANDS`
+and leaves the game timer running. Its text uses the HUD hint reading panel
+in stereo gameplay. The current panel anchors at onset and fits both eyes.
+Quest readability for this prompt remains unverified on the current build.
+
 Dialogue is independent: `LawmanGame.sm_cSettings.bSubtitles`,
 `Dialog.cPlayingDialog.m_bCurrentLineVisible` and checked
 `nCurrentLine/aLines` resolve `DialogLine.cCharacter`. The actor's native

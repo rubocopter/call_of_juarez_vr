@@ -29,10 +29,10 @@ Current source already implements and host-tests these changes:
 - Stable camera-only stereo after a refused skip with unchanged movie ownership;
   actual native key attempts still retire the old image. Native permission,
   sequence identity and blockers remain authoritative.
-- Conditional desktop blackout around native Present with saved-pixel restoration,
-  qualified capture/output progress and native fallback on uncertainty.
-- Passive monitor tracking reads that preserve pending pause/UI actions, and
-  captured world anchors for native hints/mission notices with binocular fitting.
+- Native desktop output for screenshots, with the blackout pixel transaction
+  removed after it caused black captures and desktop flicker.
+- Passive head-pose reads that preserve pending pause/UI actions, and captured
+  world anchors for native hints and mission notices with binocular fitting.
   Zoom-to-pause and ordinary reading stability now have scoped local headset
   acceptance; the separate Quest report does not change the accepted local pose.
 - Contextual EN/ES duel coaching, a pinned EN paused-tutorial overview, a small
@@ -132,7 +132,7 @@ mechanical playback and physical recovery remain separate gates.
 | HUD / hints | Complete graphical capture and device/binding-aware visual qualification; current text and host-tested coaching retain native visibility/priority. |
 | Horse comfort | The corrected peripheral effect has scoped visual acceptance. Mounted steering remains difficult and seems more responsive with R1, which also increases speed. Bounded native gait/request/velocity/turn observation is host-tested; correlate live gallop/reins before a behavior change. Rider-camera ownership and reduced nausea remain open. |
 | Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. Included in the .7 package; wider interactive Windows/DPI confirmation remains pending. Native Options > Game Manual Reload selector still requires capability/preference separation and safe runtime deactivation. |
-| Compatibility | The community Quest 3 report identifies `v0.1.0-prealpha.7`; correlate its pause-access, hand-frame tilt and menu/prompt anchoring issues with active bindings and actual runtime, then distinguish newer-candidate results. Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage remain open. |
+| Compatibility | The Quest 3 tester confirmed pause via right stick up + click in the reported setup. Correlate the free left hand tilt with its controller grip and authored hand socket. The newer reading panel still needs Quest confirmation for the holster hint. Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage remain open. |
 | Deferred | DLC adaptation and bHaptics provider/game-event producers by operator priority; existing neutral haptic QA policy is host-tested only. |
 
 ## Parallel engineering tracks
@@ -180,8 +180,10 @@ establish Chrome shadow equivalence before skipping any pass. Native video
 filtering already supports anisotropic trilinear; forced 16x is not established.
 
 The active OpenVR route now includes bounded measurements of the full wrapper
-per eye and an opt-in native center-head audio candidate. The combined session
-checks audio and collects a render baseline. Visibility and draw attribution
+per eye and an opt-in native center-head audio candidate. A combined session
+established a CPU wrapper baseline and found that the audio hook applied no
+listener updates under ordinary startup settings. The corrected audio admission
+still needs native listener evidence. Visibility and draw attribution
 remain necessary before reducing culling or render work. A Quest-only hand
 correction requires measured controller frames. Hand and weapon contact requires
 the exact native collision and firing seams.

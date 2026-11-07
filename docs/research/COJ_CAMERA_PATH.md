@@ -76,7 +76,10 @@ center-head source. Both source matrices restore at callback exit. The native
 loop consumes derived state until the next camera update. Independent eye
 rendering starts from the restored source. Admission requires fresh passive
 tracking and a recent reference for the same camera, view, player and gameplay
-context. Unknown ownership, movie, pause or tracking loss retain native audio.
+context. The ordinary tracked candidate disables diagnostic camera overrides,
+so the explicit audio opt-in and tracking govern the listener update
+independently of that override. Unknown ownership, movie, pause or tracking
+loss retain native audio.
 The native mixer owns source positions, distance scaling, environment, velocity
 and output. A bounded observation compares pending listener records with the
 derived pose. Audio direction and transition behavior await a headset check.
