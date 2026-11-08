@@ -39,6 +39,7 @@
 namespace cojvr::games::call_of_juarez {
 struct CoJWinchesterLoadingSample;
 struct CoJRemingtonLoadingSample;
+struct CoJReloadMouthPreview;
 struct CoJRemingtonLoadingGeometry;
 
 struct JavaPlayerPosition {
@@ -410,7 +411,8 @@ public:
         int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
         std::string* error = nullptr,
         CoJWeaponAttackOrigins* attack_origins = nullptr,
-        ElementWorldBasisTarget* barrel_frame = nullptr) noexcept;
+        ElementWorldBasisTarget* barrel_frame = nullptr,
+        void* expected_weapon = nullptr) noexcept;
     // Exact stable native hand owner; ActiveWeapon aliases gain no second map.
     [[nodiscard]] bool TryObserveBowAimOwner(int& hand,
         std::string* error = nullptr) noexcept;
@@ -466,6 +468,10 @@ public:
     // Never admits a physical socket, changes a gate or owns ammunition.
     [[nodiscard]] bool TryObserveReloadGeometry(int hand, CoJReloadGeometrySnapshot& geometry,
         CoJReloadGeometrySource source, std::string* error = nullptr) noexcept;
+    // One synchronous input-space prediction. Retains no overlay or JNI owner.
+    [[nodiscard]] bool TryPreviewManualReloadMouths(const CoJReloadTraceSnapshot& native,
+        runtime::Vec3 grip, runtime::Vec3 direction, runtime::Vec3 up,
+        const ElementWorldBasisTarget& support_socket, CoJReloadMouthPreview& preview) noexcept;
     [[nodiscard]] bool TryObserveWinchesterLoadingGeometry(int hand, CoJWinchesterLoadingGeometry& geometry,
         CoJReloadGeometrySource source, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryObserveWinchesterLoadingSample(CoJReloadGeometrySource source,
@@ -742,6 +748,8 @@ private:
     };
     struct HandIoContext { JavaPlayerBridge* bridge; void* object; std::string* error; };
     static bool ReadHandFrame(void*, int, ElementWorldBasisTarget&) noexcept;
+    [[nodiscard]] bool ReadIndependentHandFrames(int hand,CoJHandFrames& frames,
+        std::string* error,bool require_rigid=false) noexcept;
     static bool WriteHandFrame(void*, int, const ElementWorldBasisTarget&) noexcept;
     std::array<HandOverlay, 2> hand_overlays_{};
     std::array<FingerMapResult, 2> finger_map_results_{};

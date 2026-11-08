@@ -938,7 +938,14 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       if(skin_gap_cm)*skin_gap_cm=0.F;
       if(proximity)*proximity={};
       if(faulted_||!fingers_active()||!Verify(context,read))return false;
-      if(finger_hand_<0||finger_hand_>1)return false;
+      return BuildCoJReloadPinchFrame(targets_,finger_hand_,world,skin_gap_cm,proximity);
+  }
+  bool BuildCoJReloadPinchFrame(const CoJHandFrames& curled,int hand,ElementWorldBasisTarget& world,
+      float* skin_gap_cm,CoJReloadSkinMeshProximity* proximity) noexcept {
+      world={};
+      if(skin_gap_cm)*skin_gap_cm=0.F;
+      if(proximity)*proximity={};
+      if(hand<0||hand>1||!curled[6].frame.valid||!curled[9].frame.valid)return false;
       // Finger2 and Finger12 are distal bone origins, not skin. These two
       // exact-game local-space contact offsets were derived from the original
       // Ray skin (weighted vertices) at the .7/.7 authored-finger pose.
@@ -952,8 +959,8 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
           const auto right=Cross(bone.up,bone.forward);
           return Add(bone.position,BasisToWorld(local,right,bone.up,bone.forward));
       };
-      const auto thumb=skin_point(targets_[6].frame,kSkinPadOffsets[finger_hand_][0]);
-      const auto index=skin_point(targets_[9].frame,kSkinPadOffsets[finger_hand_][1]);
+      const auto thumb=skin_point(curled[6].frame,kSkinPadOffsets[hand][0]);
+      const auto index=skin_point(curled[9].frame,kSkinPadOffsets[hand][1]);
       const float gap=Length(Subtract(thumb,index));
       // The case is 1.2 cm across. A lost/changed finger pose must fail
       // closed instead of placing a round inside an unrelated hand state.
@@ -962,8 +969,8 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       // Native distal +X follows the digit toward its tip. Project their
       // mean onto the contact plane: a cylinder axis through the pads would
       // visibly pierce both fingers. Mirroring follows the native skin frame.
-      const auto distal=Add(Cross(targets_[6].frame.up,targets_[6].frame.forward),
-          Cross(targets_[9].frame.up,targets_[9].frame.forward));
+      const auto distal=Add(Cross(curled[6].frame.up,curled[6].frame.forward),
+          Cross(curled[9].frame.up,curled[9].frame.forward));
       const auto tangent=Subtract(distal,Scale(up,Dot(distal,up)));
       if(!Finite(tangent)||Length(tangent)<.2F)return false;
       const auto forward=Scale(Normalize(tangent),-1.F); // Mesh projectile is -Z.

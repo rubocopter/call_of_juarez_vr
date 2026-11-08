@@ -1159,6 +1159,79 @@ void WinchesterLoadingSampleTests(JavaPlayerBridge& bridge) {
     bridge.manual_reload_owned_=false;Set(24,Same);Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
     Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
 }
+void* JNI_CALL PreviewLookup(void* env,void* cls,const char* name,const char* desc) {
+    if(!std::strcmp(name,"GetElementID")||!std::strcmp(name,"GetBarrelElement")||
+        !std::strcmp(name,"GetBarrelOrigin")||!std::strcmp(name,"GetBarrelDir"))
+        return Fail()?nullptr:const_cast<char*>(name);
+    return PinchLookup(env,cls,name,desc);
+}
+int JNI_CALL PreviewInteger(void* env,void* object,void* method,const Value* args) {
+    const auto name=static_cast<const char*>(method);
+    if(!std::strcmp(name,"GetBarrelElement"))return Fail()?-1:9;
+    if(!std::strcmp(name,"GetElementID")&&object==&player)return Fail()?-1:19;
+    if(!std::strcmp(name,"GetElementID")&&!std::strcmp(static_cast<const char*>(args[0].object),"GunBarrel"))
+        return Fail()?-1:9;
+    return SampleInteger(env,object,method,args);
+}
+std::uint8_t JNI_CALL PreviewBoolean(void* env,void* object,void* method,const Value* args) {
+    const auto name=static_cast<const char*>(method);
+    if(!std::strcmp(name,"GetBarrelOrigin")||!std::strcmp(name,"GetBarrelDir")){
+        Require(object==&weapon&&args[0].object==&geometry_vector,"preview barrel object mismatch");
+        if(Fail())return 0;
+        geometry_vector=!std::strcmp(name,"GetBarrelOrigin")?GeometryVector{95,195,295}:GeometryVector{0,0,1};
+        return 1;
+    }
+    return SampleBoolean(env,object,method,args);
+}
+void ReloadMouthPreviewTests(JavaPlayerBridge& bridge) {
+    for(int model=0;model<4;++model)for(int fault=0;fault<5;++fault){
+        SampleReset(bridge,model==1,CoJReloadGeometrySource::pre_native,false);
+        const int hand=model==3?1:0;
+        if(model>=2)weapon_class=model==2?&remington_class:&sawoff_class;
+        if(hand==1){
+            std::swap(active[0],active[1]);std::swap(actual[0],actual[1]);std::swap(desired[0],desired[1]);
+            std::swap(current[0],current[1]);std::swap(destiny[0],destiny[1]);
+            std::swap(wanted[0],wanted[1]);std::swap(actual_state[0],actual_state[1]);
+            for(auto& flags:two)std::swap(flags[0],flags[1]);
+        }
+        bridge.weapon_overlays_={};bridge.independent_hand_generation_=bridge.being_generation_;
+        const int support=1-hand;
+        pinch_live=support==0?finger_fixture::R_rest:finger_fixture::L_rest;
+        for(int i=0;i<20;++i)bridge.independent_hand_elements_[support][i]=i;
+        Set(33,PreviewLookup);Set(39,PreviewBoolean);Set(51,PreviewInteger);
+        CoJReloadTraceSnapshot native{};
+        Require(bridge.TryObserveReloadTrace(native,true),"fixture could not read native wait");
+        if(fault==1)++native.loaded[0];
+        if(fault==2)geometry_raw_x[0]={2,0,0};
+        if(fault==3)bridge.weapon_overlays_[hand].weapon=&weapon;
+        if(fault==4)sample_fault=4; // A JNI frame read replaces the generation.
+        const auto cached_hand_elements=bridge.independent_hand_elements_;
+        const auto cached_hand_generation=bridge.independent_hand_generation_;
+        CoJReloadMouthPreview preview{};preview.count=8;
+        const auto socket=pinch_live.back().frame;
+        const auto start=bridge.TryPreviewManualReloadMouths(native,socket.position,{0,0,1},{0,1,0},socket,preview);
+        Require(start==(fault==0),"reload mouth preview accepted stale/retained source or rejected current source");
+        if(fault==4)Require(pinch_frame_reads==1,"preview kept reading after its JNI player generation changed");
+        Require(bridge.independent_hand_elements_==cached_hand_elements&&
+            bridge.independent_hand_generation_==cached_hand_generation,
+            "preview changed the render writer's hand element cache");
+        Require(refs==0&&!pending&&writes==0&&global_creates==0&&global_deletes==0&&pinch_writes==0,
+            "input preview mutated native state or retained JNI ownership");
+        if(start){
+            Require(preview.count==(model<2?8U:2U)&&preview.tip_cm.valid,"preview lost measured rim or held nose");
+            auto moved_socket=socket;moved_socket.position.y+=20;
+            auto grip=socket.position;grip.x+=40;
+            CoJReloadMouthPreview moved{};
+            Require(bridge.TryPreviewManualReloadMouths(native,grip,{0,0,1},{0,1,0},moved_socket,moved)&&
+                std::abs(moved.points_cm[0].x-preview.points_cm[0].x-40)<.001F&&
+                moved.tip_cm.valid&&std::abs(moved.tip_cm.position.y-preview.tip_cm.position.y-20)<.001F,
+                "preview did not follow each current controller independently");
+        }else Require(preview.count==0&&!preview.tip_cm.valid,"preview leaked stale geometry on rejection");
+    }
+    bridge.weapon_overlays_={};bridge.being_=nullptr;bridge.vector_class_=nullptr;bridge.manual_reload_owned_=false;
+    Set(24,Same);Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
+    Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
+}
 void ReloadGeometryTests(JavaPlayerBridge& bridge) {
     for(const auto source_up:{cojvr::runtime::Vec3{0,2,0},cojvr::runtime::Vec3{.2F,1,0}}) {
         GeometryReset(bridge,0,true);
@@ -1397,6 +1470,7 @@ int main() {
     ReloadGeometryTests(bridge);
     WinchesterLoadingGeometryTests(bridge);
     WinchesterLoadingSampleTests(bridge);
+    ReloadMouthPreviewTests(bridge);
     RemingtonLoadingGeometryTests(bridge);
     ManualPinchBridgeTests(bridge);
 }

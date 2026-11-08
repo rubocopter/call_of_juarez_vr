@@ -7,6 +7,7 @@
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 #include "games/call_of_juarez/winchester_loading_probe.hpp"
 #include "games/call_of_juarez/remington_loading_probe.hpp"
+#include "games/call_of_juarez/reload_mouth_preview.hpp"
 
 #include <windows.h>
 
@@ -2893,6 +2894,99 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     observed.valid=true;geometry=observed;return true;
 }
 
+bool JavaPlayerBridge::TryPreviewManualReloadMouths(const CoJReloadTraceSnapshot& native,
+    runtime::Vec3 grip,runtime::Vec3 direction,runtime::Vec3 up,
+    const ElementWorldBasisTarget& support_socket,CoJReloadMouthPreview& out) noexcept {
+    out={};
+    const char* element_name=CoJReloadMouthElement(native);
+    if(!element_name||!native.valid||!native.probe_valid||native.probe_status!=2||
+        native.reserve_readback<=0||!IsCoJNativeObjectIdentity(native.weapon_id))return false;
+    void* const player=being_;
+    void* const vm=vm_;
+    const auto generation=being_generation_;
+    const auto current=[&]() noexcept {
+        if(!player||!vm||!generation||being_!=player||vm_!=vm||being_generation_!=generation||
+            independent_arms_object_||independent_hand_faulted_||weapon_overlay_faulted_)return false;
+        // Borrow the readers already resolved by ordinary hand rendering.
+        if(!element_world_read_lookup_attempted_||!get_element_position_method_||!get_element_left_method_||
+            !get_element_up_method_||!vector_class_||!vector_constructor_||!vector_x_field_||
+            !vector_y_field_||!vector_z_field_)return false;
+        for(const auto& hand:hand_overlays_)if(hand.object)return false;
+        for(const auto& weapon:weapon_overlays_)if(weapon.weapon||weapon.active||weapon.applied)return false;
+        return true;
+    };
+    if(!current())return false;
+    void* env=Environment(nullptr);
+    if(!env||!current())return false;
+    for(const auto slot:{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,kIsSameObject,
+        kGetObjectClass,kGetMethodId,kCallObjectMethodA,kCallIntMethodA,kNewStringUtf})
+        if(!EnvFunction<void*>(env,slot))return false;
+    using namespace long_gun_observer_detail;
+    Reader r{env};
+    if(!r.Check())return false;
+    auto player_class=r.Class(player);
+    auto active=r.Method(player_class,"GetActiveWeapon","(I)LWeapon;");
+    auto actual=r.Method(player_class,"GetActualWeaponNotEmpty","(I)LWeapon;");
+    auto desired=r.Method(player_class,"GetDesiredWeapon","(I)LWeapon;");
+    const int hand=native.armed_hand;
+    auto weapon=r.Get(player,actual,hand);
+    const auto same_owner=[&](void* getter) noexcept {
+        if(!current())return false;
+        auto now=r.Get(player,getter,hand);
+        return r.ok&&now.value&&r.Equal(now,weapon)&&current();
+    };
+    if(!r.ok||!weapon.value||!same_owner(active)||!same_owner(desired))return false;
+    CoJReloadTraceSnapshot before{},after{};
+    if(!ReadCoJReloadTrace(env,player,before,true,native.selected_index,weapon)||!current()||
+        !SameCoJReloadMouthPhase(native,before))return false;
+    auto weapon_class=r.Class(weapon);
+    auto mouth_method=r.Method(weapon_class,"GetElementID","(Ljava/lang/String;)I");
+    auto socket_method=r.Method(player_class,"GetElementID","(Ljava/lang/String;)I");
+    auto mouth_name=r.Text(element_name);
+    auto socket_name=r.Text(hand==0?"right_hand":"left_hand");
+    Value mouth_arg{.object=mouth_name},socket_arg{.object=socket_name};
+    const int mouth_id=r.Int(weapon,mouth_method,&mouth_arg);
+    const int socket_id=r.Int(player,socket_method,&socket_arg);
+    if(!r.ok||mouth_id<=0||socket_id<0||!current())return false;
+    const auto read=[&](void* object,int element,ElementWorldBasisTarget& f) noexcept {
+        JavaPlayerPosition p{},u{},d{};
+        if(!current()||!ReadObjectElementFrame(object,element,p,u,d,nullptr,true)||!current())return false;
+        f={{p.x,p.y,p.z},{u.x,u.y,u.z},{d.x,d.y,d.z},true};
+        return true;
+    };
+    ElementWorldBasisTarget root{},mouth{},socket{};
+    JavaPlayerPosition muzzle{},barrel{};
+    if(!read(weapon,0,root)||!read(weapon,mouth_id,mouth)||!read(player,socket_id,socket)||
+        !TryGetWeaponBarrel(hand,muzzle,barrel,nullptr,nullptr,nullptr,weapon)||!current())return false;
+    const auto plan=BuildTrackedWeaponFrame(root,socket.position,{muzzle.x,muzzle.y,muzzle.z},
+        {barrel.x,barrel.y,barrel.z},grip,direction,up);
+    auto preview=BuildCoJReloadMouthPreview(before,root,mouth,plan);
+    if(!preview.count)return false;
+    if(support_socket.valid){
+        const int support=1-hand;
+        auto support_weapon=r.Get(player,active,support);
+        CoJHandFrames natural{},rigid{},curled{};
+        if(r.ok&&!support_weapon.value&&current()&&TryCanAnimateEmptyHand(support)&&current()&&
+            ReadIndependentHandFrames(support,natural,nullptr,true)&&current()){
+            for(std::size_t i=0;i<natural.size();++i){
+                rigid[i]={natural[i].element,TransformWeaponElementFrame(
+                    natural.back().frame,support_socket,natural[i].frame)};
+            }
+            ElementWorldBasisTarget pinch{};
+            if(BuildCoJFingerTargets(support,natural,rigid,CoJCartridgePinchFingers(),curled)&&
+                BuildCoJReloadPinchFrame(curled,support,pinch))
+                preview.tip_cm=BuildCoJTexturedReloadNoseFrame(pinch);
+        }
+        auto support_after=r.Get(player,active,support);
+        if(!r.ok||!current()||((support_weapon.value==nullptr)!=(support_after.value==nullptr))||
+            (support_weapon.value&&!r.Equal(support_weapon,support_after)))return false;
+    }
+    if(!current()||!ReadCoJReloadTrace(env,player,after,true,native.selected_index,weapon)||
+        !SameCoJReloadMouthPhase(before,after)||!same_owner(actual)||!same_owner(active)||!same_owner(desired))return false;
+    out=preview;
+    return true;
+}
+
 bool JavaPlayerBridge::TryObserveWinchesterLoadingGeometry(const int hand,
     CoJWinchesterLoadingGeometry& geometry,const CoJReloadGeometrySource source,
     std::string* error) noexcept {
@@ -3663,6 +3757,42 @@ bool JavaPlayerBridge::TryReadHandAttachment(const int hand,
     return ReadHandFrame(&io,element,frame);
 }
 
+bool JavaPlayerBridge::ReadIndependentHandFrames(const int hand,CoJHandFrames& frames,
+    std::string* error,const bool require_rigid) noexcept {
+    frames={};
+    if(hand<0||hand>1||!being_)return false;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    if(independent_hand_generation_!=generation){
+        if(require_rigid)return false; // A preview borrows only captured hand element IDs.
+        for(auto& ids:independent_hand_elements_)ids.fill(-1);
+        independent_hand_generation_=generation;
+    }
+    auto& ids=independent_hand_elements_[static_cast<std::size_t>(hand)];
+    constexpr const char* suffixes[]={"Forearm","ForeTwist","ForeTwist1","Hand",
+        "Finger0","Finger01","Finger02","Finger1","Finger11","Finger12",
+        "Finger2","Finger21","Finger22","Finger3","Finger31","Finger32",
+        "Finger4","Finger41","Finger42"};
+    try{
+        for(std::size_t i=0;i<frames.size();++i){
+            if(ids[i]<0){
+                if(require_rigid)return false;
+                const auto name=i==frames.size()-1?std::string(hand==1?"left_hand":"right_hand"):
+                    std::string(hand==1?"Bip01 L ":"Bip01 R ")+suffixes[i];
+                int element=-1;
+                if(!TryGetMeshElementByName(name.c_str(),element,error)||
+                    being_!=player||being_generation_!=generation)return false;
+                ids[i]=element;
+            }
+            JavaPlayerPosition p{},u{},f{};
+            if(!ReadObjectElementFrame(player,ids[i],p,u,f,error,require_rigid)||
+                being_!=player||being_generation_!=generation)return false;
+            frames[i]={ids[i],{{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true}};
+        }
+        return true;
+    }catch(...){SetError(error,"independent hand frame lookup failed");return false;}
+}
+
 bool JavaPlayerBridge::TryReadFistContactGeometry(const int hand,
     CoJFistContactGeometry& geometry,std::string* error) noexcept {
     geometry={};
@@ -3905,24 +4035,9 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
     const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef);
     if (!global || !del) return false;
     try {
-        if (independent_hand_generation_!=being_generation_) {
-            for (auto& ids : independent_hand_elements_) ids.fill(-1);
-            independent_hand_generation_=being_generation_;
-        }
-        auto& ids=independent_hand_elements_[static_cast<std::size_t>(hand)];
-        const std::string prefix=hand==1 ? "Bip01 L " : "Bip01 R ";
-        constexpr const char* suffixes[]={"Forearm","ForeTwist","ForeTwist1","Hand",
-            "Finger0","Finger01","Finger02","Finger1","Finger11","Finger12",
-            "Finger2","Finger21","Finger22","Finger3","Finger31","Finger32",
-            "Finger4","Finger41","Finger42"};
         CoJHandFrames frames{};
+        if(!ReadIndependentHandFrames(hand,frames,error))return false;
         HandIoContext io{this,being_,error};
-        for (std::size_t i=0;i<frames.size();++i) {
-            const std::string name=i==frames.size()-1 ? (hand==1 ? "left_hand" : "right_hand") : prefix+suffixes[i];
-            if (ids[i]<0 && !TryGetMeshElementByName(name.c_str(),ids[i],error)) return false;
-            frames[i].element=ids[i];
-            if (!ReadHandFrame(&io,ids[i],frames[i].frame)) return false;
-        }
         JavaPlayerPosition actor{};
         if (!TryGetPosition(actor,error)) return false;
         if (!independent_arms_object_) {
@@ -4117,7 +4232,7 @@ bool JavaPlayerBridge::TryObserveBowAimOwner(int& hand,std::string* error) noexc
 bool JavaPlayerBridge::TryGetWeaponBarrel(
     const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
     std::string* error, CoJWeaponAttackOrigins* attack_origins,
-    ElementWorldBasisTarget* barrel_frame) noexcept {
+    ElementWorldBasisTarget* barrel_frame, void* expected_weapon) noexcept {
     origin = {};
     direction = {};
     if (attack_origins) *attack_origins = {};
@@ -4155,6 +4270,14 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
     if (ClearException(env, error, "GetActiveWeapon call failed") || !weapon) {
         DeleteLocal(env, weapon);
         return false;
+    }
+    if (expected_weapon) {
+        const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+        const bool matches=same&&same(env,weapon,expected_weapon)!=0;
+        if (ClearException(env,error,"weapon barrel object comparison failed")||!matches) {
+            DeleteLocal(env,weapon);
+            return false;
+        }
     }
     void* weapon_class = get_class(env, weapon);
     if (ClearException(env, error, "weapon barrel class failed") || !weapon_class) {
@@ -7136,12 +7259,16 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
         SetError(error, "mesh element is invalid");
         return false;
     }
+    void* const player=being_;
+    void* const vm=vm_;
+    const auto generation=being_generation_;
+    const auto current=[&]() noexcept {return player&&being_==player&&vm_==vm&&being_generation_==generation;};
     void* env = Environment(error);
-    if (!env || !being_) {
+    if (!env || !current()) {
         SetError(error, "player being is not resolved");
         return false;
     }
-    if (!EnsureElementWorldReadAccess(env, error)) return false;
+    if (!EnsureElementWorldReadAccess(env, error) || !current()) return false;
 
     const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
     const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
@@ -7150,7 +7277,7 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
         return false;
     }
     void* vector = new_object(env, vector_class_, vector_constructor_, nullptr);
-    if (ClearException(env, error, "Vector construction for element frame failed") || !vector) {
+    if (ClearException(env, error, "Vector construction for element frame failed") || !vector || !current()) {
         DeleteLocal(env, vector);
         return false;
     }
@@ -7160,6 +7287,7 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
                                          const char* call_error,
                                          const char* unavailable_error,
                                          JavaPlayerPosition& value) noexcept {
+        if(!method||!current())return false;
         JValue args[2]{};
         args[0].i = element;
         args[1].l = vector;
@@ -7168,7 +7296,7 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
             if (!available) SetError(error, unavailable_error);
             return false;
         }
-        return ReadVector(env, vector, value, error);
+        return current()&&ReadVector(env, vector, value, error)&&current();
     };
 
     JavaPlayerPosition element_x_axis{};

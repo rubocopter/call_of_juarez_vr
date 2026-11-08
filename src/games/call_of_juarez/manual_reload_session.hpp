@@ -7,6 +7,7 @@ enum class CoJManualReloadPhase { ready, opening, manual_load, closing };
 struct CoJManualReloadInput {
     bool enabled=false, allowed=false, recentered=false;
     bool native_fallback_allowed=false; // Positive unsupported context; never a failed read.
+    bool native_reload_held=false; // Last applied action31, independent of physical Square.
     std::uint64_t player=0,context=0,sequence=0,now=0;
     runtime::GameplayInputState raw{};
     runtime::Pose head{},left{},right{};
@@ -141,13 +142,16 @@ public:
         const bool armed_fire=armed==0?s.raw.fire_right:s.raw.fire_left;
         constexpr std::uint64_t kShotTailReloadWindowMs=450;
         if(after_shot_at_&&(!available||reload_owner_changed||armed_fire||
+            (manual_idle&&s.native_reload_held)||
             s.now<after_shot_at_||s.now-after_shot_at_>kShotTailReloadWindowMs||
             (!shot_tail&&(!manual_idle||s.native.reloading))))after_shot_at_=0;
-        if(phase_==CoJManualReloadPhase::ready&&edge&&input.reload&&shot_tail&&!armed_fire)
+        if(phase_==CoJManualReloadPhase::ready&&edge&&input.reload&&shot_tail&&!armed_fire&&!s.native_reload_held)
             after_shot_at_=s.now;
         const bool deferred_start=after_shot_at_&&fresh&&manual_idle;
+        if(phase_==CoJManualReloadPhase::ready&&manual_idle&&s.native_reload_held&&empty_fire_edge)
+            trigger_claims_|=static_cast<std::uint8_t>(1U<<armed);
         if(phase_==CoJManualReloadPhase::ready&&allowed&&manual_idle&&
-            ((edge&&input.reload)||empty_fire_edge||deferred_start)){
+            !s.native_reload_held&&((edge&&input.reload)||empty_fire_edge||deferred_start)){
             after_shot_at_=0;
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
@@ -204,8 +208,10 @@ public:
         if(gesture.replenish_cartridge)replenish_=false;
         out.insert=out.gesture.reload&&gesture.valid&&!out.cancel;
         if(kind_==CoJManualReloadKind::indexed){
+            // The release sample can still consume the trigger after it ends
+            // the carry. Keep the slot only for a carried or submitted round.
+            if(!out.insert&&!out.gesture.cartridge_held)cartridge_index_=-1;
             out.selected_index=cartridge_index_;
-            if(!out.insert&&!out.gesture.cartridge_held&&out.gesture.claimed_hand>=2)cartridge_index_=-1;
         }
         out.gesture.consumed_trigger_mask|=prior_trigger_claims&released_triggers;
         out.gesture.consume_free_trigger=out.gesture.consumed_trigger_mask!=0;

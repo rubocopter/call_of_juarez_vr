@@ -541,6 +541,9 @@ struct CoJReloadSkinMeshProximity {
 [[nodiscard]] CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(
     const ElementWorldBasisTarget& pinch,
     const std::array<cojvr::runtime::Vec3,2>& displayed_skin_points_cm) noexcept;
+[[nodiscard]] bool BuildCoJReloadPinchFrame(const CoJHandFrames& curled, int hand,
+    ElementWorldBasisTarget& world, float* skin_gap_cm=nullptr,
+    CoJReloadSkinMeshProximity* proximity=nullptr) noexcept;
 
 // Isolated hand geometry permits a rigid controller rotation without twisting
 // the connected arm mesh. All lower skin contributors and fingers share a map.

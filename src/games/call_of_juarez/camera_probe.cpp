@@ -27,6 +27,7 @@
 #include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "games/call_of_juarez/winchester_loading_probe.hpp"
 #include "games/call_of_juarez/remington_loading_probe.hpp"
+#include "games/call_of_juarez/reload_mouth_preview.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -191,6 +192,7 @@ CoJWinchesterReloadProbe g_winchester_reload_probe;
 std::array<CoJWinchesterLoadingSample,2> g_winchester_loading_pending{};
 unsigned g_winchester_loading_samples=0;
 unsigned g_winchester_loading_attempts=0;
+unsigned g_reload_mouth_preview_attempts=0;
 std::array<std::array<CoJRemingtonLoadingSample,2>,2> g_remington_loading_pending{};
 unsigned g_remington_loading_samples=0,g_remington_loading_attempts=0;
 CoJLongGunGripState g_long_gun_grip;
@@ -4043,6 +4045,60 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     geometry.muzzle_direction=RuntimeVector(direction);geometry.read_failure="none";return true;
 }
 
+// Compare with the independently verified render geometry at the same frame.
+// This prediction runs before the native insertion and retains no render map.
+void ObserveReloadMouthPreview(const CameraRenderStateSnapshot& natural,float height,
+    const CoJManualReloadInput& input,const runtime::Pose& left_tip,const runtime::Pose& right_tip,
+    std::uint64_t frame,bool release,bool grip_release_admitted) noexcept {
+    if(!CoJReloadMouthElement(input.native)||g_reload_mouth_preview_attempts>=120||
+        input.native.probe_status!=2)return;
+    ++g_reload_mouth_preview_attempts;
+    CameraProbeBasis basis{};
+    CameraProbeVector camera{};
+    if(!ReadNaturalCameraFrame(natural,basis,camera))return;
+    basis=BuildTrackingReferenceBasis(basis.forward,basis.up,BodyYawCompensationForCurrentPlayer());
+    if(!IsCameraProbeBasisRigidRightHanded(basis))return;
+    const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
+        u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
+    const auto grip_world=[&](const runtime::Pose& grip,bool& valid){
+        return BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,input.head.position,grip.position,
+            height,kGameUnitsPerMeter,valid);
+    };
+    const bool right=input.native.armed_hand==0;
+    const auto& tip=right?right_tip:left_tip;
+    const auto& support=right?input.left:input.right;
+    if(!tip.orientation_valid)return;
+    bool valid=false;
+    const auto grip=grip_world(right?input.right:input.left,valid);
+    if(!valid)return;
+    const auto direction=BuildTrackedAimDirection(tip.orientation,x,u,f,valid);
+    if(!valid)return;
+    const auto local_up=runtime::RotateVector(tip.orientation,{0,1,0});
+    const runtime::Vec3 up{x.x*local_up.x+u.x*local_up.y+f.x*local_up.z,
+        x.y*local_up.x+u.y*local_up.y+f.y*local_up.z,x.z*local_up.x+u.z*local_up.y+f.z*local_up.z};
+    const auto support_world=grip_world(support,valid);
+    if(!valid)return;
+    const auto support_socket=BuildTrackedHandSocketFrame(support.orientation,x,u,f,support_world);
+    CoJReloadMouthPreview preview{};
+    if(!g_java_player_bridge.TryPreviewManualReloadMouths(input.native,grip,direction,up,support_socket,preview)||
+        input.player!=g_java_player_bridge.being_generation())return;
+    try{
+        std::string detail="frame_sequence="+std::to_string(frame)+";pose_sequence="+std::to_string(input.sequence)+
+            ";player_generation="+std::to_string(input.player)+";native_context="+std::to_string(input.context)+
+            ";input_generation="+std::to_string(input.raw.input_context_generation)+
+            ";weapon_id="+std::to_string(input.native.weapon_id)+";weapon_class="+input.native.weapon_class+
+            ";armed_hand="+std::to_string(input.native.armed_hand)+";selected_index="+
+            std::to_string(input.native.selected_index)+";release="+std::to_string(release)+
+            ";grip_release_admitted="+std::to_string(grip_release_admitted)+
+            ";tip_valid="+std::to_string(preview.tip_cm.valid)+";clearance_proven=false;socket_admission=false";
+        for(std::size_t i=0;i<preview.count;++i)
+            detail+=";point"+std::to_string(i)+"_cm="+RuntimeVectorText(preview.points_cm[i]);
+        if(preview.tip_cm.valid)detail+=";tip_cm="+RuntimeVectorText(preview.tip_cm.position)+
+            ";tip_axis="+RuntimeVectorText(preview.tip_cm.forward);
+        EmitEvent("manual_reload_mouth_preview","predicted",detail);
+    }catch(...){}
+}
+
 const char* FingerMapResultName(JavaPlayerBridge::FingerMapResult result) noexcept {
     switch(result){
     case JavaPlayerBridge::FingerMapResult::not_requested:return "not_requested";
@@ -4312,7 +4368,7 @@ bool ApplyTrackedWeapons(
     const bool manual_presentation=false,
     const std::uint64_t native_context=0,
     const bool publish_gameplay_rays=true,
-    const bool physical_cartridge=false,
+    const int cartridge_hand=-1,
     const char* manual_weapon_class=nullptr) noexcept {
     g_winchester_loading_pending={};
     g_remington_loading_pending={};
@@ -4522,7 +4578,7 @@ bool ApplyTrackedWeapons(
             ObserveIndependentHandFingers(hand,frame_sequence,native_context,
                 manual_presentation?FingerObservationRoute::manual:FingerObservationRoute::independent,
                 left?left_fingers:right_fingers,hand_target.valid,hand_applied);
-            if(manual_presentation&&hand_applied){
+            if(manual_presentation&&hand_applied&&hand==cartridge_hand){
                 ElementWorldBasisTarget anchor{};
                 float skin_gap_cm=0.F;
                 const bool sample_geometry=g_manual_reload_geometry_logging_enabled&&
@@ -4630,11 +4686,11 @@ bool ApplyTrackedWeapons(
     const bool mapped=mapped_hands==3U&&(!publish_gameplay_rays||mapped_weapon);
     if(mapped&&observe_winchester_loading)
         CaptureWinchesterLoadingGeometry(CoJReloadGeometrySource::post_overlay,
-            frame_sequence,generation,native_context,physical_cartridge);
+            frame_sequence,generation,native_context,cartridge_hand==1);
     if(mapped&&observe_remington_loading)for(int hand=0;hand<2;++hand)
         if(g_remington_loading_pending[hand][0].valid)
             CaptureRemingtonLoadingGeometry(hand,CoJReloadGeometrySource::post_overlay,
-                frame_sequence,generation,native_context,physical_cartridge);
+                frame_sequence,generation,native_context,cartridge_hand==1-hand);
     return mapped;
 }
 
@@ -6788,6 +6844,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_input.allowed=motion_reload_context;manual_input.recentered=recentered;
     manual_input.player=g_java_player_bridge.being_generation();manual_input.context=sample.native_gameplay_context_token;
     manual_input.sequence=sample.hmd_pose.sequence;manual_input.now=reload_now_ms;manual_input.raw=raw_reload_input;
+    manual_input.native_reload_held=g_java_player_bridge.AppliedGameplayCommands().reload;
     manual_input.admission=reload_owner;manual_input.recovery=native_reload_owner;
     // Manual eligibility may reject an alternate/attack state before class
     // lookup. Prove native-only ownership independently; never turn a JNI or
@@ -6822,7 +6879,20 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const auto reload_feedback_owner = PublishReloadFeedbackOwner(
         manual_input.player, manual_input.context, manual_input.native);
     const auto manual_before=g_manual_reload.phase();
+    const auto carry_before=g_manual_reload.gesture_stage();
     auto manual_result=g_manual_reload.Update(gameplay_input,manual_input);
+    if(snapshot.command.reload_trace_enabled&&manual_result.tracked&&!manual_result.cancel){
+        const auto& gesture=manual_result.gesture;
+        const bool carrying=gesture.cartridge_held&&gesture.claimed_hand==gesture.cartridge_hand;
+        const bool release=(carry_before==runtime::MotionReloadGestureStage::carrying||
+            carry_before==runtime::MotionReloadGestureStage::replenished_carrying)&&gesture.claimed_hand<2&&
+            !(gesture.claimed_hand==0?raw_reload_input.fire_right:raw_reload_input.fire_left)&&
+            (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
+             g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
+        if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence)))
+            ObserveReloadMouthPreview(natural_render_state,physical_view_correction,manual_input,
+                relative_left_aim,relative_right_aim,frame_sequence,release,manual_result.insert);
+    }
     if(manual_result.start)g_reload_depth_observation_budget=6;
     runtime::ReloadInsertionFeedback manual_feedback{};
     manual_feedback.input_generation=raw_reload_input.input_context_generation;
@@ -6956,7 +7026,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
     // A still-held prior Square request cannot count as a new native edge.
     // A discarded gesture is never retained for a later owner or retry.
-    if (motion_reload.reload && g_java_player_bridge.AppliedGameplayCommands().reload)
+    if (!snapshot.command.manual_reload_installed && motion_reload.reload && g_java_player_bridge.AppliedGameplayCommands().reload)
         gameplay_input.reload = sample.gameplay.reload;
     if (prior_reload_stage != g_motion_reload.stage() || motion_reload.reload) {
         try {
@@ -6976,14 +7046,15 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // A pending ticket belongs only to this immediate action31 delivery. The
     // patched native request consumes it into native completion ownership;
     // cancelling pending later cannot turn an accepted round into a full loop.
-    const bool single_round_request = (manual_result.start||motion_reload.reload) &&
+    const bool single_round_request = (snapshot.command.manual_reload_installed?manual_result.start:motion_reload.reload) &&
         (snapshot.command.manual_reload_installed?reload_owner.SupportsManual():reload_owner.single_round_supported) &&
         gameplay_input.reload && !g_java_player_bridge.AppliedGameplayCommands().reload;
     bool reload_ticket_ready = g_java_player_bridge.ClearSingleRoundReload(&gameplay_input_error);
     if (reload_ticket_ready && single_round_request)
         reload_ticket_ready = g_java_player_bridge.TryArmSingleRoundReload(reload_owner, &gameplay_input_error);
-    if(manual_result.start&&reload_ticket_ready)g_java_player_bridge.NoteManualReloadRequest();
-    if (!reload_ticket_ready) gameplay_input.reload = false;
+    const bool manual_ticket_ready=manual_result.start&&single_round_request&&reload_ticket_ready;
+    if(manual_ticket_ready)g_java_player_bridge.NoteManualReloadRequest();
+    if (!reload_ticket_ready||(manual_result.start&&!manual_ticket_ready)) gameplay_input.reload = false;
     const bool interaction_pressed = gameplay_input.active && gameplay_input.interact &&
         !g_java_player_bridge.AppliedGameplayCommands().interact;
     CoJInteractionSelection interaction_before{};
@@ -7110,8 +7181,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (single_round_request)
         g_motion_reload.NoteSingleRoundDispatch(gameplay_input_ok && reload_ticket_cleared);
     if(manual_result.start){
-        g_manual_reload.NoteStart(gameplay_input_ok&&reload_ticket_cleared&&reload_ticket_ready);
-        if(!gameplay_input_ok||!reload_ticket_cleared||!reload_ticket_ready)(void)g_java_player_bridge.CancelManualReload();
+        const bool delivered=gameplay_input_ok&&reload_ticket_cleared&&manual_ticket_ready;
+        g_manual_reload.NoteStart(delivered);
+        if(!delivered)(void)g_java_player_bridge.CancelManualReload();
     }
     if (single_round_request || !reload_ticket_cleared) {
         try {
@@ -7507,8 +7579,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             snapshot.command.independent_hands_enabled && snapshot.command.body_ik_enabled,
             visual_left_fingers,visual_right_fingers,g_manual_reload_presentation,
             sample.native_gameplay_context_token,true,
-            motion_reload.cartridge_held&&motion_reload.cartridge_hand==1&&
-                motion_reload.claimed_hand==1&&raw_reload_input.fire_left,
+            pinch_requested?pinch.cartridge_hand:-1,
             manual_input.native.valid?manual_input.native.weapon_class:nullptr);
         bow_pose_pair_mapped=mapped;
         const bool insertion_pose_applied=insertion_pose_hand>=0&&mapped&&
@@ -9973,6 +10044,7 @@ void ShutdownCameraProbe() noexcept {
     g_long_gun_admission_trace={};
     g_winchester_reload_probe={};
     g_winchester_loading_pending={};g_winchester_loading_samples=0;g_winchester_loading_attempts=0;
+    g_reload_mouth_preview_attempts=0;
     g_remington_loading_pending={};g_remington_loading_samples=0;g_remington_loading_attempts=0;
     g_mounted_trace_budget={};g_mounted_change_budget={};
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;

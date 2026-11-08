@@ -131,6 +131,25 @@ void IndexedCycleSession() {
             "disabled indexed session failed to recover ordinary native fire after physical releases");
     }
 }
+void IndexedMissRetiresSelection() {
+    for(int hand:{0,1}) {
+        IndexedFixture f(hand,true);
+        f.Open();
+        f.Pickup();
+        Check(f.session.selected_index()==1,"fixture did not capture the pistol reserve slot");
+        // The player releases at the waist, then presses again on the very
+        // next sample. The release consumes input but ends the carry.
+        f.SupportTrigger()=false;
+        auto out=f.Poll();
+        Check(!out.insert&&!out.gesture.cartridge_held&&f.session.selected_index()==-1,
+            "missed indexed release retained the old slot for the next pickup");
+        f.s.native.selected_index=0;
+        f.SupportTrigger()=true;
+        out=f.Poll();
+        Check(out.gesture.cartridge_held&&f.session.selected_index()==0,
+            "next indexed pickup did not acquire the new native slot");
+    }
+}
 void IndexedReleaseBarriers() {
     for(int hand:{0,1})for(int boundary=0;boundary<6;++boundary) {
         IndexedFixture f(hand,true);f.Open();f.Pickup();
@@ -217,6 +236,28 @@ void CurrentGestureTarget(){
     Fixture f;f.Open();f.Claim();const auto out=f.Poll();
     Check(HasCurrentGestureTarget(out,f.s),
         "manual session must publish the same current tracking-space target used for insertion");
+}
+void ManualStartRequiresNativeRelease() {
+    for (bool empty_trigger:{false,true}) {
+        Fixture f;
+        if(empty_trigger) f.s.native.ammo_readback=0;
+        (void)f.Poll();
+        // A prior native action31 press remains applied after a failed release.
+        // No ticket can be delivered until that native edge is neutral.
+        f.s.native_reload_held=true;
+        f.s.raw.reload=!empty_trigger;
+        f.s.raw.fire_right=empty_trigger;
+        const auto blocked=f.Poll();
+        Check(!blocked.start&&!f.mapped.reload&&f.session.phase()==CoJManualReloadPhase::ready,
+            "manual opening acquired a native action still held from an earlier request");
+        f.s.native_reload_held=false;
+        Check(!f.Poll().start,"held input reopened after native release without a fresh edge");
+        f.s.raw.reload=f.s.raw.fire_right=false;
+        (void)f.Poll();
+        f.s.raw.reload=!empty_trigger;
+        f.s.raw.fire_right=empty_trigger;
+        Check(f.Poll().start,"fresh manual edge failed after both releases");
+    }
 }
 void AllProfileTargetGuides(){
     for(const auto& profile:kCoJRevolvers)for(int hand=0;hand<2;++hand){
@@ -309,7 +350,7 @@ void TargetGuideFreshnessAndReadiness(){
         std::abs(actual.z-expected.z)<.00001F,"guide applied head translation/rotation twice or omitted it");
 }
 void ReloadPressedDuringSchofieldShot() {
-    for(int outcome:{0,1,2,3,4}) {
+    for(int outcome:{0,1,2,3,4,5,6}) {
         Fixture f;
         f.s.native.kind=CoJManualReloadKind::clip;
         f.s.native.ammo_readback=3;
@@ -319,6 +360,7 @@ void ReloadPressedDuringSchofieldShot() {
         (void)f.Poll();
         f.s.admission={};
         f.s.after_shot=idle;
+        f.s.native_reload_held=outcome==5;
         f.s.raw.reload=true;
         Check(!f.Poll().start&&!f.mapped.reload,"shot tail emitted reload before idle");
         f.s.raw.reload=false;
@@ -338,10 +380,12 @@ void ReloadPressedDuringSchofieldShot() {
         f.s.after_shot={};
         f.s.admission=idle;
         f.s.admission.weapon_id=f.s.native.weapon_id;
+        f.s.native_reload_held=outcome==6;
         const auto result=f.Poll();
         Check(result.start==(outcome==0)&&f.mapped.reload==(outcome==0),
             "shot-tail reload intent was lost or survived its ownership/input fence");
-        Check(!f.Poll().start&&!f.mapped.reload,"deferred reload intent dispatched twice");
+        f.s.native_reload_held=false;
+        Check(!f.Poll().start&&!f.mapped.reload,"deferred reload dispatched again or after its native edge was blocked");
     }
 }
 int main(){
@@ -357,11 +401,13 @@ int main(){
         Check(!outside.Poll().insert,"release beyond 18 cm inserted ammunition");
     }
     CurrentGestureTarget();
+    ManualStartRequiresNativeRelease();
     AllProfileTargetGuides();
     TargetGuideFreshnessAndReadiness();
     IndexedReplacementSource();
     IndexedReleaseBarriers();
     IndexedCycleSession();
+    IndexedMissRetiresSelection();
     {
         Fixture indexed;
         indexed.s.native.kind=indexed.s.admission.kind=indexed.s.recovery.kind=CoJManualReloadKind::indexed;

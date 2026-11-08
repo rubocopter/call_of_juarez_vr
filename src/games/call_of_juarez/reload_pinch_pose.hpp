@@ -27,6 +27,14 @@ struct CoJReloadPinchInput {
         std::isfinite(norm)&&std::fabs(norm-1.F)<.02F;
 }
 
+[[nodiscard]] inline runtime::FingerTrackingState CoJCartridgePinchFingers() noexcept {
+    runtime::FingerTrackingState pinch{};
+    pinch.available=true;
+    pinch.quality=runtime::FingerTrackingQuality::estimated;
+    pinch.curls={.7F,.7F,.88F,.88F,.82F};
+    return pinch;
+}
+
 [[nodiscard]] inline bool ApplyCoJReloadPinch(const CoJReloadPinchInput& input,
     runtime::FingerTrackingState& left, runtime::FingerTrackingState& right) noexcept {
     if(!input.manual_load||
@@ -48,11 +56,7 @@ struct CoJReloadPinchInput {
     // Offline Ray skin measurements place the thumb/index pads about 1.1 cm
     // apart at .7/.7, close to the imported .357 case's 1.2 cm diameter.
     // The grip and contact still require physical headset validation.
-    runtime::FingerTrackingState pinch{};
-    pinch.available=true;
-    pinch.quality=runtime::FingerTrackingQuality::estimated;
-    pinch.curls={.7F,.7F,.88F,.88F,.82F};
-    (input.cartridge_hand==0?right:left)=pinch;
+    target=CoJCartridgePinchFingers();
     return true;
 }
 
