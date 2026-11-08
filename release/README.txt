@@ -24,9 +24,10 @@ The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
-This release is cumulative from .5 and earlier versions. It expands experimental
-manual loading to 16 exact firearm classes, including the original Henry 1863
-alias, adds scoped Winchester support and revised optics, binding-aware floating
+The source checkout is cumulative from .5 and earlier versions. The published
+prealpha.7 package admitted 15 exact manual classes; current source adds the
+right-owned Henry 1863 alias as a sixteenth. It also includes scoped Winchester
+support and revised optics, binding-aware floating
 hints, reload assistance and optional
 graphics/horse comfort controls. Pause/movie input, rifle triggers, mounted
 steering and recovery also change. Bow drawing, holsters, duels and continuous
@@ -38,9 +39,12 @@ RELEASE_NOTES.md lists changes since .5 and their acceptance limits.
 Newer source also includes a shared provisional reload-target guide for every
 admitted profile (including Schofield), idle-rifle finger recovery after native
 reload completion, stable immersive presentation after harmless skip refusal,
-and qualified headset-only output with a black game window. These revisions
-have host tests and await their relevant headset checks. Published ZIPs retain
-the behavior documented inside their own README and immutable release notes.
+and restored native desktop output after rejecting the earlier black-window
+candidate. The source adds paired native color/depth/optics diagnostics and an
+opt-in bounded consecutive source capture, but no integrated game DLSS/DLAA.
+These revisions have host tests and await their relevant headset checks.
+Published ZIPs retain the behavior documented inside their own README and
+immutable release notes.
 
 IMPORTANT: NEW MANUAL RELOAD PATHS ARE EXPERIMENTAL. Earlier single-round
 revolver loading and base Schofield whole-clip loading have scoped functional
@@ -50,7 +54,7 @@ choose Advanced > Off, then Install/update with the game closed, to restore
 conventional native reload. This release does not
 establish general hardware or campaign support.
 
-Current validation: the 27 October PS VR2 Steam session accepts encountered
+Scoped validation: the 27 October PS VR2 Steam session accepts encountered
 campfires/environmental effects and the corrected horse peripheral effect.
 Mounted steering remains difficult; holding R1 also invokes native gallop and
 increases speed. This does not establish reduced nausea or general comfort.
@@ -263,12 +267,15 @@ guns, release L1 support before loading and freshly regrip after closing.
 Indexed weapons require Square preparation; do not rely on an empty trigger
 to select a chamber. Native ammunition/reserves remain authoritative.
 
-The 15 admitted exact classes are:
+The published prealpha.7 package admits 15 exact classes; this updated source
+guide describes 16, adding the pinned Henry 1863 alias:
 - Single-round revolvers: Frontier1878_Regular, Peacemaker, Frontier, Walker
   and Cogswell. Cogswell uses native rifle reserve; the others use pistol reserve.
 - Winchester and WinchesterScope: up to 12 rifle rounds; Volcanic: up to 8
   pistol rounds. Each accepted insertion loads one, with a supervised native
   animation cycle between rounds.
+- Henry 1863 (newer source only): the right-owned 12-round Winchester-family
+  alias. Do not infer left-hand or untested-build admission.
 - Remington and RemingtonSawOff: one selected barrel at a time, two shells total,
   from shared shotgun reserve. Derringer: one selected chamber at a time, two
   rounds total, from pistol reserve. These do not load both slots on one release.
@@ -432,10 +439,9 @@ KNOWN LIMITATIONS
   carried, cyan until policy readiness and green when ready to release. This
   agrees with the current grip-centred gesture, not a precise physical port.
   Floating hints and newer owner/deadline/skip-refusal fixes await headset checks.
-- A black monitor while VR presents is host-tested for the qualified single
-  primary non-MSAA DISCARD D3D9 chain. Native output remains available during
-  startup, loss or unsupported layout. Actual headset preservation/pacing is
-  unqualified. Keep the game window focused; it is not hidden or minimized.
+- Native desktop output is restored in current source; the former black-window
+  candidate caused black screenshots and flicker and was retired. The current
+  screenshot behavior awaits game verification. Keep the game window focused.
 - Spatial graphics controls retain host coverage. The corrected horse effect
   has scoped visual acceptance; broader comfort remains open. DLAA/DLSS requests
   leave game rendering native; no reconstruction or performance gain is claimed.

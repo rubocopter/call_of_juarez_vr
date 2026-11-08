@@ -8,11 +8,11 @@ acceptance or supported hardware.
 
 ## Current gate
 
-As of **6 November 2026**, the active target remains the original Steam CoJ
+As of **7 November 2026**, the active target remains the original Steam CoJ
 (2006), Windows x86, native D3D9 stereo through OpenVR/SteamVR. The exact tested
 GOG build has experimental functional acceptance; it is not a second fully
 supported target. Physical acceptance remains scoped to exercised PS VR2 Sense
-contexts. [Validation](VALIDATION.md#current-state--6-november-2026) owns verdicts;
+contexts. [Validation](VALIDATION.md#current-state--7-november-2026) owns verdicts;
 the [pending checklist](VALIDATION.md#pending-headset-checks) owns physical tests.
 
 Current source already implements and host-tests these changes:
@@ -31,6 +31,11 @@ Current source already implements and host-tests these changes:
   sequence identity and blockers remain authoritative.
 - Native desktop output for screenshots, with the blackout pixel transaction
   removed after it caused black captures and desktop flicker.
+- Bounded source-only temporal diagnostics with native final-color/depth/optics
+  association, same-eye source identity, persistent worker retirement, and an
+  opt-in two-burst consecutive-frame capture mode. The older copy-only run has
+  scoped live transport evidence; the consecutive variant is host-tested and
+  awaits its own capture. No reconstructed frame is submitted to the game.
 - Captured world anchors for native hints and mission notices with binocular
   fitting.
   Zoom-to-pause and ordinary reading stability now have scoped local headset
@@ -39,8 +44,9 @@ Current source already implements and host-tests these changes:
   native-nock bow guide, and separate Movie/skippable-sequence subtitle ownership.
 
 These changes are already implemented; remaining physical checks and scoped
-acceptance are recorded in Validation. The revised larger, lower centered subtitles retain
-their exercised readability acceptance. Functional manual transfers, bow firing,
+acceptance are recorded in Validation. The revised larger, lower centered
+subtitles retain their exercised readability acceptance. Functional manual
+transfers, bow firing,
 correct duel posture, ordinary HUD/menus, secret-scroll pickup, Gatling and
 cinematic recovery remain accepted only in their recorded contexts. Later
 skip/flicker, fingers, insertion and mounted complaints remain unresolved.

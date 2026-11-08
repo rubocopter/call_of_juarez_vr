@@ -1490,19 +1490,15 @@ native. Failed Create/Reset restores caller parameters and does not commit caden
 Missing timing retains the last valid cap; late timing can require native Reset.
 The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
 
-The primary D3D9/OpenVR route can present a black desktop while its headset
-output is demonstrably progressing. Final stereo/theater capture and luma
-observation precede this optional surface transaction. A private GPU preimage
-saves the final primary swapchain backbuffer before black fill; after original
-Present, the preimage restores the current backbuffer of the same device,
-generation, swapchain and layout. Partial native redraws cannot inherit black
-pixels. Original Present/result/pacing and input focus are retained. Only a
-single non-MSAA DISCARD chain is admitted; COPY/FLIP, ambiguous chains, lost
-tracking/runtime/output progress and errors retain native desktop behavior.
-Reset/device retirement releases the DEFAULT-pool preimage before native reset.
-No whole-frame CPU readback, window hiding or engine rendering suppression is
-introduced. GPU rollback, state/pixel preservation and policy fixtures are host
-evidence only; headset behavior and copy cost remain physically unqualified.
+The primary D3D9/OpenVR route preserves the game's native desktop pixels at
+Present after the stereo/theater capture. A former opt-in black-backbuffer
+transaction was retired after the operator reported black screenshots and
+desktop flicker and telemetry demonstrated native/black alternation. The
+restoration changes only the desktop presentation; game eye captures, SteamVR
+submission, pacing, ownership and the original native Present semantics remain
+independent. Current-source screenshots and desktop behavior still require a
+normal game-session check. The discarded black-surface approach is retained only
+in Git history, not an active selectable feature.
 
 Refresh-rate policy does not scale native movement or jump by the HMD frequency.
 The adapter retains shaped native movement magnitudes, digital jump edges and
