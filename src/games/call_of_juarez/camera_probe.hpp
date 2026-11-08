@@ -269,6 +269,10 @@ struct CameraStereoFrameSample {
     cojvr::runtime::PoseSample hmd_pose{};
     // Active native gameplay availability/epoch, independent of texture uploads.
     std::uint64_t native_gameplay_context_token = 0;
+    // Renderer-owned identity; a movie camera reference cannot survive Reset
+    // or replacement even when the exact native movie/view objects persist.
+    std::uintptr_t render_device_identity = 0;
+    std::uint64_t render_device_generation = 0;
     cojvr::runtime::Pose left_controller{};
     cojvr::runtime::Pose right_controller{};
     cojvr::runtime::Pose left_aim{};

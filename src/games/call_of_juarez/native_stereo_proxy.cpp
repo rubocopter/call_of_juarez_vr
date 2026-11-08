@@ -2871,6 +2871,11 @@ bool BeginStereoFrame(
     state->luma_pose_sequence.store(tracking.sequence, std::memory_order_release);
     sample.native_gameplay_context_token =
         state->frame_feedback_context_token.load(std::memory_order_acquire);
+    {
+        std::scoped_lock lock(state->device_mutex);
+        sample.render_device_identity=reinterpret_cast<std::uintptr_t>(state->device);
+        sample.render_device_generation=state->device_generation.load(std::memory_order_acquire);
+    }
     sample.left_controller = tracking.left_controller;
     sample.right_controller = tracking.right_controller;
     sample.left_aim = tracking.left_aim;

@@ -5338,6 +5338,55 @@ bool RestorePendingCameraOnlyState(void* camera) noexcept {
     return true;
 }
 
+// A native movie/sequence selects a new authored viewpoint, independent of the
+// gameplay actor. Retain only motion after that admitted viewpoint's entry;
+// never rebase the shared tracker or change its orientation policy.
+struct MovieCameraPositionReference {
+    struct Owner {
+        std::uint64_t movie=0,context=0,recenter=0,generation=0;
+        std::uintptr_t renderer=0,view=0,camera=0,device=0;
+        bool operator==(const Owner&) const = default;
+    } owner{};
+    runtime::Vec3 origin{};
+    std::uint64_t entry_pose=0,last_pose=0;
+    void Reset() noexcept { *this={}; }
+    bool Apply(const runtime::Pose& input,const CameraStereoFrameSample& sample,
+        void* renderer,void* view,void* camera,std::uint64_t recenter,runtime::Pose& output) noexcept {
+        output={};
+        if(!input.orientation_valid||!input.position_valid||
+            !sample.hmd_pose.pose.orientation_valid||!sample.hmd_pose.pose.position_valid||
+            !std::isfinite(input.position.x)||!std::isfinite(input.position.y)||!std::isfinite(input.position.z)||
+            !std::isfinite(sample.hmd_pose.pose.position.x)||!std::isfinite(sample.hmd_pose.pose.position.y)||
+            !std::isfinite(sample.hmd_pose.pose.position.z)||
+            !sample.cinematic_movie_epoch||!sample.hmd_pose.sequence||!renderer||!view||!camera||
+            !sample.render_device_identity||!sample.render_device_generation||
+            (last_pose&&sample.hmd_pose.sequence<last_pose)) {
+            Reset();return false;
+        }
+        const Owner next{sample.cinematic_movie_epoch,sample.native_gameplay_context_token,recenter,
+            sample.render_device_generation,reinterpret_cast<std::uintptr_t>(renderer),
+            reinterpret_cast<std::uintptr_t>(view),reinterpret_cast<std::uintptr_t>(camera),
+            sample.render_device_identity};
+        if(!entry_pose||!(owner==next)) {
+            owner=next;origin=input.position;entry_pose=sample.hmd_pose.sequence;
+        }
+        last_pose=sample.hmd_pose.sequence;
+        output=input;
+        output.position={input.position.x-origin.x,input.position.y-origin.y,input.position.z-origin.z};
+        if(!std::isfinite(output.position.x)||!std::isfinite(output.position.y)||!std::isfinite(output.position.z)) {
+            output={};Reset();return false;
+        }
+        return true;
+    }
+};
+MovieCameraPositionReference g_movie_camera_position_reference;
+struct MovieCameraReferenceFrame {
+    bool admitted=false;
+    ~MovieCameraReferenceFrame() {
+        if(!admitted)g_movie_camera_position_reference.Reset();
+    }
+};
+
 // The native script has already selected/updated its camera before this render
 // callback. Replay only the complete renderer wrapper; never update a movie,
 // player, weapon or body for an eye. The original snapshot remains authoritative
@@ -5511,9 +5560,21 @@ void RenderCameraOnlyStereo(
     struct ClearEyeOverride {
         ~ClearEyeOverride() { g_stereo_eye_override = {}; }
     } clear_eye_override;
+    runtime::Pose render_head_pose=relative_head_pose;
+    if(movie) {
+        if(!g_movie_camera_position_reference.Apply(relative_head_pose,sample,owner,view,camera,
+            g_pose_tracker.last_recenter_sequence(),render_head_pose)) {
+            InvalidateStereoEyePair();
+            ForwardNaturalRender(original,owner,view);
+            return;
+        }
+    } else g_movie_camera_position_reference.Reset();
     std::array<bool,2> captured{};
     std::array<bool,2> restored{};
     std::array<bool,2> resources_restored{};
+    // Value-only eye provenance must survive clearing the transient override.
+    std::array<bool,2> camera_applied{};
+    std::array<CameraProbeVector,2> eye_positions{};
     bool right_guard_restored=false;
     // Settings retain the already-owned actor yaw in the natural gameplay
     // camera, but never commit another actor rotation. Scripted cameras are
@@ -5551,7 +5612,7 @@ void RenderCameraOnlyStereo(
         if(index==1 && (!second_eye_enabled || !captured[0] || !restored[0] || !resources_restored[0] ||
             !RenderOwnerStillUsesView(owner,view) || CameraForView(view)!=camera))break;
         g_camera_only_restore={camera,natural_render_state};
-        ConfigureStereoEyeOverride(camera,relative_head_pose,yaw,sample.eyes[index],
+        ConfigureStereoEyeOverride(camera,render_head_pose,yaw,sample.eyes[index],
             frame_sequence,sample.hmd_pose.sequence);
         ScopedStereoEyeRender eye_render(sample.eyes[index].eye,frame_sequence);
         bool rendered=eye_render.begun();
@@ -5564,6 +5625,8 @@ void RenderCameraOnlyStereo(
         }
         const bool applied=rendered && g_stereo_eye_override.camera_applied &&
             g_stereo_eye_override.projection_applied && g_stereo_eye_override.renderer_camera_match;
+        camera_applied[index]=applied;
+        if(applied)eye_positions[index]=g_stereo_eye_override.applied_position;
         if(rendered) {
             (index==0?g_diagnostic_left_eye_renders:g_diagnostic_right_eye_renders)
                 .fetch_add(1,std::memory_order_acq_rel);
@@ -5623,10 +5686,35 @@ void RenderCameraOnlyStereo(
         g_stereo_callbacks.invalidate_frame(g_stereo_callbacks.context);
     if(!submitted || ShouldLogStereoFrame(frame_sequence)) {
         try {
+            CameraProbeBasis natural_basis{};CameraProbeVector natural_position{};
+            const bool natural_valid=ReadNaturalCameraFrame(natural_render_state,natural_basis,natural_position);
             EmitEvent("camera_only_stereo",submitted?"submitted":"rejected",
                 "frame_sequence="+std::to_string(frame_sequence)+
                 ";pose_sequence="+std::to_string(sample.hmd_pose.sequence)+
                 ";owner="+(movie?"scripted_movie":"settings")+
+                ";movie_epoch="+std::to_string(sample.cinematic_movie_epoch)+
+                ";recenter_sequence="+std::to_string(g_pose_tracker.last_recenter_sequence())+
+                ";render_owner="+std::to_string(reinterpret_cast<std::uintptr_t>(owner))+
+                ";view="+std::to_string(reinterpret_cast<std::uintptr_t>(view))+
+                ";camera="+std::to_string(reinterpret_cast<std::uintptr_t>(camera))+
+                ";natural_camera_valid="+std::to_string(natural_valid)+
+                ";natural_position="+VectorText(natural_position)+
+                ";natural_right="+VectorText(natural_basis.right)+
+                ";natural_up="+VectorText(natural_basis.up)+
+                ";natural_forward="+VectorText(natural_basis.forward)+
+                ";raw_head_position="+RuntimeVectorText(sample.hmd_pose.pose.position)+
+                ";raw_head_position_valid="+std::to_string(sample.hmd_pose.pose.position_valid)+
+                ";relative_head_position="+RuntimeVectorText(relative_head_pose.position)+
+                ";relative_head_position_valid="+std::to_string(relative_head_pose.position_valid)+
+                ";movie_head_position="+RuntimeVectorText(render_head_pose.position)+
+                ";movie_reference_pose_sequence="+std::to_string(g_movie_camera_position_reference.entry_pose)+
+                ";render_device="+std::to_string(sample.render_device_identity)+
+                ";render_device_generation="+std::to_string(sample.render_device_generation)+
+                ";actor_yaw_compensation_degrees="+std::to_string(yaw)+
+                ";left_camera_applied="+std::to_string(camera_applied[0])+
+                ";left_position="+VectorText(eye_positions[0])+
+                ";right_camera_applied="+std::to_string(camera_applied[1])+
+                ";right_position="+VectorText(eye_positions[1])+
                 ";left_captured="+std::to_string(captured[0])+
                 ";right_captured="+std::to_string(captured[1])+
                 ";left_restored="+std::to_string(restored[0])+
@@ -5643,6 +5731,9 @@ void RenderCameraOnlyStereo(
                 ";render_view_rva=0x30FB0;native_script_updates=0;gameplay_body_writes=false;visual_rays=false");
         } catch(...) {}
     }
+    if(g_camera_only_restore.camera||EyeRenderRestorationPending()||!hands_restored||!weapons_restored||
+        !RenderOwnerStillUsesView(owner,view)||CameraForView(view)!=camera)
+        g_movie_camera_position_reference.Reset();
 }
 
 void __fastcall HookRenderViewImpl(void* owner, void*, void* view);
@@ -5662,6 +5753,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         original(owner, view);
         return;
     }
+    // Every exit before admitted movie rendering retires its positional origin:
+    // tracking/focus loss, native rejection, gameplay/settings and rollback faults.
+    MovieCameraReferenceFrame movie_reference_frame;
 
     CoJStationaryFireFrame stationary_fire_frame{g_stationary_fire};
     CoJScopedRifleFireFrame scoped_rifle_fire_frame{g_scoped_rifle_fire};
@@ -5959,10 +6053,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 return;
             }
         }
+        // Admission above covers both Movie and black-belt/sequence owners;
+        // never infer retention from the existence of a Java Movie object.
+        movie_reference_frame.admitted=sample.cinematic_immersive;
         RenderCameraOnlyStereo(original,owner,view,camera,natural_render_state,
             sample,relative_head_pose,relative_left_controller,relative_right_controller,
             relative_left_aim,relative_right_aim,frame_sequence,snapshot.command.second_eye_render_enabled,
-            presentation.movie_playing);
+            sample.cinematic_immersive);
         return;
     }
     if(recentered && explicit_recenter_requested) {
@@ -9849,6 +9946,7 @@ void ShutdownCameraProbe() noexcept {
     g_render_update_override = {};
     g_stereo_eye_override = {};
     g_pose_tracker.SetEnabled(false);
+    g_movie_camera_position_reference.Reset();
     (void)UpdateLocalHeadVisibility(
         false,
         g_stereo_frame_sequence.load(std::memory_order_acquire),
