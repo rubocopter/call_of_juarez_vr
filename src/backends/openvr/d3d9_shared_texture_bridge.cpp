@@ -46,6 +46,9 @@ struct D3D9SharedTextureBridge::Impl {
 
     std::unordered_map<std::uintptr_t, ComPtr<ID3D11Texture2D>> opened{};
     std::deque<PendingCopy> pending{};
+    // Match the D3D9 producer ring's steady-state depth while bounding idle storage.
+    std::array<ComPtr<ID3D11Query>, 3> retired_copy_queries{};
+    std::size_t retired_copy_query_count = 0;
     D3D9SharedTextureBridgeStats stats{};
     std::string last_error{};
     bool fence_poll_failed = false;
@@ -62,6 +65,11 @@ struct D3D9SharedTextureBridge::Impl {
     bool force_next_recovery_poll_failure = false;
     bool force_recovery_pending = false;
 #endif
+
+    void ClearRetiredCopyQueries() noexcept {
+        retired_copy_queries = {};
+        retired_copy_query_count = 0;
+    }
 
     void RefreshDepth() noexcept {
         stats.pending_copy_fences = pending.size();
@@ -188,6 +196,7 @@ bool D3D9SharedTextureBridge::CopyFrame(
         }
         if (consumer_changed) {
             impl_->opened.clear();
+            impl_->ClearRetiredCopyQueries();
             impl_->consumer_device = device;
             impl_->consumer_context = context;
         }
@@ -244,14 +253,18 @@ bool D3D9SharedTextureBridge::CopyFrame(
         const auto open_end = std::chrono::steady_clock::now();
         timing.open_ms = MillisecondsBetween(open_begin, open_end);
 
-        D3D11_QUERY_DESC query_desc{};
-        query_desc.Query = D3D11_QUERY_EVENT;
         ComPtr<ID3D11Query> fence;
-        const HRESULT query_result = device->CreateQuery(&query_desc, &fence);
-        if (FAILED(query_result) || !fence) {
-            impl_->last_error = "D3D11 shared-copy event-query creation failed";
-            ++impl_->stats.copy_failures;
-            return false;
+        if (impl_->retired_copy_query_count != 0) {
+            fence = std::move(impl_->retired_copy_queries[--impl_->retired_copy_query_count]);
+        } else {
+            const D3D11_QUERY_DESC query_desc{D3D11_QUERY_EVENT, 0};
+            const HRESULT query_result = device->CreateQuery(&query_desc, &fence);
+            if (FAILED(query_result) || !fence) {
+                impl_->last_error = "D3D11 shared-copy event-query creation failed";
+                ++impl_->stats.copy_failures;
+                return false;
+            }
+            ++impl_->stats.copy_queries_created;
         }
 
         // Acquire deque storage and transfer the producer lease before issuing
@@ -320,9 +333,14 @@ void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
                 ++impl_->stats.copy_failures;
                 impl_->fence_poll_failed = true;
                 break;
-            } else {
-                impl_->RetireFront();
             }
+            // Reuse only after this query itself reports completion. Recovery
+            // proves copy retirement but discards the quarantined queries.
+            if (impl_->retired_copy_query_count < impl_->retired_copy_queries.size()) {
+                impl_->retired_copy_queries[impl_->retired_copy_query_count++] =
+                    std::move(impl_->pending.front().fence);
+            }
+            impl_->RetireFront();
         }
         impl_->RefreshDepth();
     } catch (...) {
@@ -387,6 +405,7 @@ void D3D9SharedTextureBridge::Shutdown(ID3D11DeviceContext* context) noexcept {
             impl_->stats.abandoned_on_shutdown += impl_->pending.size();
         }
         impl_->opened.clear();
+        impl_->ClearRetiredCopyQueries();
         impl_->RefreshDepth();
     } catch (...) {
     }

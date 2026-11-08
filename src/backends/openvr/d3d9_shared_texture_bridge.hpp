@@ -22,6 +22,7 @@ struct D3D9SharedTextureCopyTiming {
 struct D3D9SharedTextureBridgeStats {
     std::uint64_t frames_copied = 0;
     std::uint64_t resources_opened = 0;
+    std::uint64_t copy_queries_created = 0;
     std::uint64_t copy_fences_completed = 0;
     std::uint64_t copy_fence_poll_pending = 0;
     std::uint64_t open_failures = 0;

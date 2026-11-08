@@ -251,6 +251,47 @@ int main() {
         return Fail("shared-texture shutdown did not retire every queued GPU copy before releasing producer leases");
     }
 
+    {
+        // Fill the producer ring twice. Delay polling so each batch requires
+        // three distinct queries, and retire it before starting the next one.
+        cojvr::backends::d3d9::D3D9StereoCapture burst_capture;
+        cojvr::backends::openvr::D3D9SharedTextureBridge burst_bridge;
+        auto burst_frame = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        for (std::uint64_t batch = 0; batch < 2; ++batch) {
+            burst_bridge.ForceFencePendingForTest(true);
+            for (std::uint64_t slot = 0; slot < 3; ++slot) {
+                if (!CaptureGpuFrame(burst_capture, device9ex.Get(), source.Get(),
+                        3 * batch + slot + 1, *burst_frame) ||
+                    !burst_bridge.CopyFrame(device11.Get(), context11.Get(), *burst_frame,
+                        raw_destinations, timing)) {
+                    return Fail("query reuse fixture could not queue a leased GPU copy");
+                }
+            }
+            if (burst_bridge.stats().pending_copy_fences != 3 ||
+                burst_capture.stats().consumer_releases != 3 * batch) {
+                return Fail("query reuse fixture released a still-pending producer lease");
+            }
+            if (batch == 0 && burst_bridge.stats().copy_queries_created != 3) {
+                return Fail("in-flight copies did not get distinct queries");
+            }
+            burst_bridge.ForceFencePendingForTest(false);
+            for (int attempt = 0; attempt < 200; ++attempt) {
+                burst_bridge.Poll(context11.Get());
+                if (burst_bridge.stats().pending_copy_fences == 0) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (burst_bridge.stats().copy_fences_completed != 3 * (batch + 1)) {
+                return Fail("query reuse fixture did not retire every queued copy");
+            }
+        }
+        const auto burst_stats = burst_bridge.stats();
+        std::cout << "D3D11 copy queries created=" << burst_stats.copy_queries_created
+                  << ";copies=" << burst_stats.frames_copied << '\n';
+        if (burst_stats.copy_queries_created != 3) {
+            return Fail("second batch did not reuse the three retired D3D11 copy queries");
+        }
+    }
+
     // Cancelled movie/menu frames have no EndFrame. Reuse their private slot,
     // while preserving a consumer lease and a separately fenced pending pair.
     {
@@ -370,6 +411,9 @@ int main() {
                 raw_destinations, timing)) {
             return Fail("retired copies did not permit a fresh producer generation");
         }
+        if (recovering_bridge.stats().copy_queries_created != 3) {
+            return Fail("bridge reused a quarantined query after recovery");
+        }
         // A second fault keeps both source and consumer replacements deferred.
         recovering_bridge.ForceNextFencePollFailureForTest();
         recovering_bridge.ForceRecoveryFencePendingForTest(true);
@@ -459,12 +503,20 @@ int main() {
             return Fail("stale producer generation was admitted after replacement");
         }
         stale.producer_lease.Release();
-        recovering_bridge.Shutdown(context11.Get());
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            recovering_bridge.Poll(context11.Get());
+            if (recovering_bridge.stats().pending_copy_fences == 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const auto queries_before_replacement = recovering_bridge.stats().copy_queries_created;
         auto replaced_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
         auto replaced = make_probe(3, replaced_state);
         if (!recovering_bridge.CopyFrame(replacement11.Get(), replacement_context.Get(), replaced,
                 replacement_raw, timing)) {
             return Fail("retired consumer could not safely rebind its shared resources");
+        }
+        if (recovering_bridge.stats().copy_queries_created != queries_before_replacement + 1) {
+            return Fail("replacement consumer reused a query owned by the previous D3D11 device");
         }
         recovering_bridge.Shutdown(replacement_context.Get());
         recovering_capture.Shutdown();
