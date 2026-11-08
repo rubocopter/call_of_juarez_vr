@@ -18,6 +18,7 @@ struct CoJMountedMotionSnapshot {
     std::uint64_t player_generation=0; // Assigned only by the bridge.
     float forward_request=0,side_request=0,turn_rate_degrees_s=0;
     runtime::Vec3 velocity_cm_s{},rider_velocity_cm_s{};
+    runtime::Vec3 look_direction{}; // Cached Being.m_vLookDir, not rider free look.
     int speed_key_state=0,speed_state=0;
     bool run=false,rider_run=false,can_move=false,tied=false,new_player_control=false;
 };
@@ -60,12 +61,14 @@ inline bool ReadCoJMountedMotion(void* env,void* player,CoJMountedMotionSnapshot
     void* rider_run_field=r.Field(player_class,"m_bRun","Z");
     void* velocity_field=r.Field(horse_class,"m_vGlobalSpeed","LVector;");
     void* rider_velocity_field=r.Field(player_class,"m_vGlobalSpeed","LVector;");
+    void* look_field=r.Field(horse_class,"m_vLookDir","LVector;");
     if(!r.ok)return false;
     // Keep each cached vector local until both reads finish; numeric agreement
     // alone must not hide a replaced vector or reciprocal owner.
     auto velocity=r.ObjectField(horse,velocity_field);
     auto rider_velocity=r.ObjectField(player,rider_velocity_field);
-    if(!r.ok||!velocity.value||!rider_velocity.value)return false;
+    auto look=r.ObjectField(horse,look_field);
+    if(!r.ok||!velocity.value||!rider_velocity.value||!look.value)return false;
     auto vector_class=r.Class(velocity);
     std::array<void*,3> axes{};
     constexpr const char* axis_names[]{"fX","fY","fZ"};
@@ -87,6 +90,7 @@ inline bool ReadCoJMountedMotion(void* env,void* player,CoJMountedMotionSnapshot
         s.rider_run=boolean(player,rider_run_field);
         s.velocity_cm_s={r.FloatField(velocity,axes[0]),r.FloatField(velocity,axes[1]),r.FloatField(velocity,axes[2])};
         s.rider_velocity_cm_s={r.FloatField(rider_velocity,axes[0]),r.FloatField(rider_velocity,axes[1]),r.FloatField(rider_velocity,axes[2])};
+        s.look_direction={r.FloatField(look,axes[0]),r.FloatField(look,axes[1]),r.FloatField(look,axes[2])};
         return r.ok;
     };
     CoJMountedMotionSnapshot a{},b{};
@@ -99,15 +103,45 @@ inline bool ReadCoJMountedMotion(void* env,void* player,CoJMountedMotionSnapshot
         a.turn_rate_degrees_s!=b.turn_rate_degrees_s||a.speed_key_state!=b.speed_key_state||
         a.speed_state!=b.speed_state||a.run!=b.run||a.rider_run!=b.rider_run||a.can_move!=b.can_move||
         a.tied!=b.tied||a.new_player_control!=b.new_player_control||
-        !equal_vector(a.velocity_cm_s,b.velocity_cm_s)||!equal_vector(a.rider_velocity_cm_s,b.rider_velocity_cm_s))return false;
+        !equal_vector(a.velocity_cm_s,b.velocity_cm_s)||!equal_vector(a.rider_velocity_cm_s,b.rider_velocity_cm_s)||
+        !equal_vector(a.look_direction,b.look_direction))return false;
     auto velocity_after=r.ObjectField(horse,velocity_field);
     auto rider_velocity_after=r.ObjectField(player,rider_velocity_field);
-    if(!r.ok||!r.Equal(velocity,velocity_after)||!r.Equal(rider_velocity,rider_velocity_after)||!owner_matches())return false;
+    auto look_after=r.ObjectField(horse,look_field);
+    if(!r.ok||!r.Equal(velocity,velocity_after)||!r.Equal(rider_velocity,rider_velocity_after)||
+        !r.Equal(look,look_after)||!owner_matches())return false;
     a.valid=true;out=a;return true;
 }
 
 // Attempt budget, so failed observations cannot turn into unbounded retries.
 // Losing a mount does not refill it. Explicit disabling starts a new interval.
+class CoJMountedChangeTraceBudget {
+    std::uint32_t attempts_=0;
+    std::uint64_t player_=0,context_=0,frame_=0,time_=0;
+    int key_=0,pending_=0;
+    bool known_=false;
+public:
+    // Four at-most-10Hz attempts per discrete steering/forward/gait change,
+    // hard-capped per run. Failed reads consume attempts. Owner loss cancels
+    // the burst but never refills the cap. No per-frame analog-noise trigger.
+    bool Admit(bool eligible,std::uint64_t player,std::uint64_t context,
+        std::uint64_t frame,std::uint64_t now_us,runtime::Vec2 move,bool walk,bool run) noexcept {
+        if(!eligible||!player||!std::isfinite(move.x)||!std::isfinite(move.y)) {
+            known_=false;pending_=0;return false;
+        }
+        if(exhausted()||!frame||!now_us||frame<=frame_)return false;
+        if(time_&&now_us<time_) {time_=now_us;known_=false;pending_=0;return false;}
+        const auto sign=[](float x){return x>.04F?2:x<-.04F?1:0;};
+        const int key=sign(move.x)+3*sign(move.y)+9*walk+18*run;
+        if(!known_||player!=player_||context!=context_||key!=key_)pending_=4;
+        known_=true;player_=player;context_=context;key_=key;
+        if(!pending_||(attempts_&&now_us-time_<100000))return false;
+        --pending_;++attempts_;time_=now_us;frame_=frame;return true;
+    }
+    [[nodiscard]] std::uint32_t attempts()const noexcept{return attempts_;}
+    [[nodiscard]] bool exhausted()const noexcept{return attempts_>=128;}
+};
+
 class CoJMountedTraceBudget {
     std::uint32_t attempts_=0;
     std::uint64_t frame_=0,time_=0;

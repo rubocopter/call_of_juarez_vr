@@ -414,7 +414,7 @@ public:
     // Exact stable native hand owner; ActiveWeapon aliases gain no second map.
     [[nodiscard]] bool TryObserveBowAimOwner(int& hand,
         std::string* error = nullptr) noexcept;
-    [[nodiscard]] bool TryObserveBowDraw(CoJBowDrawNativeObservation& observation) noexcept;
+    [[nodiscard]] bool TryObserveBowDraw(bool mounted, CoJBowDrawNativeObservation& observation) noexcept;
     [[nodiscard]] bool TryPublishBowDrawHold(bool held, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,

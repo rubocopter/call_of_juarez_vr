@@ -11,9 +11,10 @@ struct CoJBowDrawFrame {
     std::array<float,3> position{},right{1,0,0},up{0,1,0},forward{0,0,1};
     bool valid=false;
 };
-enum class CoJBowDrawNativeGate { unavailable,alt_start,not_alt_move,native_denied,right_released,ready };
+enum class CoJBowDrawNativeGate { unavailable,mounted_denied,alt_start,not_alt_move,native_denied,right_released,ready };
 inline const char* CoJBowDrawNativeGateName(CoJBowDrawNativeGate gate) noexcept {
     switch(gate){
+    case CoJBowDrawNativeGate::mounted_denied:return "mounted_denied";
     case CoJBowDrawNativeGate::alt_start:return "alt_start";
     case CoJBowDrawNativeGate::not_alt_move:return "not_alt_move";
     case CoJBowDrawNativeGate::native_denied:return "native_denied";
@@ -61,7 +62,7 @@ inline bool Rigid(const CoJBowDrawFrame& frame) noexcept {
 // Observation stays valid through unready/attack states; no timer, animation
 // fraction, setters, native attack invocation or shot completion is inferred.
 inline bool ReadCoJBowDrawNative(void* env,void* player,CoJBowDrawNativeObservation& out,
-    CoJBowDrawReadFrame read_frame,void* context) noexcept {
+    CoJBowDrawReadFrame read_frame,void* context,bool mounted=false) noexcept {
     using namespace bow_aim_detail;
     out={};
     if(!env||!player||!read_frame||!*static_cast<void***>(env))return false;
@@ -74,11 +75,19 @@ inline bool ReadCoJBowDrawNative(void* env,void* player,CoJBowDrawNativeObservat
     void* actual=r.Lookup(cls.value,"GetActualWeaponNotEmpty","(I)LWeapon;");
     void* state=r.Lookup(cls.value,"GetHandStateMashineState","(I)I");
     void* permission=r.Lookup(cls.value,"CanAttack","(I)Z");
-    void* held=r.Lookup(cls.value,"GetAttackState","(I)Z");if(!r.ok)return false;
+    void* held=r.Lookup(cls.value,"GetAttackState","(I)Z");
+    // The original bow tension path enters TurnOnAlternateFire, which checks
+    // CanUseTwoHandedWeapon via CanTurnOnAlternateFire. That permission owns
+    // mounted gait and movement restrictions, independently of CanAttack(1).
+    void* riding=mounted?r.Lookup(cls.value,"IsRidingHorse","()Z"):nullptr;
+    void* alternate=mounted?r.Lookup(cls.value,"CanTurnOnAlternateFire","()Z"):nullptr;
+    if(!r.ok)return false;
     auto bow=r.Get(player,actual,1);if(!r.ok||!bow.value)return false;
     CoJBowAimOwner bound{};
     if(!ReadCoJBowAimOwner(env,player,bound,bow.value)||bound.hand!=1||
         bound.holder_element!=owner.holder_element)return false;
+    if(mounted&&!r.Boolean(player,riding))return false;
+    const bool can_draw=!mounted||r.Boolean(player,alternate);
     Reader::Local bow_class{r,r.Fn<Class>(31)(env,bow.value)};
     if(!r.Check()||!bow_class.value)return false;
     void* identity=r.Lookup(bow_class.value,"GetThisID","()I");
@@ -110,11 +119,13 @@ inline bool ReadCoJBowDrawNative(void* env,void* player,CoJBowDrawNativeObservat
     const bool can_after=r.Boolean(player,permission,&left);
     const bool held_after=r.Boolean(player,held,&right);
     const int arrow_after=r.Integer(bow.value,element,&arrow_arg);
+    if(mounted&&(!r.Boolean(player,riding)||r.Boolean(player,alternate)!=can_draw))return false;
     if(!r.ok||id_after!=sample.weapon_id||state_after!=sample.current_state||
         can_after!=sample.can_attack||held_after!=sample.held_right||arrow_after!=sample.arrow_element)return false;
     // Exact WeaponOperate.def: ALT_START=131, ALT_MOVE=129. The alt bit
     // alone also admits reload/wall/attack transitions and is insufficient.
-    sample.gate=sample.current_state==131?CoJBowDrawNativeGate::alt_start:
+    sample.gate=!can_draw?CoJBowDrawNativeGate::mounted_denied:
+        sample.current_state==131?CoJBowDrawNativeGate::alt_start:
         sample.current_state!=129?CoJBowDrawNativeGate::not_alt_move:
         !sample.can_attack?CoJBowDrawNativeGate::native_denied:
         !sample.held_right?CoJBowDrawNativeGate::right_released:CoJBowDrawNativeGate::ready;

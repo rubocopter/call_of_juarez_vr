@@ -23,6 +23,7 @@ std::map<void*,int> locals;
 std::vector<int> required_null_steps;
 int refs=0,steps=0,fail=-1,frame_calls=0,frame_fail=-1,change=0;
 bool pending=false,exact=true,dead=false,carrying=false,can_attack=true,held_right=true,silent_null=false;
+bool mounted=false,expected_mounted=false,can_turn_on_alternate=true;
 bool two[2]{false,true};int owner=1,state=129,holder_id=1,arrow_id=2;
 std::uint32_t id=0xf1234567U;
 CoJBowDrawFrame frames[3]{};
@@ -66,6 +67,8 @@ std::uint8_t JNI_CALL Boolean(void*,void* p,void* m,const Value* args){if(!Step(
     Require(p==&player,"wrong boolean owner");auto n=static_cast<const char*>(m);
     if(!std::strcmp(n,"IsNotAlive"))return dead;
     if(!std::strcmp(n,"IsCarrying"))return carrying;
+    if(!std::strcmp(n,"IsRidingHorse")){Require(!args,"mounted observation takes no arguments");return mounted;}
+    if(!std::strcmp(n,"CanTurnOnAlternateFire")){Require(!args,"alternate permission takes no arguments");return can_turn_on_alternate;}
     if(!std::strcmp(n,"CanAttack")){Require(args&&args[0].integer==1,"wrong permission hand");return can_attack;}
     if(!std::strcmp(n,"GetAttackState")){Require(args&&args[0].integer==0,"wrong held-right hand");return held_right;}
     Require(std::strstr(n,"OperatedTwoHand")&&args,"unexpected boolean getter");return two[args[0].integer];}
@@ -76,17 +79,21 @@ bool Frame(void*,void* env,void* p,int element,CoJBowDrawFrame& out) noexcept {
     out=frames[element];
     if(frame_calls==3){if(change==1)actual[1]=desired[1]=active[1]=&replacement;
         if(change==2)++state;if(change==3)++id;if(change==4)held_right=!held_right;
-        if(change==5)can_attack=!can_attack;if(change==6)++arrow_id;if(change==7)++holder_id;}
+        if(change==5)can_attack=!can_attack;if(change==6)++arrow_id;if(change==7)++holder_id;
+        if(change==8)mounted=false;if(change==9)can_turn_on_alternate=!can_turn_on_alternate;}
     return true;
 }
 void Reset(){Require(refs==0&&!pending&&locals.empty(),"previous read leaked refs/exception");
     steps=0;fail=-1;frame_calls=0;frame_fail=-1;change=0;silent_null=false;
     required_null_steps.clear();
     exact=true;dead=carrying=false;can_attack=held_right=true;two[0]=false;two[1]=true;
+    mounted=expected_mounted=false;can_turn_on_alternate=true;
     owner=1;state=129;holder_id=1;arrow_id=2;id=0xf1234567U;
     active[0]=&alias;actual[0]=desired[0]=nullptr;active[1]=actual[1]=desired[1]=&bow;
     for(int i=0;i<3;++i){frames[i]={};frames[i].position={float(i),2,3};frames[i].valid=true;}}
-bool Read(CoJBowDrawNativeObservation& out){return ReadCoJBowDrawNative(&holder,&player,out,Frame,nullptr);}
+bool Read(CoJBowDrawNativeObservation& out){
+    return ReadCoJBowDrawNative(&holder,&player,out,Frame,nullptr,expected_mounted);
+}
 void Rejected(CoJBowDrawNativeObservation& out,const char* why){out.valid=true;out.weapon_id=19;
     Require(!Read(out)&&!out.valid&&out.weapon_id==0,why);Require(refs==0&&!pending,"rejection leaked refs/exception");}
 }
@@ -108,6 +115,28 @@ int main(){
     Reset();can_attack=false;Require(Read(out)&&out.valid&&!out.release_ready&&out.gate==CoJBowDrawNativeGate::native_denied,"native permission bypass");
     Reset();held_right=false;Require(Read(out)&&out.valid&&!out.release_ready&&out.gate==CoJBowDrawNativeGate::right_released,"missing right hold bypass");
     Require(!std::strcmp(CoJBowDrawNativeGateName(out.gate),"right_released"),"unstable gate log name");
+    Reset();can_turn_on_alternate=false;
+    Require(Read(out)&&out.release_ready,"mounted gate changed the on-foot route");
+    Reset();mounted=expected_mounted=true;
+    Require(Read(out)&&out.valid&&out.release_ready,"permitted mounted bow did not retain native release route");
+    const int mounted_calls=steps;
+    const auto mounted_null_calls=required_null_steps;
+    Reset();mounted=expected_mounted=true;can_turn_on_alternate=false;state=1;
+    Require(Read(out)&&out.valid&&!out.release_ready&&out.gate==CoJBowDrawNativeGate::mounted_denied,
+        "mounted native alternate permission bypassed before draw");
+    Reset();mounted=expected_mounted=true;can_turn_on_alternate=false;
+    Require(Read(out)&&out.valid&&!out.release_ready&&out.gate==CoJBowDrawNativeGate::mounted_denied,
+        "mounted native alternate permission bypassed on release");
+    Reset();mounted=expected_mounted=true;can_attack=false;
+    Require(Read(out)&&out.valid&&!out.release_ready&&out.gate==CoJBowDrawNativeGate::native_denied,
+        "mounted alternate permission bypassed native attack denial");
+    Reset();expected_mounted=true;Rejected(out,"unconfirmed mounted route admitted");
+    for(int c:{8,9}){Reset();mounted=expected_mounted=true;change=c;
+        Rejected(out,"mounted owner or permission changed during observation");}
+    for(int f=1;f<=mounted_calls;++f){Reset();mounted=expected_mounted=true;fail=f;
+        Rejected(out,"mounted JNI exception admitted");}
+    for(int f:mounted_null_calls){Reset();mounted=expected_mounted=true;fail=f;silent_null=true;
+        Rejected(out,"required mounted JNI null without exception admitted");}
     for(auto bad:{0U,0xffffffffU}){Reset();id=bad;Rejected(out,"invalid native identity admitted");}
     for(int c=1;c<=7;++c){Reset();change=c;Rejected(out,"unstable owner/state/identity/element admitted");}
     Reset();exact=false;Rejected(out,"derived/foreign class admitted");

@@ -1710,4 +1710,6 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME duel_input_native COMMAND "${COJVR_PYTHON_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/duel_input_native.py"
         --mapping-executable "$<TARGET_FILE:cojvr_duel_input_test>")
+    add_test(NAME mounted_native_gait COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B
+        "${CMAKE_SOURCE_DIR}/tests/mounted_native_gait.py")
 endif()

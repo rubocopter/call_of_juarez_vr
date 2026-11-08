@@ -20,8 +20,8 @@ float velocity=800.F;
 using Value=long_gun_observer_detail::Value;
 constexpr const char* names[]{"m_cHorse","m_cHorseman","m_fFwdLocalSpeed","m_fSideLocalSpeed",
     "m_fCurrentTurnSpeed","m_iSpeedKeyState","m_iSpeedState","m_bRun","m_bCanMove",
-    "bTied","m_bNewPlayerControl","m_vGlobalSpeed","fX","fY","fZ"};
-constexpr const char* descriptors[]{"LHorse;","LHumanBeing;","F","F","F","I","I","Z","Z","Z","Z","LVector;","F","F","F"};
+    "bTied","m_bNewPlayerControl","m_vGlobalSpeed","fX","fY","fZ","m_vLookDir"};
+constexpr const char* descriptors[]{"LHorse;","LHumanBeing;","F","F","F","I","I","Z","Z","Z","Z","LVector;","F","F","F","LVector;"};
 bool Step(){Require(!pending,"JNI call issued with pending exception");++steps;
     if(steps==change_at)mounted=false;
     if(steps==drift_at)velocity=801.F;
@@ -33,7 +33,7 @@ void __stdcall Clear(void*){pending=false;}
 void* __stdcall Class(void*,void*){const bool ok=Step();return ok||failed_ref?Local(P(200)):nullptr;}
 void* __stdcall Field(void*,void*,const char* name,const char* descriptor){
     if(!Step())return nullptr;
-    for(int i=0;i<15;++i)if(!std::strcmp(name,names[i])){
+    for(int i=0;i<16;++i)if(!std::strcmp(name,names[i])){
         Require(!std::strcmp(descriptor,descriptors[i]),"wrong shipped field descriptor");return P(i+1);}
     Require(false,"observer queried a field outside the native contract");return nullptr;
 }
@@ -47,6 +47,7 @@ void* __stdcall Object(void*,void* object,void* field){
     if(f==1){Require(object==P(100),"mount read on foreign rider");++horse_reads;return Local(mounted?(aliases&&horse_reads>1?P(102):P(101)):nullptr);}
     if(f==2)return Local(reciprocal?P(100):P(103));
     if(f==12)return Local(null_vector?nullptr:object==P(100)?P(301):P(300));
+    if(f==16)return Local(null_vector?nullptr:P(302));
     Require(false,"unexpected object field");return nullptr;
 }
 unsigned char __stdcall Same(void*,void* a,void* b){
@@ -67,6 +68,7 @@ float __stdcall FloatField(void*,void* object,void* field){
     if(field==P(nonfinite_field))return std::numeric_limits<float>::quiet_NaN();
     if(field==P(3))return 1.F;if(field==P(4))return -.25F;if(field==P(5))return -35.F;
     Require(field==P(13)||field==P(14)||field==P(15),"unexpected scalar field");
+    if(object==P(302))return field==P(15)?1.F:0.F;
     if(object==P(300)&&field==P(13)&&!first_velocity_step)first_velocity_step=steps;
     return field==P(13)?(object==P(300)?velocity:10.F):field==P(14)?0.F:20.F;
 }
@@ -84,6 +86,8 @@ int main(){
     CoJMountedMotionSnapshot s{};
     Reset();Require(ReadCoJMountedMotion(&env,P(100),s)&&s.valid&&s.player_id==player_id&&s.horse_id==horse_id,
         "mounted native state unavailable or LAA identities lost");
+    Require(s.look_direction.x==0&&s.look_direction.y==0&&s.look_direction.z==1,
+        "native horse heading was not read from cached look direction");
     Require(s.forward_request==1&&s.side_request==-.25F&&s.turn_rate_degrees_s==-35&&
         s.speed_key_state==4&&s.speed_state==0x82&&s.run&&s.rider_run&&s.can_move&&!s.tied&&s.new_player_control&&
         s.velocity_cm_s.x==800&&s.velocity_cm_s.z==20&&s.rider_velocity_cm_s.x==10,
@@ -112,6 +116,20 @@ int main(){
         Require(!ReadCoJMountedMotion(&env,P(100),s)&&steps==0,"missing JNI ABI partially executed");Empty(s);table[slot]=old;}
     Reset();pending=true;Require(!ReadCoJMountedMotion(&env,P(100),s)&&!pending&&refs.empty(),"entry exception survived observer");Empty(s);
     Reset();Require(!ReadCoJMountedMotion(nullptr,P(100),s)&&!ReadCoJMountedMotion(&env,nullptr,s),"null owner/env admitted");
+    CoJMountedChangeTraceBudget changes;
+    Require(changes.Admit(true,1,1,1,1000000,{0,1},true,false),"mounted change did not start readback burst");
+    Require(!changes.Admit(true,1,1,1,1100000,{0,1},true,false),"duplicate mounted frame admitted");
+    Require(!changes.Admit(true,1,1,2,1099999,{0,1},true,false),"mounted readback exceeded 10Hz");
+    for(std::uint64_t n=1;n<=3;++n)
+        Require(changes.Admit(true,1,1,n+1,1000000+n*100000,{0,1},true,false),"mounted response burst missing");
+    Require(!changes.Admit(true,1,1,5,1400000,{0,1},true,false),"unchanged mounted input kept polling");
+    Require(changes.Admit(true,1,1,6,1500000,{-.8F,1},true,false),"native LEFT change unobserved");
+    Require(changes.Admit(true,1,1,7,1600000,{.8F,-1},false,true),"native RIGHT/reverse/gallop change unobserved");
+    Require(!changes.Admit(false,1,1,8,1700000,{},false,false),"unknown owner admitted mounted readback");
+    for(std::uint64_t n=0;n<122;++n)
+        Require(changes.Admit(true,2,1,n+9,1800000+n*100000,{n%2?.8F:-.8F,1},true,false),"mounted change budget ended early");
+    Require(changes.attempts()==128&&changes.exhausted()&&
+        !changes.Admit(true,3,1,999,99999999,{0,0},true,false),"mount replacement refilled readback cap");
     CoJMountedTraceBudget budget;
     Require(!budget.Admit(false,true,1,1000000)&&!budget.Admit(true,false,1,1000000),"disabled/ineligible trace admitted");
     Require(budget.Admit(true,true,1,1000000)&&!budget.Admit(true,true,1,1100000)&&

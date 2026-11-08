@@ -160,7 +160,7 @@ class NativeFixture:
                 stack.append(entry[1] if entry[0] != 'String' else pool.utf8(entry[1]))
             elif op == 0x59: stack.append(stack[-1])
             elif op == 0x57: stack.pop()
-            elif op == 0x32: i = stack.pop(); stack.append(stack.pop()[i])
+            elif op in (0x30, 0x32): i = stack.pop(); stack.append(stack.pop()[i])
             elif op in (0x4f, 0x54): v = stack.pop(); i = stack.pop(); stack.pop()[i] = v
             elif op in (0xbc, 0xbd):
                 pc += 1 if op == 0xbc else 2

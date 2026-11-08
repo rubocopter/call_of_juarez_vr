@@ -15,7 +15,7 @@ EVENT = re.compile(r'camera_probe_event: event=(\w+) result=(\w+) detail=(.*)$')
 # Retain malformed diagnostic results for rejection rather than silently
 # filtering them out with the legacy event grammar.
 STRICT_OBSERVATION_EVENT = re.compile(
-    r'camera_probe_event: event=(indexed_native_reload|winchester_loading_geometry|mounted_native_motion) result=(.*?) detail=(.*)$')
+    r'camera_probe_event: event=(indexed_native_reload|winchester_loading_geometry|mounted_native_motion|mounted_comfort_motion) result=(.*?) detail=(.*)$')
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
 END = re.compile(r'run_end: run_id=(\S+)(?:\s|$)')
 RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$')
@@ -156,17 +156,19 @@ def read_events(log, evidence, *, extra_events=()):
             inside = False
         match = STRICT_OBSERVATION_EVENT.search(line) or EVENT.search(line)
         feedback = RENDER_FEEDBACK.search(line) if not match else None
-        if (inside and 'mounted_native_motion' in extra_events and not match and
-                'camera_probe_event: event=mounted_native_motion' in line):
-            events.append(dict(line=number, event='mounted_native_motion', result='', fields={},
-                               parse_issues=['malformed_event_envelope']))
-            continue
+        if inside and not match:
+            malformed_mount = next((name for name in ('mounted_native_motion', 'mounted_comfort_motion')
+                                    if name in extra_events and f'camera_probe_event: event={name}' in line), None)
+            if malformed_mount:
+                events.append(dict(line=number, event=malformed_mount, result='', fields={},
+                                   parse_issues=['malformed_event_envelope']))
+                continue
         if inside and ((match and match[1] in RELEVANT.union(extra_events)) or feedback):
             # Error descriptions can contain semicolons/key-like text. Treat the
             # trailing opaque detail as data, never extra telemetry or instructions.
             fields, parse_issues = {}, []
             strict = bool(match and match[1] in ('indexed_native_reload', 'winchester_loading_geometry',
-                                                 'mounted_native_motion'))
+                                                 'mounted_native_motion', 'mounted_comfort_motion'))
             for pair in (match[3] if match else feedback[2]).split(';'):
                 if '=' not in pair:
                     if strict:

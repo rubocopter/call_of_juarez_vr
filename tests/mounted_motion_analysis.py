@@ -112,6 +112,23 @@ class MountedAnalysisTests(unittest.TestCase):
         self.assertFalse(sample['same_frame_response_proven'])
         json.dumps(report, allow_nan=False)
 
+    def test_comfort_stream_keeps_gait_and_horse_heading_separate_from_full_trace(self):
+        def comfort(**changes):
+            fields = dict(comfort_schema=1, mapped_walk='true', record_limit=128,
+                          native_horse_look_direction='0,0,1', **spatial())
+            fields.update(changes)
+            return mounted(**fields).replace('event=mounted_native_motion', 'event=mounted_comfort_motion')
+
+        self.evidence([comfort(), mounted(),
+                       comfort(frame_sequence=15, monotonic_us=1200000, record_index=2,
+                               native_horse_look_direction='1,0,0', mapped_walk='false')])
+        report = analyze_evidence(self.root, comfort=True)
+        self.assertEqual(report['summary']['valid_samples'], 2)
+        self.assertEqual(report['summary']['comparable_pairs'], 1)
+        self.assertEqual(report['spatial_pairs'][0]['horse_look_signed_yaw_delta_degrees'], -90)
+        self.assertTrue(report['observations'][0]['mapped_walk'])
+        self.assertFalse(report['observations'][1]['mapped_walk'])
+
     def test_spatial_missing_endpoint_or_mount_change_never_creates_pair(self):
         report = self.evidence([mounted(**spatial()),
             mounted(frame_sequence=15, monotonic_us=1200000, record_index=2,

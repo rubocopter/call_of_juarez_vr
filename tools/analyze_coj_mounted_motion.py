@@ -13,6 +13,7 @@ import re
 from analyze_coj_manual_reload import digest, read_events, verify_inventory
 
 EVENT = 'mounted_native_motion'
+COMFORT_EVENT = 'mounted_comfort_motion'
 SOURCE = 'post_input_pre_simulation_cached_fields'
 MAX_RECORDS = 2048
 # A 10 Hz trace may skip samples in normal operation. Beyond this interval,
@@ -95,6 +96,11 @@ def validated_sample(event):
         raise ValueError('invalid_result')
     spatial_schema = bool(set(fields) & (SPATIAL_FIELDS | SPATIAL_VECTOR.keys()))
     expected = COMMON_FIELDS | (NATIVE_FIELDS if result == 'observed' else set())
+    comfort = event['event'] == COMFORT_EVENT
+    if comfort:
+        expected |= {'comfort_schema', 'mapped_walk'}
+        if result == 'observed':
+            expected.add('native_horse_look_direction')
     if spatial_schema:
         expected |= SPATIAL_FIELDS
         if fields.get('spatial_valid') == 'true':
@@ -112,6 +118,12 @@ def validated_sample(event):
         sample[key] = parse_vector(fields[key], count)
     for key in COMMON_BOOL:
         sample[key] = parse_bool(fields[key])
+    if comfort:
+        if fields['comfort_schema'] != '1' or not spatial_schema:
+            raise ValueError('invalid_comfort_contract')
+        sample['mapped_walk'] = parse_bool(fields['mapped_walk'])
+        if result == 'observed':
+            sample['native_horse_look_direction'] = parse_vector(fields['native_horse_look_direction'], 3)
     sample['spatial_observation_version'] = 0
     sample['spatial_valid'] = False
     if spatial_schema:
@@ -150,9 +162,9 @@ def validated_sample(event):
     if (not sample['read_only'] or sample['same_frame_response_proven'] or
             sample['sample_valid'] != (result == 'observed')):
         raise ValueError('invalid_observation_contract')
-    if (sample['record_limit'] != MAX_RECORDS or
-            not 1 <= sample['record_index'] <= MAX_RECORDS or
-            sample['budget_exhausted'] != (sample['record_index'] == MAX_RECORDS)):
+    limit = 128 if comfort else MAX_RECORDS
+    if (sample['record_limit'] != limit or not 1 <= sample['record_index'] <= limit or
+            sample['budget_exhausted'] != (sample['record_index'] == limit)):
         raise ValueError('invalid_budget')
     if (not sample['frame_sequence'] or not sample['native_context'] & 1 or
             not sample['monotonic_us']):
@@ -210,6 +222,13 @@ def transition(kind, before, after):
                 same_frame_response_proven=False)
 
 
+def signed_yaw(forward_a, forward_b):
+    if math.hypot(forward_a[0], forward_a[2]) <= 0.05 or math.hypot(forward_b[0], forward_b[2]) <= 0.05:
+        return None
+    return math.degrees(math.atan2(forward_a[0]*forward_b[2]-forward_a[2]*forward_b[0],
+                                  forward_a[0]*forward_b[0]+forward_a[2]*forward_b[2]))
+
+
 def spatial_pair(before, after):
     """World position chords and natural-camera yaw across admitted endpoints."""
     elapsed = (after['monotonic_us'] - before['monotonic_us']) / 1_000_000
@@ -217,38 +236,38 @@ def spatial_pair(before, after):
                                       after['rider_world_position_cm'])]
     camera_delta = [b-a for a, b in zip(before['natural_camera_position_cm'],
                                        after['natural_camera_position_cm'])]
-    forward_a = before['natural_camera_forward']
-    forward_b = after['natural_camera_forward']
-    yaw = None
-    if math.hypot(forward_a[0], forward_a[2]) > 0.05 and math.hypot(forward_b[0], forward_b[2]) > 0.05:
-        yaw = math.degrees(math.atan2(forward_a[0]*forward_b[2]-forward_a[2]*forward_b[0],
-                                      forward_a[0]*forward_b[0]+forward_a[2]*forward_b[2]))
-    return dict(before_line=before['line'], after_line=after['line'],
+    pair = dict(before_line=before['line'], after_line=after['line'],
                 elapsed_us=after['monotonic_us']-before['monotonic_us'],
                 rider_displacement_cm=rider_delta,
                 rider_horizontal_chord_speed_cm_s=math.hypot(rider_delta[0], rider_delta[2])/elapsed,
                 rider_3d_chord_speed_cm_s=math.hypot(*rider_delta)/elapsed,
                 natural_camera_displacement_cm=camera_delta,
                 natural_camera_horizontal_chord_speed_cm_s=math.hypot(camera_delta[0], camera_delta[2])/elapsed,
-                natural_camera_signed_yaw_delta_degrees=yaw,
+                natural_camera_signed_yaw_delta_degrees=signed_yaw(before['natural_camera_forward'],
+                                                                  after['natural_camera_forward']),
                 mapped_turn_before=before['mapped_turn'], mapped_turn_after=after['mapped_turn'],
                 native_side_request_before=before['native_side_request'],
                 native_side_request_after=after['native_side_request'],
                 native_turn_degrees_s_before=before['native_turn_degrees_s'],
                 native_turn_degrees_s_after=after['native_turn_degrees_s'],
                 same_frame_response_proven=False)
+    if 'native_horse_look_direction' in before and 'native_horse_look_direction' in after:
+        pair['horse_look_signed_yaw_delta_degrees'] = signed_yaw(before['native_horse_look_direction'],
+                                                                after['native_horse_look_direction'])
+    return pair
 
 
-def analyze_evidence(directory):
+def analyze_evidence(directory, *, comfort=False):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
-    events = read_events(paths['runtime/cojvr.log'], evidence, extra_events={EVENT})
+    stream = COMFORT_EVENT if comfort else EVENT
+    events = read_events(paths['runtime/cojvr.log'], evidence, extra_events={stream})
     issues, observations, transitions, spatial_pairs = [], [], [], []
     counts = dict(valid_samples=0, unavailable_samples=0, rejected_samples=0,
                   comparable_pairs=0, spatial_samples=0, spatial_pairs=0)
     previous = None
     for event in events:
-        if event['event'] != EVENT:
+        if event['event'] != stream:
             continue
         try:
             sample = validated_sample(event)
@@ -282,7 +301,7 @@ def analyze_evidence(directory):
                     transitions.append(transition('native_reins_sign_changed', previous, sample))
         previous = sample
     counts['issue_count'] = len(issues)
-    return dict(schemaVersion=2, analysis_type='cojvr-offline-mounted-motion',
+    return dict(schemaVersion=2, analysis_type='cojvr-offline-mounted-motion', stream=stream,
                 headset_validated=False,
                 provenance=dict(verified=True, runId=evidence['runId'],
                                 buildManifestId=evidence['buildManifestId'],
@@ -307,6 +326,7 @@ def analyze_evidence(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('evidence_directory', type=Path)
+    parser.add_argument('--comfort', action='store_true', help='Analyze bounded mounted comfort bursts')
     parser.add_argument('--output', required=True, type=Path,
                         help='New JSON file outside the inventoried evidence directory')
     args = parser.parse_args()
@@ -314,7 +334,7 @@ def main():
         if (args.output.resolve().is_relative_to(args.evidence_directory.resolve()) or
                 args.output.exists()):
             raise ValueError('Output must be a new file outside the evidence directory')
-        report = analyze_evidence(args.evidence_directory)
+        report = analyze_evidence(args.evidence_directory, comfort=args.comfort)
         with args.output.open('x', encoding='utf-8') as output:
             json.dump(report, output, indent=2, allow_nan=False)
             output.write('\n')

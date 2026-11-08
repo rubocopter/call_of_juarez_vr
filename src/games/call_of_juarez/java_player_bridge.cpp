@@ -4086,7 +4086,7 @@ bool JavaPlayerBridge::TryPublishBowDrawHold(bool held,std::string* error) noexc
     return true;
 }
 
-bool JavaPlayerBridge::TryObserveBowDraw(CoJBowDrawNativeObservation& out) noexcept {
+bool JavaPlayerBridge::TryObserveBowDraw(bool mounted,CoJBowDrawNativeObservation& out) noexcept {
     out={};
     if(!being_||independent_hand_faulted_||weapon_overlay_faulted_||
         !weapon_overlays_[1].applied||weapon_overlays_[1].bow_holder_element<0||
@@ -4101,7 +4101,7 @@ bool JavaPlayerBridge::TryObserveBowDraw(CoJBowDrawNativeObservation& out) noexc
         target.right={u.y*f.z-u.z*f.y,u.z*f.x-u.x*f.z,u.x*f.y-u.y*f.x};target.valid=true;
         return true;
     };
-    if(!ReadCoJBowDrawNative(env,player,out,frame,this)||player!=being_||generation!=being_generation_||
+    if(!ReadCoJBowDrawNative(env,player,out,frame,this,mounted)||player!=being_||generation!=being_generation_||
         !ValidateTrackedBowOwner(1,nullptr)){out={};return false;}
     return true;
 }

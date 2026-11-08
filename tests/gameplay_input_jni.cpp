@@ -12,6 +12,7 @@
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/input_dispatch_diagnostics.hpp"
 #include "games/call_of_juarez/scoped_rifle_fire.hpp"
+#include "games/call_of_juarez/mounted_input.hpp"
 #define private public
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #undef private
@@ -414,6 +415,139 @@ int main() {
     const auto gaze_commits=commits;
     ok &= Check(careful_bridge.TryApplyGameplayInput(careful,&error,CoJInputDispatchPhase::non_fire,1) &&
         commits==gaze_commits, "unchanged careful locomotion caused another native transaction");
+    // Exercise mounted comfort through the production dispatcher, including
+    // native directional actions and the existing release-qualified R1 owner.
+    {
+        CoJMountedInputComfort comfort;
+        JavaPlayerBridge horse_bridge;Bind(horse_bridge);
+        auto physical=cojvr::runtime::GameplayInputState{};
+        physical.active=physical.move_available=true;
+        (void)comfort.Update(physical,true,true,7,false);
+        for(float forward:{-1.F,1.F})for(float sign:{-1.F,1.F}) {
+            physical.move={sign*.12F,forward};
+            auto safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(safe.move.x==0&&safe.move.y==forward&&safe.walk,
+                "small mounted forward/reverse diagonal activated full native reins or fast gait");
+            ok &= Check(horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[6]==0&&native_analog_values[7]==0,
+                "mounted diagonal corridor did not reach native zero reins");
+            physical.move={sign*.8F,forward};safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(safe.move.x==physical.move.x&&horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[sign<0?7:6]>0&&native_analog_values[sign<0?6:7]==0,
+                "deliberate mounted steer lost its native signed directional action");
+            physical.move={sign*.45F,forward};
+            ok &= Check(comfort.Update(physical,true,true,7,false).move.x==physical.move.x,
+                "mounted steer did not retain deliberate input inside hysteresis band");
+            physical.move={sign*.3F,forward};
+            ok &= Check(comfort.Update(physical,true,true,7,false).move.x==0,
+                "mounted reins did not release into forward/reverse corridor");
+            physical.move={sign*.45F,forward};
+            ok &= Check(comfort.Update(physical,true,true,7,false).move.x==0,
+                "mounted reins chattered back on below enter threshold");
+            physical.move={};safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[4]==0&&native_analog_values[5]==0&&
+                native_analog_values[6]==0&&native_analog_values[7]==0,
+                "centered mounted stick failed to release every native movement axis");
+        }
+        // Captured left attempts started with a small negative Y. Horse treats
+        // any delivered reverse as a different turn direction at low speed.
+        for (const float sign : {-1.F, 1.F}) {
+            physical.move={sign*.212F,-.082F};
+            auto safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[4]==0&&native_analog_values[5]==0&&
+                native_analog_values[6]==0&&native_analog_values[7]==0,
+                "mounted lateral onset issued reverse before the reins engaged");
+            const int rein=sign<0?7:6;
+            const int other_rein=sign<0?6:7;
+            for (const auto move : {cojvr::runtime::Vec2{sign*.467F,-.059F},
+                     cojvr::runtime::Vec2{sign*.933F,-.362F}}) {
+                physical.move=move;
+                safe=comfort.Update(physical,true,true,7,false);
+                ok &= Check(safe.walk&&horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                    native_analog_values[4]==0&&native_analog_values[5]==0&&
+                    native_analog_values[rein]>0&&native_analog_values[other_rein]==0,
+                    "shallow mounted diagonal sent reverse with the native rein");
+            }
+            physical.move={sign*.65F,-.76F};
+            safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[4]==0&&native_analog_values[5]>0&&
+                native_analog_values[rein]>0&&native_analog_values[other_rein]==0,
+                "deliberate mounted reverse steer lost reverse or its native rein");
+            physical.move={sign*.93F,.06F};
+            safe=comfort.Update(physical,true,true,7,false);
+            ok &= Check(horse_bridge.TryApplyGameplayInput(safe,&error)&&
+                native_analog_values[4]>0&&native_analog_values[5]==0&&
+                native_analog_values[rein]>0&&native_analog_values[other_rein]==0,
+                "mounted forward steer lost forward or retained the native reverse action");
+            physical.move={};
+            (void)comfort.Update(physical,true,true,7,false);
+        }
+        physical.move={.8F,1};
+        (void)comfort.Update(physical,true,true,7,false);
+        auto unknown=comfort.Update(physical,false,false,7,true);
+        ok &= Check(unknown.move.x==0&&unknown.move.y==0&&!unknown.walk&&!unknown.run,
+            "unknown mount owner retained movement or synthetic gait");
+        ok &= Check(comfort.Update(physical,true,true,8,false).move.x==0,
+            "new mounted player inherited a held steering claim");
+        physical.move={};(void)comfort.Update(physical,true,true,8,false);
+        physical.move={.8F,1};
+        ok &= Check(comfort.Update(physical,true,true,8,false).move.x==.8F,
+            "fresh centered mounted baseline did not recover steering");
+        physical.move_available=false;
+        ok &= Check(comfort.Update(physical,true,true,8,false).move.x==0,
+            "unavailable mounted axis retained steering");
+        physical.move_available=true;
+        ok &= Check(comfort.Update(physical,true,true,8,false).move.x==0,
+            "mounted axis reacquisition borrowed old centered baseline");
+        physical.move={};(void)comfort.Update(physical,true,true,8,false);
+        physical.input_context_generation=2;physical.move={.8F,1};
+        ok &= Check(comfort.Update(physical,true,true,8,false).move.x==0,
+            "replacement input source inherited mounted steering");
+        physical.move={};(void)comfort.Update(physical,true,true,8,false);
+        physical.move={std::numeric_limits<float>::quiet_NaN(),1};
+        auto invalid=comfort.Update(physical,true,true,8,false);
+        ok &= Check(invalid.move.x==0&&invalid.move.y==0,"nonfinite mounted stick reached native shaping");
+        physical.move={.8F,1};physical.active=false;
+        invalid=comfort.Update(physical,true,true,8,true);
+        ok &= Check(invalid.move.x==0&&invalid.move.y==0&&!invalid.walk&&!invalid.run,
+            "inactive mounted owner retained motion or gait");
+        physical.active=true;
+        for(float lateral:{-.08F,.08F}) {
+            physical.move={lateral,.08F};physical.walk=true;
+            auto foot=comfort.Update(physical,true,false,8,false);
+            ok &= Check(foot.move.x==lateral&&foot.move.y==.08F&&foot.walk,
+                "mounted comfort modified on-foot axes or explicit walk");
+        }
+        CoJContextualShoulderState shoulder;
+        physical.move={};physical.walk=false;physical.kick=true;
+        auto route=[&](std::uint64_t generation) {
+            auto preview=shoulder;auto intent=physical;
+            preview.Update(intent,true,true,generation);
+            auto safe=comfort.Update(physical,true,true,generation,intent.run);
+            shoulder.Update(safe,true,true,generation);return safe;
+        };
+        auto gait=route(8);
+        ok &= Check(gait.walk&&!gait.run,"held R1 across mount disabled ordinary walk");
+        physical.kick=false;gait=route(8);
+        ok &= Check(gait.walk&&!gait.run,"mounted ordinary gait did not request native walk");
+        physical.kick=true;gait=route(8);
+        ok &= Check(!gait.walk&&gait.run,"fresh mounted R1 did not retain explicit native gallop");
+        const auto walk_release_before=releases[14],run_before=accepted[18];
+        ok &= Check(horse_bridge.TryApplyGameplayInput(gait,&error)&&
+            releases[14]>walk_release_before&&accepted[18]>run_before,"gallop failed to release native walk or request run");
+        const auto walk_before=accepted[14],run_release_before=releases[18];
+        physical.kick=false;gait=route(8);
+        ok &= Check(gait.walk&&!gait.run&&horse_bridge.TryApplyGameplayInput(gait,&error)&&
+            accepted[14]>walk_before&&releases[18]>run_release_before,
+            "R1 release did not restore walk and release native gallop");
+        physical.kick=true;physical.digital_available&=~(1U<<9);gait=route(8);
+        ok &= Check(gait.walk&&!gait.run,"unavailable R1 bypassed mounted walk");
+        physical.digital_available|=1U<<9;gait=route(9);
+        ok &= Check(gait.walk&&!gait.run,"held R1 inherited gallop across mounted player replacement");
+    }
     // Horse.UpdateTurnSpeed uses the sign of side speed, not its magnitude.
     // Even a sub-epsilon side value must be released when the stick centers.
     for (const float sign : {-1.0F,1.0F}) {
