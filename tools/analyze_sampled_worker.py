@@ -124,6 +124,10 @@ def _final_color_pairs(root, inventory, text, run_id, native, read_json):
                     not isinstance(matrix, list) or len(matrix) != 16 or
                     any(type(value) not in (int, float) or not math.isfinite(value) for value in matrix)):
                 raise ValueError("invalid sampled eye optics")
+            if "final_color_optics_valid" in optics:
+                observed = optics["final_color_optics_valid"]
+                if type(observed) is not bool or (optics["final_color_match"] and not observed):
+                    raise ValueError("invalid or unavailable matching final color optics")
             if optics["final_color_match"]:
                 optics_pairs.setdefault(stamp[:-1], {})[eye] = recenter
     matched = {stamp: eyes[0] for stamp, eyes in optics_pairs.items()

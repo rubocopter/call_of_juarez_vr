@@ -869,7 +869,9 @@ void ResourceProbeCopy(IDirect3DDevice9* device,IDirect3DSurface9* source,const 
     if (g_sampled_depth_enabled) {
         std::lock_guard lock(g_sampled_depth_mutex);
         g_sampled_depth.AfterCopy(device, source, source_rect, destination, destination_rect, result,
-            &cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics);
+            +[](unsigned eye,std::uint64_t frame,std::uint64_t pose) noexcept {
+                return cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics(eye,frame,pose);
+            });
     }
     if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
     auto& trace=g_resource_probe_thread;
@@ -3074,7 +3076,8 @@ bool CaptureStereoEye(
         std::lock_guard lock(g_sampled_depth_mutex);
         const unsigned eye_index=eye==cojvr::runtime::Eye::left ? 0U : 1U;
         const auto pose=state->luma_pose_sequence.load(std::memory_order_acquire);
-        const auto optics=cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics(eye_index,frame_sequence,pose);
+        const auto optics=cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics(eye_index,frame_sequence,pose,
+            cojvr::games::call_of_juarez::CoJTemporalOpticsBoundary::completed_eye);
         (void)g_sampled_depth.CaptureFinalColor(device, sampled_source.Get(), generation, frame_sequence,
             eye_index,pose,optics);
     }

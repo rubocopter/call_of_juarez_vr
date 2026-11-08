@@ -13,6 +13,8 @@ struct CoJNativeTemporalOptics {
 struct CoJTemporalPreviewOptics {
     CoJNativeTemporalOptics depth{};
     bool final_color_match=false;
+    // Distinguish an unavailable observation from valid but different optics.
+    bool final_color_optics_valid=false;
 };
 
 // Optional content evidence, independent of the much larger binding census.

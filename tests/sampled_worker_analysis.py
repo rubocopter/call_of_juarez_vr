@@ -97,6 +97,17 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(result["copied_pairs"], 0)
             path = scene / "f2-p3-g1-e1.json"
             meta = json.loads(path.read_text())
+            for invalid_status in ("true", False):
+                meta["depth_optics"]["final_color_optics_valid"] = invalid_status
+                path.write_text(json.dumps(meta))
+                refresh()
+                result = audit.analyze(root)
+                self.assertFalse(result["passed"], "accepted unavailable or malformed matching final optics")
+                self.assertTrue(any("final color optics" in error for error in result["errors"]), result)
+            meta["depth_optics"]["final_color_optics_valid"] = True
+            path.write_text(json.dumps(meta))
+            refresh()
+            self.assertTrue(audit.analyze(root)["passed"])
             meta["depth_optics"]["recenter_sequence"] = 18
             path.write_text(json.dumps(meta))
             refresh()

@@ -225,6 +225,15 @@ function Resolve-VrLargeAddressAware {
     return [bool]($BodyIkAtStart -and -not $StartupOnly)
 }
 
+function Resolve-VrResolutionCensus {
+    param([string]$NativeResolution,[switch]$Requested,[switch]$TemporalSequence,
+          [switch]$FrameLumaProbe,[switch]$MenuPresentationCheck)
+    # The pinned native extent already has a qualified binding census. A
+    # temporal run there selects the separate depth hooks for source capture.
+    return [bool]($Requested -or (-not ($FrameLumaProbe -or $MenuPresentationCheck -or
+        ($TemporalSequence -and $NativeResolution -eq '2804x2860'))))
+}
+
 function Enter-VrWorkflowLock([string]$Directory) {
     [void][IO.Directory]::CreateDirectory($Directory)
     try {
@@ -285,9 +294,9 @@ switch ($Action) {
             if ($KeepVideoSettings -or $StartupOnly -or -not $BodyIkAtStart -or -not $LargeAddressAware -or $IndependentEyeResolution -ne 'off') {
                 throw 'NativeResolution requires full BodyIkAtStart, LargeAddressAware, video-profile restoration and independent resolution off.'
             }
-            # Dimension qualification uses the binding census. The flash probe
-            # observes pixels instead and keeps the expensive census off.
-            if (-not $FrameLumaProbe -and -not $MenuPresentationCheck) { $RenderResourceProbe = [switch]$true }
+            $RenderResourceProbe = [switch](Resolve-VrResolutionCensus -NativeResolution $NativeResolution `
+                -Requested:$RenderResourceProbe -TemporalSequence:$TemporalSequence `
+                -FrameLumaProbe:$FrameLumaProbe -MenuPresentationCheck:$MenuPresentationCheck)
         }
         if ($FrameLumaProbe -and ($StartupOnly -or -not $BodyIkAtStart -or $IndependentEyeResolution -ne 'off')) {
             throw 'FrameLumaProbe requires ordinary native stereo with BodyIkAtStart and independent resolution off.'

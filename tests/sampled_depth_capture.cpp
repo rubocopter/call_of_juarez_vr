@@ -332,7 +332,9 @@ void Ready(const D3D9SampledDepthSnapshot& snapshot) {
     Require(snapshot.shared_handle() != nullptr, "completed producer did not expose a shared handle");
 }
 
-void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT height=kHeight) {
+enum class FinalOpticsFixture { matching, unavailable, changed };
+void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT height=kHeight,
+    FinalOpticsFixture final_optics_case=FinalOpticsFixture::matching) {
     namespace coj = cojvr::games::call_of_juarez;
     constexpr auto format = D3DFMT_A16B16G16R16F;
     constexpr DWORD flags = D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER;
@@ -428,7 +430,11 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
         adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,1,2)==S_FALSE &&
         adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,3)==S_FALSE,
         "final eye matched a different frame, eye or pose");
-    Check(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2,fixture_optics),
+    auto final_optics=fixture_optics;
+    if(final_optics_case==FinalOpticsFixture::unavailable)final_optics={};
+    if(final_optics_case==FinalOpticsFixture::changed)final_optics.view_projection_metres[12]+=1;
+    const bool expected_optics_match=final_optics_case==FinalOpticsFixture::matching;
+    Check(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2,final_optics),
         "copy same-frame final eye");
     Require(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2)!=S_OK,
         "duplicate final eye replaced the snapshot");
@@ -481,8 +487,11 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
                 json.find("\"final_color_format\":\"bgra8_le\"")!=std::string::npos&&
                 json.find("\"temporal_admitted\":false")!=std::string::npos,
                 "preview manifest lost source identity or claimed temporal admission");
-            if (full_color) Require(json.find("\"final_color_match\":true")!=std::string::npos&&
-                json.find("\"recenter_sequence\":17")!=std::string::npos,"manifest lost same-eye optics");
+            if (full_color) Require(json.find(expected_optics_match?
+                "\"final_color_match\":true":"\"final_color_match\":false")!=std::string::npos&&
+                json.find(final_optics.valid?"\"final_color_optics_valid\":true":
+                    "\"final_color_optics_valid\":false")!=std::string::npos&&
+                json.find("\"recenter_sequence\":17")!=std::string::npos,"manifest lost independent final-eye optics status");
             metadata.close();
             std::size_t files=0;
             for (const auto& entry:std::filesystem::directory_iterator(manifest.parent_path())) {
@@ -501,7 +510,8 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
             Require(packet.stamp.device==reinterpret_cast<std::uintptr_t>(device)&&
                 packet.stamp.generation==kGeneration&&packet.stamp.integrity==1&&packet.stamp.epoch!=0&&
                 packet.snapshot.color_shared_handle(),"exact-game packet lost its admitted source identity/color");
-            Require(optics.depth==fixture_optics&&optics.final_color_match,"packet lost same-eye native optics");
+            Require(optics.depth==fixture_optics&&optics.final_color_match==expected_optics_match,
+                "packet lost same-eye native optics or admitted changed/unavailable final optics");
             report(packet.stamp.frame,packet.stamp.pose,packet.stamp.owner,packet.eye,packet.snapshot,result,optics);
         });
         else adapter.Poll(report);
@@ -1129,6 +1139,8 @@ int Run(const std::filesystem::path& helper) {
     CheckFullColorPair(d.Get(),consumer,2560,1440);
     CheckCoJSceneBoundary(d.Get());
     CheckCoJSceneBoundary(d.Get(),2560,1440);
+    CheckCoJSceneBoundary(d.Get(),128,72,FinalOpticsFixture::unavailable);
+    CheckCoJSceneBoundary(d.Get(),128,72,FinalOpticsFixture::changed);
     if (!helper.empty()) ReconstructNativeDepthPair(d.Get(), consumer, helper);
     std::cout << "Own INTZ D24S8 device-Z -> shared RGBA16F RGB24 fixture passed: "
         ".25/.75/.9999/1, event proof, immutable bounded leases and native state restoration. "

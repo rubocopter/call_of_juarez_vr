@@ -51,8 +51,10 @@ struct CameraProbeFrustum {
     const runtime::TemporalMatrix& view, const runtime::TemporalMatrix& projection,
     const runtime::TemporalMatrix& view_projection, const CameraProbeFrustum& frustum,
     std::uint64_t recenter_sequence) noexcept;
+enum class CoJTemporalOpticsBoundary { scene, completed_eye };
 [[nodiscard]] CoJNativeTemporalOptics ObserveCoJNativeTemporalOptics(
-    unsigned eye, std::uint64_t frame, std::uint64_t pose) noexcept;
+    unsigned eye, std::uint64_t frame, std::uint64_t pose,
+    CoJTemporalOpticsBoundary boundary=CoJTemporalOpticsBoundary::scene) noexcept;
 
 struct CameraProbeReticlePoint {
     bool valid = false;

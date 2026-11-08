@@ -395,6 +395,63 @@ bool RestoreCameraVisibilityPreimage() {
         camera[0x260]==std::byte{1}&&camera[0x25c]==std::byte{0x73}&&
         camera[0x261]==std::byte{0x73}&&camera[0x33c]==std::byte{0x73};
 }
+bool CompletedOpticsSurviveRendererCameraRestore() {
+    const auto previous_scope=g_stereo_eye_override;
+    const auto previous_tracker=g_pose_tracker;
+    auto* previous_engine=g_engine_base;
+    std::vector<std::byte> engine(kRendererGlobalRva+sizeof(void*));
+    alignas(16) std::array<std::byte,0x500> camera{};
+    alignas(16) std::array<std::byte,0x200> renderer{};
+    *reinterpret_cast<void**>(engine.data()+kRendererGlobalRva)=renderer.data();
+    auto** primary=reinterpret_cast<void**>(renderer.data()+kRendererCameraPrimaryOffset);
+    auto** secondary=reinterpret_cast<void**>(renderer.data()+kRendererCameraSecondaryOffset);
+    g_engine_base=engine.data();
+    g_pose_tracker={};g_pose_tracker.SetEnabled(true);
+    runtime::PoseSample sample{};sample.sequence=17;
+    sample.pose.orientation_valid=sample.pose.position_valid=true;
+    bool passed=g_pose_tracker.Update(sample);
+    const CameraProbeFrustum frustum{-30,20,-20,30,25,50000};
+    const auto view=runtime::TemporalIdentity();
+    const runtime::TemporalMatrix projection{1,0,0,0, 0,1,0,0, -.2F,.2F,-1,-1, 0,0,-25,0};
+    std::memcpy(camera.data()+kCameraViewMatrixOffset,view.data(),kCameraMatrixBytes);
+    std::memcpy(camera.data()+kCameraProjectionMatrixOffset,projection.data(),kCameraMatrixBytes);
+    std::memcpy(camera.data()+kCameraViewProjectionMatrixOffset,projection.data(),kCameraMatrixBytes);
+    runtime::EyeView eye{};eye.eye=runtime::Eye::left;
+    ConfigureStereoEyeOverride(camera.data(),{},0,eye,100,200);
+    g_stereo_eye_override.camera_applied=g_stereo_eye_override.projection_applied=true;
+    g_stereo_eye_override.renderer_camera_match=true;
+    g_stereo_eye_override.applied_frustum=frustum;
+    *primary=*secondary=camera.data();
+    const auto depth=ObserveCoJNativeTemporalOptics(0,100,200);
+    passed &= depth.valid;
+    // The native full wrapper restores its previous renderer camera. The
+    // scoped eye camera and its independently read matrices are still intact.
+    *primary=*secondary=nullptr;
+    passed &= !ObserveCoJNativeTemporalOptics(0,100,200).valid;
+    const auto completed=[&](unsigned index=0,std::uint64_t frame=100,std::uint64_t pose=200) {
+        return ObserveCoJNativeTemporalOptics(index,frame,pose,CoJTemporalOpticsBoundary::completed_eye);
+    };
+    passed &= completed()==depth;
+    passed &= !completed(1).valid&&!completed(0,101).valid&&!completed(0,100,201).valid;
+    g_stereo_eye_override.renderer_camera_match=false;
+    passed &= !completed().valid;
+    g_stereo_eye_override.renderer_camera_match=true;
+    g_stereo_eye_override.active=false;
+    passed &= !completed().valid;
+    g_stereo_eye_override.active=true;
+    auto foreign=projection;foreign[14]-=1;
+    std::memcpy(camera.data()+kCameraViewProjectionMatrixOffset,foreign.data(),kCameraMatrixBytes);
+    passed &= !completed().valid;
+    std::memcpy(camera.data()+kCameraViewProjectionMatrixOffset,projection.data(),kCameraMatrixBytes);
+    // A coherent camera change remains observable, but cannot match the depth.
+    auto shifted=view;shifted[12]=10;
+    auto product=projection;product[12]=10;
+    std::memcpy(camera.data()+kCameraViewMatrixOffset,shifted.data(),kCameraMatrixBytes);
+    std::memcpy(camera.data()+kCameraViewProjectionMatrixOffset,product.data(),kCameraMatrixBytes);
+    passed &= completed().valid&&completed()!=depth;
+    g_stereo_eye_override=previous_scope;g_pose_tracker=previous_tracker;g_engine_base=previous_engine;
+    return passed;
+}
 bool ReplayPreservesReference() {
     g_original_render_camera_update=reinterpret_cast<RenderCameraUpdateFn>(&NativeUpdate);
     g_pose_source=nullptr;
@@ -517,6 +574,9 @@ bool InputRestoresNativeRenderContext() {
 int main() {
     if(!cojvr::games::call_of_juarez::RestoreCameraVisibilityPreimage()) {
         std::cerr<<"eye transaction did not restore native visibility preimage\n";return 1;
+    }
+    if(!cojvr::games::call_of_juarez::CompletedOpticsSurviveRendererCameraRestore()) {
+        std::cerr<<"completed eye optics lost the retained camera or accepted foreign optics\n";return 1;
     }
     if(!cojvr::games::call_of_juarez::InactiveBodyDiagnosticsRespectTrace()){
         std::cerr<<"inactive body diagnostics ignored trace opt-in or disabled the legacy writer\n";return 1;}

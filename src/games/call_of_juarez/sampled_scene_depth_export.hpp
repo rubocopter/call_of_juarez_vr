@@ -86,6 +86,7 @@ inline std::filesystem::path ExportCoJSceneDepthPreview(
                 << ",\"far_limit_metres\":" << depth_optics.far_limit_metres
                 << ",\"infinite_far\":" << (depth_optics.infinite_far?"true":"false")
                 << ",\"final_color_match\":" << ((has_final_color&&optics.final_color_match)?"true":"false")
+                << ",\"final_color_optics_valid\":" << ((has_final_color&&optics.final_color_optics_valid)?"true":"false")
                 << ",\"view_projection\":[";
             for (std::size_t i=0;i<depth_optics.view_projection_metres.size();++i)
                 out << (i?",":"") << depth_optics.view_projection_metres[i];

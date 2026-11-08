@@ -253,7 +253,10 @@ public:
                 continue;
             PrivateCall guard(private_call_);
             const auto result=item.snapshot.AttachFinalColorPreview(source);
-            if (result==S_OK) item.optics.final_color_match=optics.valid && item.optics.depth==optics;
+            if (result==S_OK) {
+                item.optics.final_color_optics_valid=optics.valid;
+                item.optics.final_color_match=optics.valid && item.optics.depth==optics;
+            }
             return result;
         }
         return S_FALSE;

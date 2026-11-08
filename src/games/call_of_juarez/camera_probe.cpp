@@ -9330,13 +9330,19 @@ CoJNativeTemporalOptics BuildCoJNativeTemporalOptics(
 }
 
 CoJNativeTemporalOptics ObserveCoJNativeTemporalOptics(
-    const unsigned eye, const std::uint64_t frame, const std::uint64_t pose) noexcept {
+    const unsigned eye, const std::uint64_t frame, const std::uint64_t pose,
+    const CoJTemporalOpticsBoundary boundary) noexcept {
     const auto& scope=g_stereo_eye_override;
     if (!scope.active || !scope.view_hook_active || !scope.camera || !scope.eye ||
         static_cast<unsigned>(scope.eye->eye)!=eye || scope.frame_sequence!=frame ||
         scope.pose_sequence!=pose || !scope.camera_applied || !scope.projection_applied ||
-        !scope.renderer_camera_match || !RendererReferencesCamera(scope.camera))
+        !scope.renderer_camera_match ||
+        (boundary!=CoJTemporalOpticsBoundary::completed_eye && !RendererReferencesCamera(scope.camera)))
         return {};
+    // The full native wrapper can restore the renderer's previous camera
+    // (+1AC/+1B0) before final RT0 capture. Its retained eye scope is still
+    // active here. Independently read the eye's matrices again; the source
+    // adapter must still require exact equality with its depth-boundary read.
     const auto* camera=static_cast<const std::byte*>(scope.camera);
     runtime::TemporalMatrix view, projection, view_projection;
     if (!IsReadable(camera+kCameraViewMatrixOffset,kCameraMatrixBytes) ||

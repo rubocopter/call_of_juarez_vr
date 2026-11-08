@@ -49,6 +49,17 @@ foreach($case in @(
     $actual=Resolve-VrLargeAddressAware -BodyIkAtStart:($case[0]) -StartupOnly:($case[1]) -ExplicitChoice:($case[2]) -Requested:($case[3])
     if($actual -ne $case[4]){throw 'Preparation lost default LAA or explicit diagnostic choice'}
 }
+$censusPolicy=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-VrResolutionCensus'},$true)
+if(-not $censusPolicy){throw 'Missing resolution probe selection for the accepted temporal extent'}
+Invoke-Expression $censusPolicy.Extent.Text
+if ((Resolve-VrResolutionCensus -NativeResolution 2804x2860 -TemporalSequence) -or
+    -not (Resolve-VrResolutionCensus -NativeResolution 2804x2860 -TemporalSequence -Requested) -or
+    -not (Resolve-VrResolutionCensus -NativeResolution 2804x2860) -or
+    -not (Resolve-VrResolutionCensus -NativeResolution preserve -TemporalSequence) -or
+    (Resolve-VrResolutionCensus -NativeResolution 2804x2860 -FrameLumaProbe) -or
+    (Resolve-VrResolutionCensus -NativeResolution 2804x2860 -MenuPresentationCheck)) {
+    throw 'Temporal capture changed the default, explicit census, or other resolution-probe policy'
+}
 $definition=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-VrResolutionProfile'},$true)
 if(-not $definition){throw 'Missing startup resolution-profile boundary'}
 Invoke-Expression $definition.Extent.Text
