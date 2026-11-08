@@ -699,8 +699,24 @@ horse turning, alternating its target as the head residual changes sign. This
 is a demonstrated source/bytecode coupling consistent with the zigzag report;
 it is not live reproduction or proof that obstacles/stick noise cannot also
 contribute. Mounted axes now retain native per-axis shaping without gaze
-rotation. Explicit lateral reins remain intact; no new steering deadzone is
-introduced.
+rotation. A separate mounted-only comfort policy now admits deliberate lateral
+reins with raw-axis hysteresis: enter at `abs(x) >= max(.35, .55*abs(y))`, release
+at `abs(x) <= max(.20, .35*abs(y))`. Before applying that corridor, it
+zeros negative Y when its magnitude is at most half the lateral magnitude.
+The exact low-speed `Horse.UpdateTurnSpeed` branch reverses the rein target
+for any negative forward request. In the collected wrong-way left turns, a
+shallow negative Y reached that branch and both the horse and the natural
+camera turned right. Forward steering and deliberate reverse keep native
+shaping. New player/input ownership or
+axis loss requires a fresh lateral-centred baseline. These are intentional
+comfort constants, not measured physics. On-foot 0.04 shaping is unchanged.
+Ordinary mounted input requests native Walk (action14); only the existing
+release-qualified contextual R1 Run request lifts Walk for gallop. A copied
+shoulder-policy preview supplies that intent before pre-shoulder dispatch;
+the real shoulder update remains after fresh post-interaction mount observation.
+Unknown mounted ownership neutralizes movement/gait requests. The operator
+reported improved pace with default Walk and optional R1. The shallow-reverse
+filter has host coverage and still needs a physical left/right check from rest.
 
 The direct analog dispatch cache has the same sign-sensitive boundary: its
 0.00001 tolerance must never suppress a zero/nonzero transition. A tiny
@@ -772,7 +788,20 @@ or formatting. Host tests cover native fields, alias identities, exception and
 owner failures, value drift, nonfinite data, cleanup and trace cadence/cap.
 Actual horse response, rider-camera motion and comfort remain unqualified.
 
+Ordinary mounted steering/forward/gait changes additionally trigger a separate
+read-only `mounted_comfort_motion` burst: at most four attempts per change,
+at most 10 Hz and 128 attempts per run, including failures. Owner loss cancels
+pending observations without refilling the cap. It copies the same native
+requests/velocity/turn and spatial endpoints plus double-read, reference-bracketed
+cached `Being.m_vLookDir` from the horse. This is horse look direction, distinct
+from rider free look; it does not prove displacement or input causality.
+The full movement-trace option and its original event/schema/budget remain
+separate. No native update or scratch-vector getter is called for either route.
+
 Collected traces can be audited offline with `tools/analyze_coj_mounted_motion.py`.
+Use `--comfort` for the bounded change stream. It reports mapped Walk and signed
+horse look yaw alongside natural camera yaw for comparable spatial endpoints.
+The two streams have independent indices and are analyzed separately.
 The analyzer validates an inventoried run, native data types/identities and
 read-only markers, then compares adjacent valid samples only across a stable
 owner, context and clock with no lost attempt or long gap. It reports R1/run
@@ -1292,3 +1321,11 @@ text. That transport is host-tested; the operator confirms subtitle appearance
 in exercised animations without specifying the rendering mode. Broader
 mode-specific timing, clearance and recovery remain unqualified. Theater remains
 the default route preserving the complete native subtitle pass.
+
+Fresh native-stereo HUD composition can record bounded subtitle diagnostics with
+the capture, pose, device generation, game text route and owner epoch. The
+presenter records raster extent, placement, per-eye clip geometry and queued
+draws. Offscreen geometry stays distinct from invalid optics, and a changed eye
+outcome can trigger a record even for unchanged text. These are observations of
+the mod panel and its source read. Native
+subtitle pixels in the game's render target require separate evidence.

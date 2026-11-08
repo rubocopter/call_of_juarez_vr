@@ -239,6 +239,11 @@ preview. The depth and final-color boundaries independently read the same
 renderer's row-vector view-projection. The exact game adapter handles metre
 conversion and finite versus infinite far depth. Missing or mismatched
 optics remain unqualified diagnostic input.
+The completed-eye read retains the active exact eye scope and its positive
+scene-camera witness after native renderer-camera restoration; the scene copy
+still requires a current renderer-camera match. Final-read validity and exact
+depth-optics equality are distinct diagnostic fields. No earlier matrix is
+substituted for an unavailable final read.
 The startup-only temporal sequence variant uses two bursts of four adjacent
 frame attempts under the same eight-frame budget. It exports preview sources
 directly and releases their leases after readback. The worker copy audit has
@@ -409,6 +414,13 @@ Present content onto a finite-depth head-anchored plane for startup, menus,
 loading, scripted in-game movies by default and blocking native UI. Per-eye geometry and asymmetric optics determine
 texture extents; identical centered images or fixed padding are insufficient.
 
+A qualified immersive movie can render passive stereo while the bridge retains
+a pending release from gameplay. Admission checks the current movie epoch after
+cleanup against the captured sample. Camera, body and eye-resource restoration
+remain publication prerequisites. Native skip and resumption of gameplay still
+require cleanup. A skip edge blocked by pending release is consumed once. Missing
+native movie ownership retains theater.
+
 At the explicit 2804x2860 native trial size, positively observed existing global
 `MenuMain` frames may carry a 2560x1440 presentation reference, only with verified
 `IsActuallyVisible()` and valid native `GetThisID()` identity. The presenter fits
@@ -479,10 +491,13 @@ A real movie takes precedence over a sequence. A cached movie line cannot be
 reinterpreted as sequence text after its movie disappears, even with a reused
 subtitle ID. The exact writer and shipped JVM verifier cover the additional
 sequence cache; no native subtitle timer or sprite callback is replayed.
-No actor-dialogue fallback or gameplay text cache is used. Theater preserves the
-naturally rendered pass; no script/sprite traversal is replayed. This transport
-is host-tested. The operator confirms subtitle appearance in exercised animations,
-without specifying the rendering mode; broader timing and mode coverage remain open.
+The immersive movie route has its own text cache. Theater preserves the
+naturally rendered pass. For a local opt-in diagnostic, the presenter can
+retain the lower half of both uploaded native eyes and the corresponding
+composed crops from an accepted fresh submit. The observer matches a bounded
+set of caption fingerprints against the same capture, pose and owner. Staging,
+nonblocking readback and image export have independent lifetime bounds. The
+observer does not change subtitle placement or native sprite visibility.
 
 VR preferences are edited in native Options > Game. Post-.5 source removes
 the held-Options quick editor, its OpenVR overlay, shared texture and redundant
@@ -600,7 +615,7 @@ file when persistence fails. The held-Options presenter editor is retired.
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
 `OptionsGame.scr`, shared by main/pause Options, with three comfort and ten graphics
 selectors plus save and Neural status labels. Graphics exposes enable, sharpness, contrast,
-saturation, gamma, diagonal-edge smoothing, a requested reconstruction mode,
+saturation, gamma, spatial edge smoothing, a requested reconstruction mode,
 startup render scale, mounted peripheral comfort and a separate Neural request in English/Spanish. Native,
 DLAA and DLSS Quality are selectable; the latter two explicitly report pending
 qualification and retained native rendering. A saved request does not enable NGX
@@ -1735,8 +1750,9 @@ the exercised melee acceptance belongs to [Validation](VALIDATION.md).
 
 An experimental, opt-in D3D11 spatial processor runs once on each fresh ordinary
 native-stereo pair, after source upload and before VR reticles/HUD/handheld mesh
-composition. It provides original contrast-adaptive local sharpening, diagonal
-edge smoothing and contrast/saturation/gamma controls. It is not AMD CAS, FXAA,
+composition. It provides contrast-adaptive local sharpening, spatial smoothing
+of diagonal stair steps and isolated high-contrast features, and
+contrast/saturation/gamma controls. It is not AMD CAS, FXAA,
 DLAA/DLSS, temporal reconstruction or supersampling; it retains native eye extent,
 pose and generation. Native HUD already baked into captured color cannot be
 excluded by this ordering. Theater/menu captures, repeated frames and the

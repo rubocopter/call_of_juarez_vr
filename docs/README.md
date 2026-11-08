@@ -4,7 +4,7 @@ Use this index to locate the single owner of each fact. The repository's
 [README](../README.md) presents the public mod and latest *published* package;
 the source checkout may have more features than that release.
 
-For current state, start with [Validation's snapshot](VALIDATION.md#current-state--7-november-2026).
+For current state, start with [Validation's snapshot](VALIDATION.md#current-state--8-november-2026).
 Use [pending headset checks](VALIDATION.md#pending-headset-checks) for implemented
 changes awaiting physical evidence, and [development backlog](ROADMAP.md#development-backlog)
 for work still to implement. Withdrawn locators and deferred experiments are

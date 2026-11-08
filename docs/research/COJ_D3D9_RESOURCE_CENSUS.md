@@ -164,6 +164,36 @@ local ignored evidence storage.
 
 ## Interpretation boundary
 
+The stock foliage materials use DDS members in `Data2.pak`. In an isolated
+x86 fixture the recognized filesystem DLL mounted `data0..63.pak` with
+argument 1, the root with 2 and `root/data` with 7, following the pinned
+executable's order. For the tested `Data/Nature` virtual paths, either physical
+`root/Data/Nature` or `root/Data/Data/Nature` took precedence over a fixture PAK
+when each layout was tested separately. Native reads returned the expected full
+DDS hashes. This establishes filesystem precedence for those paths in the
+fixture. Renderer material binding, texture residency, animation and binocular
+foliage quality remain separate checks.
+
+Hunt01's map and export name `Grass08.mat`. The native D3D9 log reports a
+parse error at its first `$` token and substitutes the default material. The
+stock material still uses the old `GrassTerrain_M1.mtt` declaration. A local
+candidate uses the shipped D3D9 `Grass04.mat` static-grass program with the
+texture name set to `Grass08.dds`, retaining its 0.5 alpha threshold and
+double-sided rendering. The isolated native VFS reads this material and the
+installed compact DDS together over stock. The subsequent Hunt01 load with the
+override omits the previous parser error and default-material warning. The
+combined headset comparison also changes raster extent and spatial smoothing,
+so it does not isolate the material's effect on the rendered vegetation.
+
+The 2804×2860 gameplay census joins three native 2048×2048 D16 sun-shadow
+targets in each eye to the same three texture bindings in subsequent HDR
+scene draws. The inset viewport and shipped `hsm.ppfx` and shader code identify
+the hierarchical sun-shadow family. Both eyes reuse the texture storage.
+This does not establish equivalent contents, light-space coverage, caster
+membership, or a particular receiver's sampled map. Investigate residual
+distant shadow popping at that boundary, separately from the tree manager's
+effective camera, range and LOD selection.
+
 The count measures creation requests, including failures and repeated
 allocations. It does not measure simultaneous live resources, GPU residency,
 memory consumption, locks, updates or lost-device/reset behavior. A high

@@ -8,11 +8,11 @@ acceptance or supported hardware.
 
 ## Current gate
 
-As of **7 November 2026**, the active target remains the original Steam CoJ
+As of **8 November 2026**, the active target remains the original Steam CoJ
 (2006), Windows x86, native D3D9 stereo through OpenVR/SteamVR. The exact tested
 GOG build has experimental functional acceptance; it is not a second fully
 supported target. Physical acceptance remains scoped to exercised PS VR2 Sense
-contexts. [Validation](VALIDATION.md#current-state--7-november-2026) owns verdicts;
+contexts. [Validation](VALIDATION.md#current-state--8-november-2026) owns verdicts;
 the [pending checklist](VALIDATION.md#pending-headset-checks) owns physical tests.
 
 Current source already implements and host-tests these changes:
@@ -33,9 +33,9 @@ Current source already implements and host-tests these changes:
   removed after it caused black captures and desktop flicker.
 - Bounded source-only temporal diagnostics with native final-color/depth/optics
   association, same-eye source identity, persistent worker retirement, and an
-  opt-in two-burst consecutive-frame capture mode. The older copy-only run has
-  scoped live transport evidence; the consecutive variant is host-tested and
-  awaits its own capture. No reconstructed frame is submitted to the game.
+  opt-in two-burst consecutive-frame capture mode. At 2560×1440 the collected
+  bursts match color/depth optics and exercise offline NGX history reuse.
+  Preparation also admits a separate source run at native 2804×2860.
 - Captured world anchors for native hints and mission notices with binocular
   fitting.
   Zoom-to-pause and ordinary reading stability now have scoped local headset
@@ -49,7 +49,9 @@ subtitles retain their exercised readability acceptance. Functional manual
 transfers, bow firing,
 correct duel posture, ordinary HUD/menus, secret-scroll pickup, Gatling and
 cinematic recovery remain accepted only in their recorded contexts. Later
-skip/flicker, fingers, insertion and mounted complaints remain unresolved.
+skip/flicker, finger fit, exact insertion contact, and Hunt01 subtitle fusion
+remain unresolved. The exercised mounted steering and bow now have scoped
+headset acceptance.
 
 Source and a locally staged candidate may be ahead of published prealpha.7.
 Run IDs, exact build/test results, installed hashes and operator checklists stay
@@ -62,10 +64,10 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — real reload contact | Build a read-only current input-space preview of measured weapon mouths and displayed cartridge tip, then connect a qualified proximity/approach target. | Bracket current player/object/generation/native phase without retaining or applying a render overlay before insertion. Establish opening clearance and indexed port correspondence. Replace the rejected grip-centred acceptance only when these agree; guide honesty alone is not this fix. Preserve native transfers and miss/close/regrip recovery. |
-| 2 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix only covers recovery after completion; no arbitrary curl or grip offsets. Qualify contact/occlusion separately. |
-| 3 — movie ownership and stability | Attribute remaining Immersive-to-theater fallback and any residual button-triggered flicker/non-skip. | Use the new dispatch outcome/fallback identity to distinguish native refusal, target loss, image retirement and actual submission. Do not force-end an unskippable scene or reuse an image after a native mutation. Preserve accepted subtitle readability. |
-| 4 — mounted steering and comfort | Establish reins sign, gait/speed and rider-camera ownership before changing movement. | Stationary LEFT reversal, excessive speed and nausea remain rejected. Correlate actual rider heading/displacement and natural camera yaw with native requests and R1/gallop. Existing cached velocity alone proves no sign error or comfort improvement. Preserve the accepted peripheral mask. |
+| 1 — image quality and distant visibility | Capture temporal sources at the accepted native 2804×2860 extent. Isolate residual distant shadow and tree popping. | Match color, depth and optics on consecutive frames before using them offline. Preserve native output until jitter, motion and paired delivery qualify. Correlate shadow coverage and tree visibility with their separate native owners. |
+| 2 — real reload contact | Build a read-only current input-space preview of measured weapon mouths and displayed cartridge tip, then connect a qualified proximity/approach target. | Bracket current player/object/generation/native phase without retaining or applying a render overlay before insertion. Establish opening clearance and indexed port correspondence. Preserve native transfers and miss/close/regrip recovery. |
+| 3 — movie ownership and stability | Isolate the Hunt01 opening subtitle fusion failure. Verify movie skip and remaining theater transitions separately. | Compare native and submitted eye images for `E09_D01` and the readable `E09_D03` control. Both scenes use the same measured subtitle projection. |
+| 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
 | 5 — scoped shot agreement | Correlate native fired trajectory/impact with optical ray and qualify head-yaw/Focus isolation. | Reticle/actual impact remains rejected; no guessed reticle offset or native spread change. Controller-only rendering and body-yaw freeze are host-tested, not a physical solution. |
 | 6 — recovery and presentation | Complete graphical HUD capture, event-free physical-walk/turn leg motion, broader transport/retry recovery and measured pacing. | Per-eye alpha/depth/material ownership, scoped native write/restore and exact capture/device generation remain prerequisites. Resolve the canonical eye-baseline discrepancy without overriding evidence gates. |
 
@@ -181,11 +183,15 @@ alongside HDR and depth, including reviewed matching silhouettes in interior
 and exterior gameplay. Those reduced final-color inputs evaluate offline in
 NGX DLAA and DLSS Quality with reset history. Host-tested per-eye optics
 export preserves native depth projection and history resets follow native
-source continuity. A bounded consecutive-source preparation mode is
-implemented and host-tested. Next collect its native optics and motion
-sequence, qualify scoped jitter and dynamic masks, connect continuous
-reconstruction scheduling,
-then atomically present/commit reconstructed pairs with native fallback. DLAA can
+source continuity. The completed-eye observer now supplies matched final-color
+and depth optics in collected consecutive stereo previews. Offline NGX replay
+exercises six genuine transitions with camera reprojection and independent
+per-eye history. A measured depth-disagreement bias mask reached NGX and
+returned identical pixels to the full-current mask in this replay. Keep
+current native pixels at uncertain surfaces through an explicit preservation
+or fallback policy. Next qualify scoped jitter and dynamic motion, connect
+continuous reconstruction scheduling, then atomically present reconstructed
+pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native
 raster work and a measured net benefit. Preserve the rejected independent bank's
 ownership gates. FarCry2VR also supplies a sun-shadow research pattern; independently

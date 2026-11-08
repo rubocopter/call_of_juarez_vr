@@ -42,6 +42,14 @@ frustum and invokes the exact native projection builder. These source/frustum
 fields remain scoped to the complete eye wrapper; restoring them immediately
 after camera update would let later visibility work see the natural mouse camera.
 
+The exact projection builder also rewrites the inverse projection, projection
+mode, and world-space corners, planes and bounds. The eye transaction now
+restores their native preimage with the source/view/projection matrices.
+An isolated native replay rejected a test object with stale eye planes after
+the previous partial restore, and admitted it again with the original planes.
+Both eyes rebuild their planes before the wrapper. Whether an intervening
+native consumer explains the reported tree popping remains unqualified.
+
 Consequently, a future culling optimization must measure additional visibility or
 draw work at this existing boundary. A different mod advertising VR culling is
 not evidence that CoJ currently culls from a flat-camera pose, nor justification
@@ -133,6 +141,21 @@ unsupported projection layouts. The adapter scales the spatial rows once
 for world metres. A second read at final native color capture can attest
 matching optics for that eye. The manifest stores the view-projection and
 its device-depth convention. Temporal admission remains false.
+
+Final-color observation has a different renderer-camera boundary from the scene
+copy. The pinned native path restores the previous camera from render owner
+`+0xB58` into renderer `+0x1AC/+0x1B0` at `0x00030753..0x00030784`
+(also `0x0002F8C6..0x0002F8F1`). Requiring that transient renderer reference
+after the full wrapper can therefore reject an intact eye camera. The completed
+eye read instead requires the still-active exact eye/frame/pose scope and its
+positive scene-camera witness. It independently validates the native matrices
+again, and the source adapter still requires exact equality with the retained
+depth optics. It does not synthesize optics from the earlier read or accept a
+changed product, recenter, projection or eye. Scene-copy observation retains its
+live renderer-camera requirement. Host hook tests reproduce restoration and
+reject stale/foreign scopes and changed optics. The preview records final-read
+validity separately from equality; older captures without that distinction
+cannot establish which check failed or acquire retrospective admission.
 
 ## Capture boundary
 
