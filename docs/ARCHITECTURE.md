@@ -185,7 +185,11 @@ No native color texture is shared. A retained immutable lease covers worker
 access to both planes until consumer GPU completion; final producer release
 remains on the D3D9 owner thread. Ordinary play keeps this option off; the
 explicit `SampledSceneDepth` developer probe enables full-size color and a bounded
-worker copy audit. The adapter exports source packets containing the
+worker copy audit. The separate `TemporalSequence` mode retains reduced color,
+depth and final-eye previews with the depth carrier, keeping full-size color
+disabled. Preview observations cannot enter the full-color worker packet route.
+The unchanged 256 MiB capture budget admits this mode at 2804×2860, whereas
+the two-slot full-color mode exceeds it. The adapter exports source packets containing the
 admitted frame, pose, owner, integrity, native generation and capture-resource
 epoch. That epoch is not an input/settings/history authority.
 

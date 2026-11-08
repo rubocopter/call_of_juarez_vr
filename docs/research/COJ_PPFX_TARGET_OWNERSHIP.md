@@ -415,6 +415,16 @@ synthetic NGX fixture. The corrected candidate supplies live paired hardware-Z
 readbacks with matching frame/pose/owner/generation and confirmed non-pure
 device flags. This is bounded source-delivery evidence.
 
+At native 2804×2860, the later full-color temporal attempt failed a different
+predicate. Its effective device flags were `0x40`, while the two-slot
+INTZ/color/depth storage required 288,699,840 bytes against the 256 MiB cap.
+The adapter rejected initialization before clear substitution. The reduced
+temporal mode now retains depth and bounded previews without full-size color,
+using 160,388,800 base bytes plus the capped previews. Full-color worker
+transport retains its original contract and budget. The native-size GPU
+fixture validates preview lifetime and restoration, separately from future
+game-source qualification.
+
 The optional diagnostic additionally retains joint point-sampled scene-color
 and packed-depth previews at that same successful copy. Both private FP16 planes
 are fenced together and stay immutable under the capture lease. Their largest

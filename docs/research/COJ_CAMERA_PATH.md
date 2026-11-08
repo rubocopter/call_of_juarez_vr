@@ -57,6 +57,20 @@ for shrinking either eye frustum or sharing visibility between eyes. Correct
 coverage, dynamic objects and native effects remain prerequisites for any such
 performance experiment.
 
+### Immersive movie position reference
+
+The Hunt01 opening camera receives the native script's authored pose before
+the render callback. A captured replay carried almost a metre of relative
+gameplay tracking displacement into that pose. The adapter now acquires a
+positional reference for the admitted movie/view/camera and applies subsequent
+head motion from that entry point. It retains the existing orientation policy
+and the shared gameplay tracking reference. Movie/sequence identity, native
+context, renderer device/generation, recenter and tracking availability bound
+the local reference. Capture backpressure retains an otherwise valid movie
+reference. The native authored camera and actor geometry remain authoritative.
+Host fixtures cover entry, continued motion and ownership changes. The
+correction's physical effect remains pending.
+
 ### Native audio-listener ownership
 
 Static inspection of the pinned engine identifies
