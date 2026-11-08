@@ -84,15 +84,17 @@ def _retained_completion_veto(e, prefix):
 
 
 def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertManualRound') -> bytes:
-    capacities={'WeaponRifleWinchester':12,'WeaponRifleWinchesterScope':12,
-                'WeaponHenry1863':12,'WeaponPistolVolcanic':8}
+    from coj_indexed_reload_session import (_ReloadBodyCycle, _emit_close_retained_wait,
+                                            _emit_retained_closed, _emit_retained_wait)
+    from coj_manual_reload import NATIVE_CYCLE_PROFILES
     profiles=(weapon_class,) if isinstance(weapon_class,str) else tuple(weapon_class)
-    if not profiles or any(name not in capacities for name in profiles):
+    if not profiles or any(name not in NATIVE_CYCLE_PROFILES for name in profiles):
         raise ValueError('No qualified offline body-cycle profile')
     e = ClassEdit(player)
     f = {name: e.field('cojvrManualCycle'+name, desc) for name, desc in (
-        ('Active','Z'),('SelfClear','Z'),('SawClear','Z'),('Faulted','Z'),
-        ('Weapon','LWeapon;'),('Machine','LPlayerStateMashine;'),('Hand','I'))}
+        ('Active','Z'),('Faulted','Z'))}
+    cycle = _ReloadBodyCycle(e,'cojvrManualCycle',f['Faulted'],'cojvrManualCycleCancelDebt')
+    f.update(cycle.fields)
     def method(name, desc): return e.ref('ArmedPlayerBeing', name, desc)
     def probe(name, desc): return e.ref('ArmedPlayerBeing', 'cojvrReloadProbe'+name, desc,9)
     def read(c,name): c.emit(0x2a);c.ref(0xb4,f[name])
@@ -100,8 +102,7 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     def put_bool(c,name,value): c.emit(0x2a,0x04 if value else 0x03);c.ref(0xb5,f[name])
     def reject(c): c.label('reject');c.emit(0x03,0xac)
     def clear(c):
-        put_bool(c,'SelfClear',False);put_bool(c,'SawClear',False);put_bool(c,'Active',False)
-        for name in ('Weapon','Machine'): c.emit(0x2a,0x01);c.ref(0xb5,f[name])
+        cycle.cleanup(c);put_bool(c,'Active',False)
     def hand_call(c,name,desc):
         c.emit(0x2a);read(c,'Hand');c.ref(0xb6,method(name,desc))
     weapon_owner=e.ref('Weapon','cOwner','LPawnInventory;',9)
@@ -136,16 +137,10 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     c.emit(0x04,0xac);reject(c)
     e.helper('cojvrManualCycleOwnerMatches','()Z',c.finish(),1)
 
-    # A synchronous self-Clear must never fall through to the native reload
-    # callback, even if a virtual getter cancels the probe during Clear. Keep
-    # the veto until SetCurrentState returns so nested callbacks cannot consume
-    # it prematurely; the caller checks ownership and the witnessed completion.
-    # Ordinary close and other hand/state callbacks remain native.
-    c=Code();read(c,'SelfClear');c.branch(0x99,'reject')
-    c.emit(0x1b);read(c,'Hand');c.branch(0xa0,'reject')
-    c.emit(0x1c,0x10,21);c.branch(0xa0,'reject')
-    put_bool(c,'SawClear',True);c.emit(0x04,0xac);reject(c)
-    e.helper('cojvrManualCycleSuppressCompletion','(II)Z',c.finish(),3)
+    c=Code();_emit_close_retained_wait(e,c,cycle)
+    close_wait = 'cojvrCloseManualCycle'
+    close_desc = '(LWeapon;ILPlayerStateMashine;)Z'
+    e.helper(close_wait,close_desc,c.finish(),6)
 
     # On a failed transaction after native entry, close its still-owned body21
     # even if the probe disappeared before the attempted body restart. Keep
@@ -164,17 +159,14 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     read(c,'Machine');c.emit(0x10,22)
     c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'))
     c.emit(0x4c,0x2b);c.branch(0xc6,'done')
+    read(c,'Machine');hand_call(c,'GetHandStateMashine','(I)LPlayerStateMashine;');c.branch(0xa6,'done')
+    read(c,'Body');c.branch(0xc6,'done')
+    read(c,'Machine');c.ref(0xb4,e.ref('StateMashine','m_sCurrentState','LBaseState;',9))
+    read(c,'Body');c.branch(0xa6,'done')
     read(c,'Machine');c.emit(0x2b)
     c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
     c.label('done');c.emit(0xb1)
     e.helper('cojvrManualCycleAbortBody','()V',c.finish(),2)
-    def completion(code):
-        c=Code();c.emit(0x2a,0x1b,0x1c)
-        c.ref(0xb6,method('cojvrManualCycleSuppressCompletion','(II)Z'))
-        c.branch(0x99,'native');c.emit(0xb1);c.label('native')
-        prefix=c.finish()
-        return prefix+b'\x00'*(-len(prefix)%4)+code
-    e.changes[('OnHandStateFinished_Reload','(IIZ)V')]=completion
     def heartbeat(code):
         c=Code()
         for name in ('Active','Faulted'):read(c,name);c.branch(0x9a,'reject')
@@ -182,7 +174,7 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
         prefix=c.finish()
         return prefix+b'\x00'*(-len(prefix)%4)+code
     e.changes[('cojvrKeepManualReloadAlive','()Z')]=heartbeat
-    arm_completion, release_completion = _retained_completion_veto(e, 'cojvrManualCycleDebt')
+    arm_completion, _ = _retained_completion_veto(e, 'cojvrManualCycleDebt')
 
     # Locals: 1 weapon, 2 machine, 3 counter, 4 loaded, 5 reserve,
     # 6 capacity, 7 ammo type, 8 saved hand, 9 caught Throwable,
@@ -192,37 +184,34 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     p_read(c,'Weapon','LWeapon;');c.emit(0x4c)
     p_read(c,'Machine','LPlayerStateMashine;');c.emit(0x4d)
     p_read(c,'Hand','I');c.emit(0x36,8)
-    for name,opcode,local in (('Weapon',0x19,1),('Machine',0x19,2),('Hand',0x15,8)):
-        c.emit(0x2a,opcode,local);c.ref(0xb5,f[name])
     # Acquire before any virtual eligibility/parameter read: a callback during
     # a lazy native parameter lookup cannot enter another insertion transaction.
     put_bool(c,'Active',True)
     c.label('try')
     # A callback in the initial validator may itself lose the probe and throw.
-    # Capture a cached body wait before any virtual call, not just before ammo.
-    for slot in (1, 2): c.emit(0x19,slot); c.branch(0xc6,'validate')
-    p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'validate')
+    # Capture the field-proven native body before any virtual call.
+    for slot in (1, 2): c.emit(0x19,slot); c.branch(0xc6,'not_ready')
+    c.emit(0x15,8);c.branch(0x9b,'not_ready');c.emit(0x15,8,0x04);c.branch(0xa3,'not_ready')
+    _emit_retained_wait(e,c,1,8,2,'not_ready')
+    cycle.retain(c,1,8,2)
     arm_completion(c, 1, 8, 2)
-    c.label('validate')
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'not_ready')
-    p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'not_ready')
+    cycle.same_body(c,'fault')
     c.emit(0x2b);c.ref(0xb4,weapon_owner);c.emit(0x2a);c.branch(0xa6,'not_ready')
     c.emit(0x2b,0x03);c.ref(0xb6,ammo_count);c.emit(0x36,4)
     c.emit(0x2b,0x03);c.ref(0xb6,ammo_capacity);c.emit(0x36,6)
     c.emit(0x2b,0x03);c.ref(0xb6,ammo_type);c.emit(0x36,7)
-    # Bind the expected capacity to the exact current native class. A combined
-    # production derivative must not accept the Volcanic capacity for a rifle.
+    # Bind the capacity, reserve type and rifle hand to the exact class.
     for index,name in enumerate(profiles):
         c.emit(0x2b);c.ref(0xb6,e.ref('java/lang/Object','getClass','()Ljava/lang/Class;'))
         c.ref(0xb6,e.ref('java/lang/Class','getName','()Ljava/lang/String;'))
         literal=e.append(b'\x08'+e.utf8(name).to_bytes(2,'big'))
         c.ref(0x13,literal);c.ref(0xb6,e.ref('java/lang/String','equals','(Ljava/lang/Object;)Z'))
         c.branch(0x99,'next_profile_'+str(index))
-        c.emit(0x15,6,0x10,capacities[name]);c.branch(0xa0,'not_ready')
-        if name=='WeaponHenry1863':
-            # Capacity alone cannot turn an overridden rifle reserve into a
-            # pistol transaction. The original alias inherits native type0.
-            c.emit(0x15,7);c.branch(0x9a,'not_ready')
+        c.emit(0x15,6,0x10,NATIVE_CYCLE_PROFILES[name]);c.branch(0xa0,'not_ready')
+        rifle = name != 'WeaponPistolVolcanic'
+        c.emit(0x15,7,0x03 if rifle else 0x05);c.branch(0xa0,'not_ready')
+        if rifle:c.emit(0x15,8);c.branch(0x9a,'not_ready')
         c.branch(0xa7,'profile_valid')
         c.label('next_profile_'+str(index))
     c.branch(0xa7,'not_ready');c.label('profile_valid')
@@ -233,7 +222,9 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     # Lazy virtual parameter reads may cancel/change state while retaining the
     # same references. Recheck full waiting eligibility before the authority.
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'not_ready')
-    p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'not_ready')
+    c.emit(0x2b,0x03);c.ref(0xb6,ammo_type);c.emit(0x15,7);c.branch(0xa0,'not_ready')
+    _emit_retained_wait(e,c,1,8,2,'not_ready')
+    cycle.same_body(c,'fault')
     c.emit(0x2a,0x2b);c.ref(0xb6,method('WeaponReload','(LWeapon;)Z'));c.branch(0x99,'fault')
 
     def readback():
@@ -243,44 +234,43 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
         c.emit(0x2b,0x03);c.ref(0xb6,ammo_type);c.emit(0x15,7);c.branch(0xa0,'fault')
         c.emit(0x2a,0x15,7);c.ref(0xb6,find_counter);c.emit(0x2d);c.branch(0xa6,'fault')
         c.emit(0x2d);c.ref(0xb6,counter_amount);c.emit(0x15,5,0x04,0x64);c.branch(0xa0,'fault')
-    readback()
+    readback();cycle.same_body(c,'fault')
     # A native true is insufficient (the original non-owner path can return
     # true without loading). Publish only after the retained +1/-1 proof.
     singleton=e.ref('GameMode','cSingleton','LGameMode;',9)
     c.ref(0xb2,singleton);c.branch(0xc6,'after_event')
     c.ref(0xb2,singleton);c.ref(0xb2,e.ref('EnumGameEvent','_WEAPON_RELOADED','I',9))
     c.ref(0xb6,e.ref('GameMode','OnGameEvent','(I)V'))
-    c.label('after_event');readback()
+    c.label('after_event');readback();cycle.same_body(c,'fault')
     # A native remaining query may trigger callbacks after the first witness.
     # Save its result so a failed readback reaches fault with an empty stack.
     hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.emit(0x36,10)
-    readback()
+    readback();cycle.same_body(c,'fault')
     c.emit(0x15,10);c.branch(0x9d,'still_waiting')
-    c.emit(0x2a);c.ref(0xb6,method('cojvrCancelReloadProbe','()V'))
+    c.emit(0x2a,0x2b,0x15,8,0x2c);c.ref(0xb6,method(close_wait,close_desc));c.branch(0x99,'fault')
     c.emit(0x2a);c.ref(0xb6,owner_matches);c.branch(0x99,'fault')
     c.label('still_waiting')
     p_read(c,'Status','I');c.emit(0x06);c.branch(0x9f,'closing')
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'fault')
-    p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'fault')
-    put_bool(c,'SawClear',False);put_bool(c,'SelfClear',True)
-    c.emit(0x2c,0x2c);c.ref(0xb6,e.ref('StateMashine','GetCurrentState','()LBaseState;'))
-    c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
-    read(c,'SawClear');c.branch(0x99,'fault')
-    put_bool(c,'SelfClear',False)
+    _emit_retained_wait(e,c,1,8,2,'fault')
+    cycle.replay(c,2,'fault')
     readback()
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'fault')
+    _emit_retained_wait(e,c,1,8,2,'fault')
+    cycle.same_body(c,'fault')
     # New body completion must reach the ordinary native veto before another
     # cartridge is accepted. These are probe fields, not animation clocks.
     c.emit(0x2a,0x04);c.ref(0xb5,probe('Status','I'))
     for name in ('Since','Until'):c.emit(0x2a,0x0b);c.ref(0xb5,probe(name,'F'))
     c.branch(0xa7,'accepted')
     c.label('closing')
-    p_read(c,'Cancelled','Z');c.branch(0x99,'fault')
-    hand_call(c,'GetHandStateMashineState','(I)I');c.emit(0x10,22);c.branch(0xa0,'fault')
     hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.emit(0x36,10)
     readback()
+    _emit_retained_closed(e,c,1,8,2,'fault')
     c.emit(0x15,10);c.branch(0x9d,'fault')
-    c.label('accepted');c.label('try_end');release_completion(c);clear(c);c.emit(0x04,0xac)
+    # A successful replay leaves the same native body pending. Its completion
+    # remains zero-transfer until native retirement, even if the probe is cleared.
+    c.label('accepted');c.label('try_end');clear(c);c.emit(0x04,0xac)
     c.label('fault');put_bool(c,'Faulted',True)
     put_bool(c,'SelfClear',False)
     c.label('abort_try')

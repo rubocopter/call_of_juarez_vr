@@ -126,6 +126,23 @@ def _emit_retained_closed(e,c,weapon,hand,machine,failure):
         else:local(weapon);c.branch(0xa6,failure)
 
 
+def _emit_close_retained_wait(e,c,cycle):
+    """Close helper body with locals 1=weapon, 2=hand, 3=machine."""
+    def method(name,desc):return e.ref('ArmedPlayerBeing',name,desc)
+    c.emit(0x2d,0x10,22);c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'));c.emit(0x3a,4)
+    c.emit(0x19,4);c.branch(0xc6,'reject')
+    c.emit(0x2a,0x2b);c.ref(0xb6,method('GetWeaponMoveState','(LWeapon;)I'));c.emit(0x36,5)
+    _emit_retained_wait(e,c,1,2,3,'reject')
+    if cycle:cycle.same_body(c,'reject')
+    c.emit(0x2a,0x1c,0x15,5);c.ref(0xb6,method('SetDesiredWeaponState','(II)V'))
+    _emit_retained_wait(e,c,1,2,3,'reject',desired=False,move_local=5)
+    if cycle:cycle.same_body(c,'reject')
+    for name,value in (('Cancelled',1),('Status',3)):
+        c.emit(0x2a,value+3);c.ref(0xb5,e.ref('ArmedPlayerBeing','cojvrReloadProbe'+name,'Z' if name=='Cancelled' else 'I',9))
+    c.emit(0x2d,0x19,4);c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
+    c.emit(0x04,0xac);c.label('reject');c.emit(0x03,0xac)
+
+
 def build_indexed_session_lab(original_archive:bytes,weapon:str,*,cycle_animation=False)->tuple[bytes,bytes]:
     _profile(weapon)
     if hashlib.sha256(original_archive).hexdigest()!=ORIGINAL_ARCHIVE_SHA256:
@@ -137,20 +154,20 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str,*,cycle_animatio
     return _append_indexed_session(player,cycle_animation=cycle_animation),machine
 
 
-class _IndexedBodyCycle:
+class _ReloadBodyCycle:
     """Synchronous Clear fence; independent of mutable probe fields.
 
-    The indexed debt lease separately blocks late inventory authority after a
+    The transaction's debt lease separately blocks late inventory authority after a
     failed callback. Only this exact retained body/hand's synchronous Clear
     skips the whole finish handler, preserving desired21 during native restart.
     """
-    def __init__(self,e):
+    def __init__(self,e,prefix,fault,debt_prefix):
         self.e=e
-        self.fields={name:e.field('cojvrIndexedCycle'+name,desc) for name,desc in (
+        self.fields={name:e.field(prefix+name,desc) for name,desc in (
             ('SelfClear','Z'),('SawClear','Z'),('Machine','LPlayerStateMashine;'),
             ('Body','LBaseState;'),('Hand','I'),('Weapon','LWeapon;'),
             ('Hands','[LArmedPlayerBeing$HandStateMashine;'))}
-        self.fence=e.ref('ArmedPlayerBeing','cojvrIndexedCycleFenceChangedBody','()V')
+        self.fence=e.ref('ArmedPlayerBeing',prefix+'FenceChangedBody','()V')
         c=Code();c.emit(0x2a);c.ref(0xb6,self.fence)
         self.read(c,'SelfClear');c.branch(0x99,'reject')
         c.emit(0x1b);self.read(c,'Hand');c.branch(0xa0,'reject')
@@ -166,8 +183,8 @@ class _IndexedBodyCycle:
         self.read(c,'Machine');c.branch(0xa6,'reject')
         self.boolean(c,'SawClear',True);c.emit(0x04,0xac)
         c.label('reject');c.emit(0x03,0xac)
-        guard=e.ref('ArmedPlayerBeing','cojvrIndexedCycleSuppressCompletion','(II)Z')
-        e.helper('cojvrIndexedCycleSuppressCompletion','(II)Z',c.finish(),3)
+        guard=e.ref('ArmedPlayerBeing',prefix+'SuppressCompletion','(II)Z')
+        e.helper(prefix+'SuppressCompletion','(II)Z',c.finish(),3)
         def completion(code):
             tag=Code();tag.emit(0x2a,0x1b,0x1c);tag.ref(0xb6,guard)
             tag.branch(0x99,'native');tag.emit(0xb1);tag.label('native')
@@ -178,7 +195,7 @@ class _IndexedBodyCycle:
         # callback-installed current body must not acquire fresh ammo authority.
         # Reuse the unchanged exact-body suppression/retirement machinery.
         from coj_reload_cycle import _retained_completion_veto
-        arm_cancel,_=_retained_completion_veto(e,'cojvrIndexedCycleCancelDebt')
+        arm_cancel,_=_retained_completion_veto(e,debt_prefix)
         c=Code()
         for name,slot in (('Weapon',1),('Machine',2),('Body',3)):
             self.read(c,name);c.emit(0x3a,slot,0x19,slot);c.branch(0xc6,'done')
@@ -217,17 +234,20 @@ class _IndexedBodyCycle:
         # Capture the exact object, not every future body21. Suppress() also
         # requires the callback's hand/state21 and the retained native machine.
         arm_cancel(c,1,4,2)
-        c.emit(0x2a,0x04);c.ref(0xb5,e.ref('ArmedPlayerBeing','cojvrIndexedFaulted','Z',9))
+        c.emit(0x2a,0x04);c.ref(0xb5,fault)
         c.label('done');c.emit(0xb1)
-        e.helper('cojvrIndexedCycleFenceChangedBody','()V',c.finish(),7)
+        e.helper(prefix+'FenceChangedBody','()V',c.finish(),7)
 
         c=Code()
         for name in ('Machine','Body'):self.read(c,name);c.branch(0xc6,'reject')
         self.read(c,'Machine');c.ref(0xb4,current);self.read(c,'Body');c.branch(0xa6,'reject')
-        c.emit(0x2a);c.ref(0xb4,e.ref('ArmedPlayerBeing','cojvrIndexedFaulted','Z',9));c.branch(0x9a,'reject')
+        c.emit(0x2a);c.ref(0xb4,fault);c.branch(0x9a,'reject')
         c.emit(0x04,0xac);c.label('reject');c.emit(0x03,0xac)
-        self.matches=e.ref('ArmedPlayerBeing','cojvrIndexedCycleBodyMatches','()Z')
-        e.helper('cojvrIndexedCycleBodyMatches','()Z',c.finish(),1)
+        self.matches=e.ref('ArmedPlayerBeing',prefix+'BodyMatches','()Z')
+        e.helper(prefix+'BodyMatches','()Z',c.finish(),1)
+
+    def guard_indexed_owner(self):
+        e=self.e
         # OwnerMatches ends after its virtual readers and field-only wait
         # proof. Gate its success too, so inner indexed writers cannot operate
         # on a different body installed by a parameter/owner callback.
@@ -300,11 +320,12 @@ def _append_indexed_session(player:bytes,*,helper_name='cojvrLabInsertWaitingInd
     declarations.field('cojvrIndexedSessionDispatch','Z')
     player=_append_indexed_helpers(declarations.finish(),_supervised=True)
     e=ClassEdit(player)
-    cycle=_IndexedBodyCycle(e) if cycle_animation else None
     def ref(name,desc,tag=10):return e.ref('ArmedPlayerBeing',name,desc,tag)
     busy=ref('cojvrIndexedSessionBusy','Z',9)
     dispatch=ref('cojvrIndexedSessionDispatch','Z',9)
     fault=ref('cojvrIndexedFaulted','Z',9)
+    cycle=_ReloadBodyCycle(e,'cojvrIndexedCycle',fault,'cojvrIndexedCycleCancelDebt') if cycle_animation else None
+    if cycle:cycle.guard_indexed_owner()
     def read(c,field):c.emit(0x2a);c.ref(0xb4,field)
     def put(c,field,value):c.emit(0x2a,0x04 if value else 0x03);c.ref(0xb5,field)
     def probe(c,name,desc):read(c,ref('cojvrReloadProbe'+name,desc,9))
@@ -316,18 +337,7 @@ def _append_indexed_session(player:bytes,*,helper_name='cojvrLabInsertWaitingInd
     c=Code()
     c.emit(0x2a,0x2b,0x1c,0x2d,0x03)
     c.ref(0xb6,ref('cojvrIndexedOwnerMatches','(LWeapon;ILPlayerStateMashine;I)Z'));c.branch(0x99,'reject')
-    c.emit(0x2d,0x10,22);c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'));c.emit(0x3a,4)
-    c.emit(0x19,4);c.branch(0xc6,'reject')
-    c.emit(0x2a,0x2b);c.ref(0xb6,ref('GetWeaponMoveState','(LWeapon;)I'));c.emit(0x36,5)
-    _emit_retained_wait(e,c,1,2,3,'reject')
-    if cycle:cycle.same_body(c,'reject')
-    c.emit(0x2a,0x1c,0x15,5);c.ref(0xb6,ref('SetDesiredWeaponState','(II)V'))
-    _emit_retained_wait(e,c,1,2,3,'reject',desired=False,move_local=5)
-    if cycle:cycle.same_body(c,'reject')
-    for name,value in (('Cancelled',1),('Status',3)):
-        c.emit(0x2a,value+3);c.ref(0xb5,ref('cojvrReloadProbe'+name,'Z' if name=='Cancelled' else 'I',9))
-    c.emit(0x2d,0x19,4);c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
-    c.emit(0x04,0xac);c.label('reject');c.emit(0x03,0xac)
+    _emit_close_retained_wait(e,c,cycle)
     e.helper('cojvrCloseIndexedSession','(LWeapon;ILPlayerStateMashine;)Z',c.finish(),6)
 
     c=Code()

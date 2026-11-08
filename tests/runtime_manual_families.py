@@ -200,6 +200,62 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
         self.assertTrue(reads)
         self.assertEqual((vm.vector(),vm.events),before)
 
+    def test_native_cycle_rejects_inexact_reserve_and_rifle_hand(self):
+        for kind in NATIVE_CYCLE_PROFILES:
+            cases = ('wrong_pool',) if kind == 'WeaponPistolVolcanic' else ('wrong_pool', 'left')
+            for case in cases:
+                with self.subTest(kind=kind, case=case):
+                    vm = FamilyVM(kind, int(case == 'left')); vm.wait()
+                    if case == 'wrong_pool': vm.types = [1]
+                    before = vm.vector(), vm.events
+                    self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+                    self.assertEqual((vm.vector(), vm.events), before)
+
+    def test_native_cycle_success_keeps_zero_transfer_through_probe_loss(self):
+        for kind in NATIVE_CYCLE_PROFILES:
+            with self.subTest(kind=kind):
+                vm = FamilyVM(kind); vm.wait()
+                self.assertTrue(vm.boolean('cojvrInsertManualRound'))
+                self.assertEqual(vm.player['cojvrReloadProbeStatus'], 1)
+                committed = vm.vector(), vm.events
+                vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[0])
+                vm.update(1.); vm.update(1.4)
+                self.assertEqual((vm.vector(), vm.events), committed)
+                self.assertIsNone(vm.player['cojvrManualCycleDebtMachine'])
+                vm.run('ArmedPlayerBeing','ReloadWeapon','(I)V',vm.player,[0])
+                vm.machine.update(m_sCurrentState=vm.states[20],start=1.4)
+                vm.update(1.8); vm.update(2.2)
+                self.assertEqual(vm.weapon['m_iAmmo0Count'], 2)
+                self.assertEqual(vm.events, 2)
+
+    def test_native_cycle_rejects_replacement_body_without_forcing_close(self):
+        for point in ('parameter', 'replay', 'close'):
+            with self.subTest(point=point):
+                vm = FamilyVM('WeaponRifleWinchester'); vm.wait()
+                if point == 'close': vm.weapon['m_iAmmo0Count'] = 11
+                replacement = dict(vm.states[21]); injected = []
+                def replace():
+                    if not injected:
+                        injected.append(True)
+                        vm.machine['m_sCurrentState'] = replacement
+                native = vm.native
+                def read_and_replace(owner, name, args):
+                    result = native(owner, name, args)
+                    if name == {'parameter': 'GetAmmoCapacity', 'close': 'GetWeaponMoveState'}.get(point):
+                        replace()
+                    return result
+                vm.native = read_and_replace
+                if point == 'replay': vm.on_body = replace
+                self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+                self.assertEqual(injected, [True])
+                self.assertIs(vm.machine['m_sCurrentState'], replacement)
+                self.assertEqual(vm.events, int(point != 'parameter'))
+                vm.native = native; vm.on_body = None
+                committed = vm.vector(), vm.events
+                vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[0])
+                vm.update(1.); vm.update(1.4)
+                self.assertEqual((vm.vector(), vm.events), committed)
+
     def test_changed_body_during_close_resolution_is_not_retargeted(self):
         for kind in INDEXED_WEAPONS:
             for hand in (0, 1):
@@ -328,7 +384,7 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
         self.assertEqual(len(runtime_reload_policy()), 16)
         for kind in runtime_reload_policy():
             for hand in (0, 1):
-                if kind=='WeaponHenry1863' and hand!=0: continue
+                if hand and kind in ('WeaponHenry1863','WeaponRifleWinchester','WeaponRifleWinchesterScope'): continue
                 with self.subTest(kind=kind, hand=hand):
                     vm = FamilyVM(kind, hand); vm.wait(); replies = []
                     def reenter():

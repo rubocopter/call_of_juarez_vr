@@ -39,9 +39,11 @@ class CycleVM(ManualVM):
         self.player['m_aHandStateMashine'] = [CycleHandFields(self, hand) for hand in (0, 1)]
 
     def run(self, cls, name, desc, owner, args=()):
-        if name.startswith(('cojvrManualCycleDebt', 'cojvrIndexedDebt','cojvrRevolverDebt','cojvrClipDebt')):
-            # This existing interpreter also implements aaload for direct native
-            # field proofs; execute emitted helpers rather than modeling them.
+        cycle_helper = name in ('cojvrCloseManualCycle','cojvrInsertManualNativeCycleRound') or (
+            name == 'cojvrInsertManualRound' and ('cojvrCloseManualCycle','(LWeapon;ILPlayerStateMashine;)Z')
+            in self.classes[cls][1] and ('cojvrInsertManualNativeCycleRound','()Z') not in self.classes[cls][1])
+        if cycle_helper or name.startswith(('cojvrManualCycle', 'cojvrIndexedDebt','cojvrRevolverDebt','cojvrClipDebt')):
+            # The indexed interpreter supports direct array and type proofs.
             from indexed_manual_reload import IndexedVM
             return IndexedVM.execute(self, cls, name, desc, owner, args)
         return super().run(cls, name, desc, owner, args)
