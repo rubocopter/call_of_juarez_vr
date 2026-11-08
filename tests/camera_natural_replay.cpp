@@ -375,6 +375,26 @@ bool PendingQueryAndNaturalFallback() {
     if(!replay()||natural_renders!=2||!natural_source_ready)return false;
     g_stereo_callbacks={};return true;
 }
+bool RestoreCameraVisibilityPreimage() {
+    alignas(16) std::array<std::byte,0x500> camera{};
+    const auto inverse_projection=camera.begin()+0x1c4;
+    const auto visibility=camera.begin()+0x264;
+    std::fill_n(inverse_projection,64,std::byte{0x19});
+    std::fill_n(visibility,0x33c-0x264,std::byte{0x27});
+    camera[0x260]=std::byte{1};
+    CameraRenderStateSnapshot natural{};
+    if(!CaptureCameraRenderState(camera.data(),natural))return false;
+    std::fill_n(inverse_projection,64,std::byte{0x71});
+    std::fill_n(visibility,0x33c-0x264,std::byte{0x72});
+    camera[0x260]=std::byte{0};
+    // These neighboring bytes are outside the measured projection writes.
+    camera[0x25c]=camera[0x261]=camera[0x33c]=std::byte{0x73};
+    return RestoreCameraRenderState(camera.data(),natural)&&
+        std::all_of(inverse_projection,inverse_projection+64,[](auto v){return v==std::byte{0x19};})&&
+        std::all_of(visibility,camera.begin()+0x33c,[](auto v){return v==std::byte{0x27};})&&
+        camera[0x260]==std::byte{1}&&camera[0x25c]==std::byte{0x73}&&
+        camera[0x261]==std::byte{0x73}&&camera[0x33c]==std::byte{0x73};
+}
 bool ReplayPreservesReference() {
     g_original_render_camera_update=reinterpret_cast<RenderCameraUpdateFn>(&NativeUpdate);
     g_pose_source=nullptr;
@@ -495,6 +515,9 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::RestoreCameraVisibilityPreimage()) {
+        std::cerr<<"eye transaction did not restore native visibility preimage\n";return 1;
+    }
     if(!cojvr::games::call_of_juarez::InactiveBodyDiagnosticsRespectTrace()){
         std::cerr<<"inactive body diagnostics ignored trace opt-in or disabled the legacy writer\n";return 1;}
     if(!cojvr::games::call_of_juarez::SkeletonDiscoveryRespectsTrace()){

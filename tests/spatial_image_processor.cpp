@@ -499,6 +499,28 @@ int main() try {
     const auto smooth=gpu.Read(detail.Get());
     Require(smooth[8*n+8]!=edge[8*n+8]&&smooth[0*n+15]==edge[0*n+15],"diagonal edge softened, flat field retained");
 
+    // A narrow cutout can rasterize as an isolated point or a single-pixel
+    // strip. Both lack the crossed gradient used by the staircase filter.
+    std::vector<std::uint32_t> cutouts(n*n,0x7F606060);
+    for(unsigned y=0;y<n;++y)for(unsigned x=12;x<n;++x)cutouts[y*n+x]=0x7FE0E0E0;
+    cutouts[4*n+4]=0x7FF0F0F0;
+    cutouts[9*n+4]=0x7F101010;
+    for(unsigned y=3;y<12;++y)cutouts[y*n+8]=0x7FF0F0F0;
+    detail=gpu.Texture(n,n,cutouts);detail2=gpu.Texture(n,n,cutouts);eyes={detail.Get(),detail2.Get()};
+    options.edge_smoothing=false;
+    Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options)&&gpu.Read(detail.Get())==cutouts,
+        "disabled smoothing changed narrow cutouts");
+    options.edge_smoothing=true;
+    Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options),"cutout smoothing");
+    const auto smoothed_cutouts=gpu.Read(detail.Get());
+    Require(smoothed_cutouts==gpu.Read(detail2.Get()),"cutout processing differs between identical eyes");
+    Require(Channel(smoothed_cutouts[4*n+4],0)<200&&Channel(smoothed_cutouts[9*n+4],0)>45,
+        "isolated bright and dark cutouts retain their full contrast");
+    Require(Channel(smoothed_cutouts[8*n+8],0)<220,"thin cutout strip retains its full contrast");
+    Require(smoothed_cutouts[8*n+11]==cutouts[8*n+11]&&smoothed_cutouts[8*n+12]==cutouts[8*n+12],
+        "isolated detail filter softened a straight silhouette");
+    for(const auto pixel:smoothed_cutouts)Require(Channel(pixel,24)==127,"cutout smoothing changed alpha");
+
     // Color controls work separately from smoothing/sharpening and handle odd extents.
     options={};options.enabled=true;options.gamma=2;
     auto dark=gpu.Texture(7,5,std::vector<std::uint32_t>(35,0xFF404040));

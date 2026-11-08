@@ -37,8 +37,14 @@ float4 PS(Vertex v):SV_Target {
         float range=hi-lo;
         float gx=abs(le-lw),gy=abs(ln-ls);
         float edgeWeight=0;
-        if(smoothEdges>0&&range>max(.03125,hi*.125))
-            edgeWeight=.5*saturate(min(gx,gy)/max(max(gx,gy),.00001));
+        if(smoothEdges>0&&range>max(.03125,hi*.125)) {
+            float diagonal=min(gx,gy)/max(max(gx,gy),.00001);
+            // A thin feature can be brighter or darker than both samples
+            // across either axis even when opposing gradients cancel.
+            float horizontal=max(lc-max(le,lw),min(le,lw)-lc);
+            float vertical=max(lc-max(ln,ls),min(ln,ls)-lc);
+            edgeWeight=.5*saturate(max(diagonal,max(horizontal,vertical)/range));
+        }
         float3 average=(n+s+e+w)*.25;
         c=lerp(c,average,edgeWeight);
         // Reduce gain on strong contrast and on edges already being smoothed.

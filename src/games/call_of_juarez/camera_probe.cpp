@@ -96,6 +96,7 @@ constexpr std::ptrdiff_t kCameraDerivedForwardOffset = 0xE4;
 constexpr std::ptrdiff_t kCameraViewMatrixOffset = 0x104;
 constexpr std::ptrdiff_t kCameraWorldCullingMatrixOffset = 0x144;
 constexpr std::ptrdiff_t kCameraProjectionMatrixOffset = 0x184;
+constexpr std::ptrdiff_t kCameraInverseProjectionMatrixOffset = 0x1C4;
 constexpr std::ptrdiff_t kCameraViewProjectionMatrixOffset = 0x204;
 constexpr std::ptrdiff_t kCameraFrustumLeftOffset = 0x244;
 constexpr std::ptrdiff_t kCameraFrustumRightOffset = 0x248;
@@ -103,6 +104,9 @@ constexpr std::ptrdiff_t kCameraFrustumBottomOffset = 0x24C;
 constexpr std::ptrdiff_t kCameraFrustumTopOffset = 0x250;
 constexpr std::ptrdiff_t kCameraNearOffset = 0x254;
 constexpr std::ptrdiff_t kCameraFarOffset = 0x258;
+constexpr std::ptrdiff_t kCameraProjectionModeOffset = 0x260;
+constexpr std::ptrdiff_t kCameraVisibilityDataOffset = 0x264;
+constexpr std::size_t kCameraVisibilityDataBytes = 0x33C - kCameraVisibilityDataOffset;
 constexpr std::size_t kCameraMatrixBytes = sizeof(float) * 16;
 constexpr std::size_t kRenderCameraUpdateSlot = 9;
 constexpr std::size_t kSetFovSlot = 10;
@@ -966,18 +970,26 @@ bool DispatchNativeUiMouseButton(
 struct CameraRenderStateSnapshot {
     std::array<std::byte, kCameraMatrixBytes> source_view{};
     std::array<std::byte, kCameraMatrixBytes> source_world{};
-    std::array<std::array<std::byte, kCameraMatrixBytes>, 6> matrices{};
+    std::array<std::array<std::byte, kCameraMatrixBytes>, 7> matrices{};
     std::array<float, 6> frustum{};
+    std::byte projection_mode{};
+    std::array<std::byte, kCameraVisibilityDataBytes> visibility{};
 };
 
-constexpr std::array<std::ptrdiff_t, 6> kCameraDerivedMatrixOffsets{
+constexpr std::array<std::ptrdiff_t, 7> kCameraDerivedMatrixOffsets{
     kCameraDerivedViewSourceOffset,
     kCameraDerivedRightOffset,
     kCameraViewMatrixOffset,
     kCameraWorldCullingMatrixOffset,
     kCameraProjectionMatrixOffset,
+    kCameraInverseProjectionMatrixOffset,
     kCameraViewProjectionMatrixOffset,
 };
+
+// The native projection builder rewrites the mode byte and the derived
+// corners, planes and bounds. The padding between them is not camera state.
+constexpr std::size_t kCameraVisibilityProbeBytes =
+    kCameraVisibilityDataOffset - kCameraProjectionModeOffset + kCameraVisibilityDataBytes;
 
 bool CaptureCameraRenderState(
     void* camera,
@@ -1004,10 +1016,14 @@ bool CaptureCameraRenderState(
     }
     auto* frustum = reinterpret_cast<float*>(bytes + kCameraFrustumLeftOffset);
     if (!IsReadable(frustum, sizeof(float) * snapshot.frustum.size()) ||
-        !IsWritable(frustum, sizeof(float) * snapshot.frustum.size())) {
+        !IsWritable(frustum, sizeof(float) * snapshot.frustum.size()) ||
+        !IsReadable(bytes + kCameraProjectionModeOffset, kCameraVisibilityProbeBytes) ||
+        !IsWritable(bytes + kCameraProjectionModeOffset, kCameraVisibilityProbeBytes)) {
         return false;
     }
     std::copy_n(frustum, snapshot.frustum.size(), snapshot.frustum.begin());
+    snapshot.projection_mode = bytes[kCameraProjectionModeOffset];
+    std::memcpy(snapshot.visibility.data(), bytes + kCameraVisibilityDataOffset, snapshot.visibility.size());
     return true;
 }
 
@@ -1021,7 +1037,8 @@ bool RestoreCameraRenderState(
     auto* frustum = reinterpret_cast<float*>(bytes + kCameraFrustumLeftOffset);
     if (!IsWritable(source_view, kCameraMatrixBytes) ||
         !IsWritable(source_world, kCameraMatrixBytes) ||
-        !IsWritable(frustum, sizeof(float) * snapshot.frustum.size())) {
+        !IsWritable(frustum, sizeof(float) * snapshot.frustum.size()) ||
+        !IsWritable(bytes + kCameraProjectionModeOffset, kCameraVisibilityProbeBytes)) {
         return false;
     }
     for (const auto offset : kCameraDerivedMatrixOffsets) {
@@ -1036,6 +1053,8 @@ bool RestoreCameraRenderState(
             kCameraMatrixBytes);
     }
     std::copy(snapshot.frustum.begin(), snapshot.frustum.end(), frustum);
+    bytes[kCameraProjectionModeOffset] = snapshot.projection_mode;
+    std::memcpy(bytes + kCameraVisibilityDataOffset, snapshot.visibility.data(), snapshot.visibility.size());
     return true;
 }
 
