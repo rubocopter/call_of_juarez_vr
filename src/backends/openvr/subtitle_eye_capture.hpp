@@ -127,8 +127,10 @@ public:
     [[nodiscard]] bool busy() const noexcept { return pending_.texture || writer_.valid(); }
 
     void Poll(ID3D11DeviceContext* context) noexcept {
-        if (writer_.valid() && writer_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            writer_ = {};
+        if (writer_.valid() && writer_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            const auto result = writer_.get();
+            if (result.committed) captured_[result.role] = true;
+        }
         if (!pending_.deadline_ms) return;
         if (GetTickCount64() >= pending_.deadline_ms) { pending_ = {}; return; }
         D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -167,10 +169,10 @@ public:
                     L"-d" + std::to_wstring(id.device) + L"-e" + std::to_wstring(source.owner_epoch) +
                     L"-r" + std::to_wstring(source.recenter_sequence) + L"-t" + std::to_wstring(targets_[role]) +
                     L"-h" + std::to_wstring(pending_.crop.bottom) + L"-y" + std::to_wstring(pending_.crop.top) + L".bmp";
-                writer_ = std::async(std::launch::async, [path = output_ / name, width, height, bytes, pixels = std::move(pixels)] {
-                    WriteSheet(path, width, height, pixels.get(), bytes);
-                });
-                captured_[role] = true;
+                writer_ = std::async(std::launch::async,
+                    [path = output_ / name, width, height, bytes, role, pixels = std::move(pixels)]() noexcept {
+                        return WriteResult{role, WriteSheet(path, width, height, pixels.get(), bytes)};
+                    });
             } catch (...) {}
         }
         pending_ = {};
@@ -183,7 +185,7 @@ private:
                 eyes[eye], 0, &pending_.crop);
     }
 
-    static void WriteSheet(const std::filesystem::path& path, UINT width, UINT height,
+    static bool WriteSheet(const std::filesystem::path& path, UINT width, UINT height,
         const char* pixels, std::size_t bytes) noexcept {
         try {
             BITMAPFILEHEADER file{};
@@ -203,8 +205,10 @@ private:
             output.write(reinterpret_cast<const char*>(&bitmap), sizeof(bitmap));
             output.write(pixels, static_cast<std::streamsize>(bytes));
             output.close();
-            if (output) std::filesystem::rename(temporary, path);
-        } catch (...) {}
+            if (!output) return false;
+            std::filesystem::rename(temporary, path);
+            return true;
+        } catch (...) { return false; }
     }
 
     struct Pending {
@@ -221,7 +225,11 @@ private:
     std::array<std::uint64_t, 2> targets_{};
     std::array<unsigned, 2> attempts_{};
     std::array<bool, 2> captured_{};
-    std::future<void> writer_;
+    struct WriteResult {
+        unsigned role;
+        bool committed;
+    };
+    std::future<WriteResult> writer_;
 };
 
 } // namespace cojvr::backends::openvr

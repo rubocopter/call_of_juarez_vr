@@ -103,16 +103,29 @@ void TestSubtitleEyeCapture() {
         capture.ConfirmSubmitted(11);
         Require(!capture.BeforeSubmit(context.Get(), targets, first), "discarded capture regained submit authority");
         drain();
-        std::uint64_t frame = 6;
+
+        const auto session = std::filesystem::directory_iterator(output / L"subtitle-eye-capture")->path();
+        const auto hidden_session = output / L"unavailable-session";
+        std::filesystem::rename(session, hidden_session);
+        const SubtitleEyeCaptureIdentity unwritable{3, 4, 6, 7};
+        line(affected, unwritable);
+        Require(capture.Begin(context.Get(), targets, unwritable, *overlay), "could not queue capture for write failure");
+        Require(capture.BeforeSubmit(context.Get(), targets, unwritable), "could not queue composed eyes for write failure");
+        capture.ConfirmSubmitted(12);
+        drain();
+        std::filesystem::rename(hidden_session, session);
+
+        std::uint64_t frame = 7;
+        std::uint64_t submit = 13;
         for (const auto value : {control, affected}) {
             const SubtitleEyeCaptureIdentity id{3, 4, frame, frame+1};
             ++frame;
             line(value, id);
             update(100, 200);
-            Require(capture.Begin(context.Get(), targets, id, *overlay), "new matching line did not queue raw eyes");
+            Require(capture.Begin(context.Get(), targets, id, *overlay), "matching line could not be captured after a failed write");
             update(300, 400);
             Require(capture.BeforeSubmit(context.Get(), targets, id), "matching composed eyes did not queue");
-            capture.ConfirmSubmitted(12);
+            capture.ConfirmSubmitted(submit++);
             update(500, 600);
             drain();
             Require(!capture.Begin(context.Get(), targets, id, *overlay), "completed role could be captured twice");
@@ -124,8 +137,8 @@ void TestSubtitleEyeCapture() {
     for (const auto& entry : std::filesystem::directory_iterator(session)) {
         if (entry.path().extension() != L".bmp") continue;
         const auto name = entry.path().filename().wstring();
-        Require(name.starts_with(L"control-f6-s12-p7-g4-d3-e9-r8-") ||
-            name.starts_with(L"affected-f7-s12-p8-g4-d3-e9-r8-"), "subtitle capture filename lost submission identity");
+        Require(name.starts_with(L"control-f7-s13-p8-g4-d3-e9-r8-") ||
+            name.starts_with(L"affected-f8-s14-p9-g4-d3-e9-r8-"), "subtitle capture filename lost submission identity");
         ++sheets;
         std::ifstream file(entry.path(), std::ios::binary);
         BITMAPFILEHEADER header{};
