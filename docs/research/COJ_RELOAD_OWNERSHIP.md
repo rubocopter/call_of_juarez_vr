@@ -67,16 +67,23 @@ after weapon/hand/body restoration and with current reload presentation owner.
 The rejected host candidate used small cyan locators (2.4 cm Winchester; 1.6 cm per shotgun
 mouth). These visual sizes are not physical tolerances. No green readiness,
 free-chamber indication, native index assignment or gate-clearance inference is
-made. The 14 cm grip gesture is unchanged. Native input precedes scoped render
+made. The active gesture uses the 18 cm grip zone. Native input precedes scoped render
 mutations, so a retained prior-frame geometry sample cannot authorize insertion.
-Precise tip/trajectory input remains unwired until current input-space geometry,
-actual cartridge tip, native phase clearance and approach have been qualified.
+The optional `manual_reload_mouth_preview` event samples current input before
+native insertion for ordinary and scoped Winchester, Remington and SawOff. It
+brackets exact player generation, actual/active/desired weapon object and native
+waiting phase, then uses the same rigid weapon transform as rendering. It maps
+the current free support hand through the authored finger targets and reports
+the textured nose when the native hand and pinch qualify. The sample holds only
+local JNI references and applies no hand or weapon pose. A release sample
+predicts the carried pose at that instant. Each event carries frame, pose and
+native owner identifiers for comparison with later restored-pair observations.
 
-`TryPrepareTrackedWeapon` is not a read-only preview: it retains a native weapon
-transaction and marks its overlay active. A future input preview must read and
-bracket exact current native frames into local values, then use the existing
-pure tracked-root transform and matching displayed cartridge-tip mapping without
-publishing or retaining a weapon overlay before native insertion.
+Host JNI tests cover all four variants, both support sides, movement, stale
+ammunition/phase, generation replacement and non-rigid source rejection. The
+preview awaits live correlation with the rendered position, gate clearance and
+index-to-port correspondence before it can drive an insertion. The active grip
+zone and native ammunition transfer remain the production authority.
 
 ## Exact revolver profiles
 
@@ -175,6 +182,17 @@ variant instead validates each exact class's original whole-clip flag and
 ammo-type count, then selects its distinct transaction; mixed families never
 share a scalar count or a whole-clip default.
 
+### Legacy firearm scope
+
+Exact class-name scans of the installed original maps, scripts and class
+references found modern campaign firearms in serialized map entries. Among the
+legacy profiles, the concrete spawn reference is `WeaponRifleShotgun` in
+`LawmanTestFXModule`. Campaign reach for the six legacy classes remains
+unqualified. Old Henry's `WeaponBullet` storage holds 13, while modern Henry's
+rifle reserve route holds 12. The old pistols also use legacy `WeaponBullet`
+storage. The legacy nine-round pump uses `TPPshotgun.3DA`. The presence of these
+classes and meshes gives them separate native accounting and geometry gates.
+
 ### Production manual family composition
 
 Base Schofield whole-clip loading has exercised functional operator acceptance
@@ -188,10 +206,11 @@ zero failed-gesture count.
 
 `patch_manual_classes` now emits one combined, original-hash-pinned player and
 one state machine for the manual option. Five admitted revolvers retain native
-unit insertion. Exact Winchester/Scope (12 rifle rounds) and Volcanic (8 pistol
-rounds) share the guarded authored body21 cycle. All three still use original
-`PawnArmed.WeaponReload` once per accepted insertion; native restart is guarded
-against a second transfer and requires another completed body wait.
+unit insertion. Exact Winchester, scoped Winchester and Henry 1863 use the
+12-round rifle reserve profile. Volcanic uses the eight-round pistol profile.
+All four call the original `PawnArmed.WeaponReload` once per accepted insertion.
+The body21 cycle checks the exact object around callbacks, preserves the retained
+completion veto until retirement and requires another completed body wait.
 
 Remington/SawOff and Derringer (1+1), and Lemant (1 rifle+8 pistol), use
 `cojvrInsertManualIndexedRound(I)Z` with a C++-captured pickup index. The original
@@ -856,9 +875,8 @@ parses these optional fields conservatively into `port_probe`, counts unique
 pivot rankings, reports malformed combinations as `invalid_mechanical_geometry`,
 and remains compatible with older evidence. Both C++ geometry and Python
 analyzer have host tests; the ranking also has **bounded live observations**,
-without headset validation of a usable socket.
-No insertion-zone change, independent gate writer or chamber selection is
-enabled. The previously accepted ~14 cm grip zone stays active.
+without headset validation of a usable socket. The diagnostic has no gate writer,
+chamber selection or input authority.
 
 ## Revolver hammer-cocking boundary
 
@@ -943,7 +961,7 @@ At the lip centroid's YZ, a -X diagnostic inspection ray intersects GunLoader
 triangle 45 behind the outer lip. The bind surface therefore blocks that access
 path; empty cavity geometry cannot admit clearance. LOD1, actual cartridge
 approach, tip/axis and opening phase remain unqualified. The active gesture
-still compares raw support and armed controller grips within 14 cm, independent
+still compares raw support and armed controller grips within 18 cm, independent
 of the displayed lip and textured cartridge tip. No radius/offset adjustment or
 runtime socket has been introduced from these offline measurements.
 
@@ -1201,7 +1219,7 @@ updates do not create an indefinite hold; paused native time resumes on unpause.
 The free-hand **trigger** picks up the existing compositor token at waist. Its
 current visual frame follows the verified displayed skin-pad midpoint and distal
 finger tangent described below; gesture admission still follows tracked input.
-A valid approach uses the existing 14 cm grip-distance
+A valid approach uses the current 18 cm grip-distance
 zone, and a fresh release inside it produces one immediate insertion intent.
 `cojvrInsertManualRound()Z` repeats the native validity checks, requires status 2
 and calls the shipped `PawnArmed.WeaponReload(LWeapon;)Z` **exactly once**. The
@@ -1577,8 +1595,8 @@ draw/depth-copy path is enabled.
 
 Qualified held entry into the existing grip zone now supplies a separate 9 ms,
 amplitude .10, 90 Hz cue. Initial pickup uses the insertion journey/time guards;
-replenished cartridges require a fresh press. Withdrawal beyond 18 cm rearms
-the 14 cm entry, with a separate 180 ms output cadence. The native-confirmed
+replenished cartridges require a fresh press. Withdrawal beyond 22 cm rearms
+the 18 cm entry, with a separate 180 ms output cadence. The native-confirmed
 18 ms/.25/120 Hz insertion pulse retains its own 80 ms cadence and priority.
 Freshness/ownership/restoration fences apply to both. Host tests cover boundary
 jitter, immediate acceptance after entry and reacquisition. No ammunition is

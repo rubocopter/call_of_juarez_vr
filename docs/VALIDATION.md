@@ -868,7 +868,7 @@ This source batch combines a native-confirmed support-thumb gesture, a
 displayed-finger tangent axis for the CC0 cartridge,
 qualified zone-entry feedback, stricter Square rearming after ownership/input/
 tracking loss and native Square recovery after disabling manual reload. Native
-ammunition authority remains game-owned; the shared gesture retains its 14 cm
+ammunition authority remains game-owned; the manual gesture uses its 18 cm
 generic insertion zone and existing body presentation.
 An additional Winchester/Scope observer has host coverage for transformed
 measured receiver geometry, the current textured nose/axis, synchronous native
@@ -885,6 +885,15 @@ remain open. Include its bounded trace in the existing combined loading check;
 no separate headset run or repeated accepted firing/grip check is required.
 Both-hand geometry and rotated-camera tests, fresh/duplicate/invalid gestures,
 haptic priority/freshness and context/disable barriers have host coverage.
+Host regressions cover a missed indexed release followed by immediate pickup
+and a new manual request while the previously applied native reload action is
+still held. The four unit profiles that replay the native reload body now check
+the exact body instance, hand and reserve type. A retained completion veto
+blocks a late automatic transfer until the replayed body retires. The archived
+JVM verifier and interpreted callback cases cover the production derivative.
+The bounded read-only mouth/tip prediction is host-tested for Winchester,
+scoped Winchester, Remington and SawOff. It awaits live comparison with the
+rendered geometry and clearance. The actual gesture still uses the grip zone.
 Direct native completion without an observed closing sample now discards pending
 continuation tokens. Failed start/fresh preparation also clear them; a new
 session requires its own initial waist pickup. Host regressions reproduce and
@@ -966,6 +975,9 @@ and device replacement. A separate event query on the original immediate context
 proves retirement of all quarantined copies before cache reopening and fresh
 generation admission. The fixture covers multiple retained leases, repeated
 recovery, D3D9Ex/D3D11 replacement, mismatched endpoints and stale generations.
+The GPU fixture also covers reuse of a completed copy query on the same
+consumer device and context. The bounded cache discards queries on replacement
+and leaves recovery queries and quarantined fences separate.
 If that independent query also fails, cache reset, later polls and shutdown keep
 the uncertain lease; the fixture explicitly drains physical GPU work before
 destruction. Destroying a failed bridge does not mark consumer_done: a real

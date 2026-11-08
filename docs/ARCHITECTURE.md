@@ -1117,6 +1117,14 @@ after physical rejection of guide/insertion agreement. Their bounded geometry
 observers and host fixtures remain research; no prior-frame post-overlay sample
 authorizes a transfer or replaces the current input-space target.
 
+The exact-game adapter also predicts those measured mouths and the textured
+cartridge nose from current input before transfer. It brackets native reads
+with the same weapon object and waiting phase, borrows resolved render readers
+and keeps all sampled frames local. The diagnostic records held and released
+poses, including misses, for correlation with the independent rendered sample.
+The input policy continues to use the grip receipt while that correlation and
+mechanical clearance await live validation.
+
 The duel coach is read-only presentation from the existing native input capture:
 phase, observed hand occupancy, physical pitch and successful axis delivery.
 It neither invokes native input again nor changes native duel timing. Fresh
@@ -1496,6 +1504,10 @@ repeats, drops, frame age and query retirement from compositor refresh.
 Per-frame producer/consumer lease event logs sample the first eight frames and
 each 90th frame; copy ordinals preserve sampled lease-to-fence association,
 including retirement during shutdown drain. Aggregate counters remain unsampled.
+Up to three completed D3D11 event queries are reused on the same immediate
+context. Only a query that proves its own copy completed enters the cache.
+Recovery retires its quarantined copies through separate proof and discards
+their queries. A consumer device or context change clears the completed cache.
 Independent recovery emits begun/completed/failed events with the affected copy
 ordinal range and retained failure counts. The final GPU summary and local
 performance summary include recovery, identity rejection and transition deferral
