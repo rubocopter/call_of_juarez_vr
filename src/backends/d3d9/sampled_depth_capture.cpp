@@ -452,6 +452,9 @@ HRESULT D3D9SampledDepthCapture::CheckSupport(
 HRESULT D3D9SampledDepthCapture::Initialize(
     IDirect3DDevice9* device, const D3D9SampledDepthConfig& config) noexcept {
     if (impl_->pool) return impl_->Fail("already initialized; use a new owner for a new generation", D3DERR_INVALIDCALL);
+    if (config.width <= max_extent && config.height <= max_extent &&
+        CaptureBytes(config) > max_payload_bytes)
+        return impl_->Fail("native capture storage exceeds the configured memory budget", E_OUTOFMEMORY);
     auto hr = CheckSupport(device, config);
     if (FAILED(hr)) return impl_->Fail("INTZ/non-MSAA/D24S8/D3D9Ex capability rejected", hr);
     try {

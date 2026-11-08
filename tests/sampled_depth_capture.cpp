@@ -334,7 +334,7 @@ void Ready(const D3D9SampledDepthSnapshot& snapshot) {
 
 enum class FinalOpticsFixture { matching, unavailable, changed };
 void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT height=kHeight,
-    FinalOpticsFixture final_optics_case=FinalOpticsFixture::matching) {
+    FinalOpticsFixture final_optics_case=FinalOpticsFixture::matching, bool full_transport=true) {
     namespace coj = cojvr::games::call_of_juarez;
     constexpr auto format = D3DFMT_A16B16G16R16F;
     constexpr DWORD flags = D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER;
@@ -359,7 +359,15 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
     buffer.texture.texture_2d = id(terminal.Get());
     buffer.texture.width = width;
     buffer.texture.height = height;
-    const bool full_color=width>64;
+    const bool full_color=width>64&&full_transport;
+    if(width==2804&&height==2860&&!full_transport) {
+        D3D9SampledDepthCapture over_budget;
+        const D3D9SampledDepthConfig full_config{width,height,format,D3DFMT_D24X8,
+            D3DMULTISAMPLE_NONE,0,kGeneration,true};
+        Require(over_budget.Initialize(device,full_config)==E_OUTOFMEMORY&&
+            std::strcmp(over_budget.last_error(),"native capture storage exceeds the configured memory budget")==0,
+            "full-size temporal capture hid its storage failure behind a driver capability verdict");
+    }
     coj::SampledSceneDepth adapter(full_color);
     Require(!adapter.Begin(device,native,kGeneration,1,1,1,0,1), "unqualified game source admitted");
     Require(std::strcmp(adapter.last_error(),"native_snapshot_invalid")==0,
@@ -514,7 +522,18 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
                 "packet lost same-eye native optics or admitted changed/unavailable final optics");
             report(packet.stamp.frame,packet.stamp.pose,packet.stamp.owner,packet.eye,packet.snapshot,result,optics);
         });
-        else adapter.Poll(report);
+        else {
+            adapter.PollPackets([&](const auto&,HRESULT,const auto&) {
+                throw std::runtime_error("preview-only source escaped through the full-color worker path");
+            });
+            adapter.PollPreviews([&](const auto& observation,HRESULT result,const auto& optics) {
+                Require(!observation.snapshot.color_shared_handle()&&
+                    optics.final_color_match==expected_optics_match,
+                    "preview-only observation gained a full color carrier or lost matched optics");
+                report(observation.stamp.frame,observation.stamp.pose,observation.stamp.owner,
+                    observation.eye,observation.snapshot,result,optics);
+            });
+        }
         return ready ? S_OK : S_FALSE;
     }, "scene capture did not complete");
     Require(adapter.Retire(), "scene capture owner retirement failed");
@@ -1139,6 +1158,7 @@ int Run(const std::filesystem::path& helper) {
     CheckFullColorPair(d.Get(),consumer,2560,1440);
     CheckCoJSceneBoundary(d.Get());
     CheckCoJSceneBoundary(d.Get(),2560,1440);
+    CheckCoJSceneBoundary(d.Get(),2804,2860,FinalOpticsFixture::matching,false);
     CheckCoJSceneBoundary(d.Get(),128,72,FinalOpticsFixture::unavailable);
     CheckCoJSceneBoundary(d.Get(),128,72,FinalOpticsFixture::changed);
     if (!helper.empty()) ReconstructNativeDepthPair(d.Get(), consumer, helper);

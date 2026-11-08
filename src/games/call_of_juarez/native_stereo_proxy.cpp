@@ -1051,7 +1051,7 @@ void PollSampledDepth() noexcept {
             if(worker_status.error[0])line<<";reason="<<worker_status.error.data();LogLine(line.str());
         }catch(...){}
     }
-    g_sampled_depth.PollPackets([](const auto& packet,HRESULT result,const auto& optics) noexcept {
+    g_sampled_depth.PollPreviews([](const auto& packet,HRESULT result,const auto& optics) noexcept {
         const auto frame=packet.stamp.frame,pose=packet.stamp.pose;
         const auto owner=packet.stamp.owner;const auto eye=packet.eye;const auto& snapshot=packet.snapshot;
         try {
@@ -1073,7 +1073,9 @@ void PollSampledDepth() noexcept {
             LogLine(line.str());
             if (result == S_OK) {
                 if (!g_sampled_temporal_sequence_enabled) {
-                    const auto offered=g_stereo.sampled_worker.Offer(packet);
+                    const cojvr::backends::openvr::dlss::SceneDepthEye worker_packet{
+                        packet.stamp,packet.eye,packet.snapshot,packet.capture_time};
+                    const auto offered=g_stereo.sampled_worker.Offer(worker_packet);
                     if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::queued)
                         LogLine("native_sampled_worker: status=queued;mode=copy_audit;frame_sequence="+std::to_string(frame)+
                             ";pose_sequence="+std::to_string(pose)+";neural_active=false;temporal_admitted=false");
@@ -3576,7 +3578,8 @@ void EnsureStarted() noexcept {
                     g_resource_probe_enabled.store(command.render_resource_probe_enabled);
                     g_sampled_depth_enabled = command.sampled_scene_depth_enabled && command.independent_eye_height == 0 &&
                         !command.render_resource_probe_enabled;
-                    if(g_sampled_depth_enabled&&!g_sampled_depth.ConfigureFullSizeColor(true))
+                    if(g_sampled_depth_enabled&&!g_sampled_depth.ConfigureFullSizeColor(
+                        !command.sampled_temporal_sequence_enabled))
                         g_sampled_depth_enabled=false;
                     g_sampled_temporal_sequence_enabled=command.sampled_temporal_sequence_enabled&&g_sampled_depth_enabled;
                     g_stereo.luma_enabled = command.frame_luma_probe_enabled;
@@ -3598,6 +3601,7 @@ void EnsureStarted() noexcept {
                 if(g_sampled_depth_enabled)
                     LogLine(std::string("native_sampled_depth_config: mode=")+
                         (g_sampled_temporal_sequence_enabled?"temporal_sequence":"copy_audit")+
+                        ";full_size_color="+(g_sampled_temporal_sequence_enabled?"false":"true")+
                         ";max_frames=8;temporal_admitted=false");
                 LogLine(std::string("independent_eye_config: startup_enabled=") +
                     (g_stereo.fixed_outputs.enabled ? "true" : "false") +

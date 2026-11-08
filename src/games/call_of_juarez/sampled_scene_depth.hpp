@@ -69,6 +69,12 @@ class SampledSceneDepth final {
         ~PrivateCall() { flag = false; }
     };
 public:
+    struct PreviewObservation {
+        backends::openvr::dlss::SceneDepthStamp stamp{};
+        unsigned eye=0;
+        Snapshot snapshot;
+        std::chrono::steady_clock::time_point capture_time{};
+    };
     explicit SampledSceneDepth(bool full_size_color=false) noexcept:full_size_color_(full_size_color) {}
     // Startup-only, before this adapter has ever allocated a capture pool.
     [[nodiscard]] bool ConfigureFullSizeColor(bool enabled) noexcept {
@@ -270,11 +276,20 @@ public:
     // Epoch tracks capture-resource lifetime, not input/settings/history policy.
     template<class Report> void PollPackets(Report&& report) {
         if(!full_size_color_)return;
-        PollItems([&](const Pending& item,HRESULT result) {
+        PollPreviews([&](const PreviewObservation& observation,HRESULT result,const auto& optics) {
             const backends::openvr::dlss::SceneDepthEye packet{
+                observation.stamp,observation.eye,observation.snapshot,observation.capture_time};
+            report(packet,result,optics);
+        });
+    }
+    // Reduced color/depth exports need no full-size color carrier. Keep these
+    // observations distinct from worker packets that require both shared planes.
+    template<class Report> void PollPreviews(Report&& report) {
+        PollItems([&](const Pending& item,HRESULT result) {
+            const PreviewObservation observation{
                 {item.snapshot.producer_device(),item.snapshot.generation(),item.frame,item.pose,
                  item.owner,item.integrity,item.epoch},item.eye,item.snapshot,item.capture_time};
-            report(packet,result,item.optics);
+            report(observation,result,item.optics);
         });
     }
 private:
