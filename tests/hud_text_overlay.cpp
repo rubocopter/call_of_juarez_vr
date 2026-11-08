@@ -1,5 +1,6 @@
 #include "backends/openvr/hud_text_overlay.hpp"
 #include "backends/openvr/holster_guide_pixels.hpp"
+#include "backends/openvr/subtitle_eye_capture.hpp"
 #include "runtime/vr_math.hpp"
 #include "runtime/action_prompts.hpp"
 #include <algorithm>
@@ -8,6 +9,8 @@
 #include <limits>
 #include <wrl/client.h>
 #include <fstream>
+#include <filesystem>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 
@@ -33,6 +36,120 @@ using namespace cojvr::runtime;
 void Require(bool value, const char* message) {
     if (!value) { std::cerr << message << '\n'; std::exit(1); }
 }
+
+void TestSubtitleEyeCapture() {
+    static_assert(SubtitleEyeCaptureExtentFits(2804, 2860));
+    static_assert(SubtitleEyeCaptureExtentFits(2560, 1440));
+    static_assert(SubtitleEyeCaptureExtentFits(4096, 2048));
+    static_assert(!SubtitleEyeCaptureExtentFits(4096, 2049));
+    const auto output = std::filesystem::temp_directory_path() /
+        (L"cojvr-subtitle-test-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+    Require(std::filesystem::create_directory(output), "could not reserve subtitle capture test directory");
+    const auto config = output / L"targets.txt";
+    const auto overlay = std::make_unique<StereoHudTextOverlay>();
+    constexpr std::u16string_view affected = u"affected";
+    constexpr std::u16string_view control = u"control";
+    { std::ofstream file(config); file << SubtitleFingerprint(affected) << ' ' << SubtitleFingerprint(control); }
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    Require(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+        0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &context)), "subtitle capture WARP device failed");
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = 2; desc.Height = 4; desc.MipLevels = desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8X8_UNORM; desc.SampleDesc.Count = 1;
+    std::array<ComPtr<ID3D11Texture2D>, 2> eyes;
+    for (auto& eye : eyes)
+        Require(SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &eye)), "subtitle capture eye allocation failed");
+    const std::array<ID3D11Texture2D*, 2> targets{eyes[0].Get(), eyes[1].Get()};
+    const auto update = [&](std::uint32_t a, std::uint32_t b) {
+        const std::array<std::uint32_t, 8> left{1, 2, 3, 4, a, a+1, a+2, a+3};
+        const std::array<std::uint32_t, 8> right{5, 6, 7, 8, b, b+1, b+2, b+3};
+        context->UpdateSubresource(targets[0], 0, nullptr, left.data(), 8, 0);
+        context->UpdateSubresource(targets[1], 0, nullptr, right.data(), 8, 0);
+    };
+    const auto line = [&](std::u16string_view value, const SubtitleEyeCaptureIdentity& id) {
+        overlay->frame_sequence = id.frame;
+        overlay->subtitle_capture = {SubtitleSource::cinematic, 9, id.pose, 8, true};
+        overlay->text.subtitle.length = static_cast<std::uint32_t>(value.size());
+        std::copy(value.begin(), value.end(), overlay->text.subtitle.characters.begin());
+    };
+    {
+        SubtitleEyeCapture disabled;
+        disabled.Load(output / L"missing.txt");
+        line(affected, {3, 4, 5, 6});
+        Require(!disabled.Begin(context.Get(), targets, {3, 4, 5, 6}, *overlay), "missing config armed capture");
+        SubtitleEyeCapture capture;
+        capture.Load(config);
+        const SubtitleEyeCaptureIdentity first{3, 4, 5, 6};
+        overlay->subtitle_capture.source = SubtitleSource::dialogue;
+        Require(!capture.Begin(context.Get(), targets, first, *overlay), "actor dialogue qualified as a movie");
+        overlay->subtitle_capture.source = SubtitleSource::cinematic;
+        overlay->subtitle_capture.pose_sequence = 7;
+        Require(!capture.Begin(context.Get(), targets, first, *overlay), "stale subtitle pose qualified");
+        line(affected, first);
+        const auto drain = [&] {
+            context->Flush();
+            for (unsigned tries = 0; tries < 500 && capture.busy(); ++tries) {
+                capture.Poll(context.Get());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            Require(!capture.busy(), "subtitle capture readback did not retire");
+        };
+        update(100, 200);
+        Require(capture.Begin(context.Get(), targets, first, *overlay), "matching affected line did not queue raw eyes");
+        Require(!capture.BeforeSubmit(context.Get(), targets, {3, 5, 5, 6}), "different generation qualified");
+        Require(capture.BeforeSubmit(context.Get(), targets, first), "fixture could not queue the rejected submission");
+        capture.DiscardUnsubmitted();
+        capture.ConfirmSubmitted(11);
+        Require(!capture.BeforeSubmit(context.Get(), targets, first), "discarded capture regained submit authority");
+        drain();
+        std::uint64_t frame = 6;
+        for (const auto value : {control, affected}) {
+            const SubtitleEyeCaptureIdentity id{3, 4, frame, frame+1};
+            ++frame;
+            line(value, id);
+            update(100, 200);
+            Require(capture.Begin(context.Get(), targets, id, *overlay), "new matching line did not queue raw eyes");
+            update(300, 400);
+            Require(capture.BeforeSubmit(context.Get(), targets, id), "matching composed eyes did not queue");
+            capture.ConfirmSubmitted(12);
+            update(500, 600);
+            drain();
+            Require(!capture.Begin(context.Get(), targets, id, *overlay), "completed role could be captured twice");
+        }
+    }
+    unsigned sheets = 0;
+    const auto root = output / L"subtitle-eye-capture";
+    const auto session = std::filesystem::directory_iterator(root)->path();
+    for (const auto& entry : std::filesystem::directory_iterator(session)) {
+        if (entry.path().extension() != L".bmp") continue;
+        const auto name = entry.path().filename().wstring();
+        Require(name.starts_with(L"control-f6-s12-p7-g4-d3-e9-r8-") ||
+            name.starts_with(L"affected-f7-s12-p8-g4-d3-e9-r8-"), "subtitle capture filename lost submission identity");
+        ++sheets;
+        std::ifstream file(entry.path(), std::ios::binary);
+        BITMAPFILEHEADER header{};
+        BITMAPINFOHEADER image{};
+        file.read(reinterpret_cast<char*>(&header), sizeof(header));
+        file.read(reinterpret_cast<char*>(&image), sizeof(image));
+        Require(header.bfType == 0x4d42 && image.biWidth == 4 && image.biHeight == -4 &&
+            image.biBitCount == 32, "subtitle capture did not retain an exact lower-half contact sheet");
+        file.seekg(header.bfOffBits);
+        std::array<std::uint32_t, 16> pixels{};
+        file.read(reinterpret_cast<char*>(pixels.data()), sizeof(pixels));
+        const std::array<std::uint32_t, 16> expected{100,101,200,201,102,103,202,203,
+            300,301,400,401,302,303,402,403};
+        for (auto& pixel : pixels) pixel &= 0xffffff;
+        Require(file.good() && pixels == expected, "subtitle eye crops were stale, switched or not composed");
+        file.close();
+        std::filesystem::remove(entry.path());
+    }
+    Require(sheets == 2, "subtitle capture did not write exactly one sheet per target");
+    std::filesystem::remove(session);
+    std::filesystem::remove(root);
+    std::filesystem::remove(config);
+    std::filesystem::remove(output);
+}
 template<class Compositor> bool DrawGuideGate(Compositor& compositor,ID3D11Device* device,
     ID3D11DeviceContext* context,const StereoHudTextOverlay& overlay,
     const std::array<ID3D11Texture2D*,2>& targets,bool enabled){
@@ -46,7 +163,22 @@ HudText Text(std::u16string_view value) {
     std::copy(value.begin(), value.end(), text.characters.begin());
     return text;
 }
+template<class Compositor> void CheckSubtitleDiagnostic(const Compositor& compositor,
+    unsigned chars, bool left, bool right, bool drawn) {
+    if constexpr(requires{compositor.LastSubtitleDiagnostic();}) {
+        const auto d=compositor.LastSubtitleDiagnostic();
+        Require(d.capture_sequence==7 && d.characters==chars,
+            "subtitle diagnostic lost same-capture text identity");
+        Require(d.projection_attempted && d.projected[0]==left && d.projected[1]==right,
+            "subtitle diagnostic did not retain independent per-eye projection verdicts");
+        Require(d.draw_queued[0]==drawn && d.draw_queued[1]==drawn,
+            "subtitle diagnostic confused one-eye projection with atomic draw admission");
+        Require(d.panel_width && d.panel_height && d.placement.distance_m>1.5F,
+            "subtitle diagnostic lost actual raster/depth placement");
+    } else Require(false,"production compositor lacks captured subtitle diagnostics");
+}
 int main(int argc, char** argv) {
+    TestSubtitleEyeCapture();
     HudTextRaster raster;
     const auto text = Text(u"Interacción: recoge el revólver. ¡Apunta con cuidado!\nSegunda línea: caballo, niño, acción.");
     Require(text.view().find(u'\u00F3') != std::u16string_view::npos &&
@@ -162,6 +294,7 @@ int main(int argc, char** argv) {
     HudTextCompositor compositor;
     const std::array<ID3D11Texture2D*, 2> raw{targets[0].Get(),targets[1].Get()};
     Require(compositor.Draw(device.Get(), context.Get(), overlay,7,raw), "production text shaders must render on WARP");
+    CheckSubtitleDiagnostic(compositor,overlay.text.subtitle.length,true,true,true);
     const auto rendered_left = ReadEye(device.Get(),context.Get(),targets[0].Get());
     const auto rendered_right = ReadEye(device.Get(),context.Get(),targets[1].Get());
     Require(rendered_left != world && rendered_left != rendered_right, "real composition must show text and distinct stereo geometry");
@@ -195,6 +328,18 @@ int main(int argc, char** argv) {
         ReadEye(device.Get(),context.Get(),targets[0].Get()) == world,
         "invalid second eye must suppress the whole stereo panel");
     overlay.eyes = valid_eyes;
+    overlay.text={};
+    overlay.text.subtitle=Text(u"Subtítulo fuera del ojo derecho");
+    overlay.eyes[1].eye_to_head.orientation={0,0,0,1};
+    overlay.eyes[1].eye_to_head.position.x=100.F;
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,raw)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==world,
+        "offscreen right eye must suppress the complete subtitle pair");
+    CheckSubtitleDiagnostic(compositor,overlay.text.subtitle.length,true,false,false);
+    const auto offscreen=compositor.LastSubtitleDiagnostic();
+    Require(!offscreen.offscreen[0]&&offscreen.offscreen[1]&&offscreen.quads[1].clip_positions[0][3]>0,
+        "subtitle diagnostic lost finite offscreen geometry");
+    overlay.eyes=valid_eyes;
     compositor.Reset();
     Require(compositor.Prepare(device.Get()) && compositor.Draw(device.Get(),context.Get(),overlay,7,raw),
         "explicit renderer shutdown must allow clean text-pipeline reinitialization");

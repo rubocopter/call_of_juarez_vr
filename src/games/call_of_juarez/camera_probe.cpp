@@ -5585,14 +5585,22 @@ void RenderCameraOnlyStereo(
     bool submitted=false;
     if(captured[0] && captured[1] && restored[0] && restored[1] && right_guard_restored &&
         resources_restored[0] && resources_restored[1] && hands_restored && weapons_restored &&
+        (!movie||(RenderOwnerStillUsesView(owner,view)&&CameraForView(view)==camera)) &&
         MirrorStereoEyePair(frame_sequence)) {
         runtime::StereoHudTextOverlay hud_text{};
         hud_text.frame_sequence=frame_sequence;
         hud_text.eyes=sample.eyes;
         // Movie subtitles use only their naturally scheduled module writer;
         // never inherit actor HUD or its 100 ms gameplay cache in this route.
-        if(movie)(void)g_java_player_bridge.TryObserveMovieSubtitle(hud_text.text.subtitle);
-        else (void)g_java_player_bridge.TryObserveHudText(hud_text.text);
+        if(movie) {
+            const bool read=g_java_player_bridge.TryObserveMovieSubtitle(hud_text.text.subtitle);
+            hud_text.subtitle_capture={runtime::SubtitleSource::cinematic,sample.cinematic_movie_epoch,
+                sample.hmd_pose.sequence,g_pose_tracker.last_recenter_sequence(),read};
+        } else {
+            const bool read=g_java_player_bridge.TryObserveHudText(hud_text.text);
+            hud_text.subtitle_capture={runtime::SubtitleSource::dialogue,g_java_player_bridge.being_generation(),
+                sample.hmd_pose.sequence,g_pose_tracker.last_recenter_sequence(),read};
+        }
         CameraStereoReticleOverlay reticle{};
         reticle.frame_sequence=frame_sequence;
         submitted=g_stereo_callbacks.submit_frame(g_stereo_callbacks.context,
@@ -5886,7 +5894,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // body, hand, weapon and reload pipeline. Recheck on the game owner thread:
     // a proxy's earlier observation cannot authorize a stale cinematic sample.
     CoJPresentationOwner presentation{};
-    const bool presentation_observed=
+    bool presentation_observed=!sample.cinematic_immersive&&
         g_java_player_bridge.TryGetActiveGamePresentationOwner(presentation);
     if(sample.cinematic_immersive || sample.settings_input_captured ||
         !presentation_observed || presentation.blocked()) {
@@ -5899,17 +5907,38 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         RestoreAppliedArmRotations(frame_sequence,"camera_only_entry");
         const bool body_restored=RestoreRoomScaleBodyOffset(frame_sequence,"camera_only_entry");
         const bool head_restored=UpdateLocalHeadVisibility(false,frame_sequence);
-        const bool camera_only_allowed=presentation_observed &&
-            ((sample.cinematic_immersive && presentation.immersive_movie_allowed()) ||
-             (sample.settings_input_captured && !presentation.blocked()));
-        if(!camera_only_allowed || !body_restored || !head_restored ||
-            g_left_arm_rotation.active || g_right_arm_rotation.active ||
-            g_gameplay_owner_release_pending) {
+        if(sample.cinematic_immersive)
+            presentation_observed=g_java_player_bridge.TryGetActiveGamePresentationOwner(presentation);
+        const bool restored=body_restored&&head_restored&&
+            !g_left_arm_rotation.active&&!g_right_arm_rotation.active&&CameraForView(view)==camera;
+        if(!CoJCameraOnlyStereoAllowed(presentation,presentation_observed,
+            sample.cinematic_immersive,sample.settings_input_captured,restored,
+            g_gameplay_owner_release_pending,sample.cinematic_movie_epoch)) {
+            static thread_local unsigned movie_rejections=0;
+            if(sample.cinematic_immersive&&movie_rejections<16) {
+                ++movie_rejections;
+                try {
+                    EmitEvent("immersive_movie_camera_only","rejected",
+                        "frame_sequence="+std::to_string(frame_sequence)+
+                        ";movie_epoch="+std::to_string(presentation.movie_input_epoch)+
+                        ";sample_movie_epoch="+std::to_string(sample.cinematic_movie_epoch)+
+                        ";owner_observed="+std::to_string(presentation_observed)+
+                        ";movie_allowed="+std::to_string(presentation.immersive_movie_allowed())+
+                        ";body_restored="+std::to_string(body_restored)+
+                        ";head_restored="+std::to_string(head_restored)+
+                        ";arms_restored="+std::to_string(!g_left_arm_rotation.active&&!g_right_arm_rotation.active)+
+                        ";release_pending="+std::to_string(g_gameplay_owner_release_pending));
+                } catch(...) {}
+            }
             ForwardNaturalRender(original,owner,view);
             return;
         }
-        if(sample.cinematic_immersive&&!sample.settings_input_captured&&sample.cinematic_skip_requested&&
-            sample.cinematic_movie_epoch&&sample.cinematic_movie_epoch==presentation.movie_input_epoch){
+        const bool skip_requested=sample.cinematic_immersive&&!sample.settings_input_captured&&
+            sample.cinematic_skip_requested&&sample.cinematic_movie_epoch&&
+            sample.cinematic_movie_epoch==presentation.movie_input_epoch;
+        if(skip_requested&&g_gameplay_owner_release_pending) {
+            (void)g_movie_skip_dispatch.Consume(true,sample.hmd_pose.sequence,sample.native_gameplay_context_token);
+        } else if(skip_requested) {
             bool context_restored=false;
             CoJMovieSkipResult skip_result{};skip_result.reason="render_context_unavailable";
             const bool delivered=DispatchWithRenderLevelContext(owner,[&]() noexcept {
@@ -8422,6 +8451,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         g_reload_cartridge_last_visible=drawn;
         if (!loading_ui_input.suppress_gameplay) {
             const bool observed = g_java_player_bridge.TryObserveHudText(hud_text.text);
+            hud_text.subtitle_capture={runtime::SubtitleSource::dialogue,g_java_player_bridge.being_generation(),
+                sample.hmd_pose.sequence,g_pose_tracker.last_recenter_sequence(),observed};
             CameraProbeBasis ui_basis{};
             CameraProbeVector ui_position{};
             if (ReadNaturalCameraFrame(natural_render_state, ui_basis, ui_position)) {
@@ -8893,6 +8924,10 @@ bool DispatchCameraMovieSkipPress(std::uint64_t tracking_sequence,std::uint64_t 
     if(result){*result={};result->reason="input_edge_rejected";}
     if(!g_installed.load(std::memory_order_acquire)||
         !g_movie_skip_dispatch.Consume(true,tracking_sequence,native_context))return false;
+    if(g_gameplay_owner_release_pending) {
+        if(result)result->reason="gameplay_release_pending";
+        return false;
+    }
     return g_java_player_bridge.TryDispatchMovieSkipPress(movie_epoch,result);
 }
 

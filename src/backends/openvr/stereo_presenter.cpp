@@ -4,6 +4,7 @@
 #include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
 #include "backends/openvr/hud_text_overlay.hpp"
+#include "backends/openvr/subtitle_eye_capture.hpp"
 #include "backends/openvr/d3d11_session.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
@@ -134,6 +135,7 @@ struct OpenVrStereoPresenter::Impl {
     bool init_ok = false;
     std::array<runtime::EyeView, 2> eyes{};
     HudTextCompositor hud_text_compositor;
+    runtime::SubtitleDiagnosticBudget subtitle_diagnostic_budget;
     std::atomic_uint64_t settings_context{0};
     bool latest_settings_capture=true;
     std::uint64_t latest_ui_context_token=0;
@@ -395,6 +397,7 @@ struct OpenVrStereoPresenter::Impl {
     bool UploadFrame(
         D3D11SessionBridge& d3d11,
         D3D9SharedTextureBridge& shared_bridge,
+        SubtitleEyeCapture& subtitle_capture,
         d3d9::StereoCpuFrame& frame,
         std::uint64_t fixed_authority_epoch,
         const FlatUiPointerSample& input_flat_ui_pointer,
@@ -418,6 +421,12 @@ struct OpenVrStereoPresenter::Impl {
         double& hash_ms,
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
+        subtitle_capture.DiscardUnsubmitted();
+        const auto capture_native_subtitle_eyes = [&]() noexcept {
+            if (!fixed_outputs && frame.presentation_mode == d3d9::FramePresentationMode::native_stereo)
+                subtitle_capture.Begin(d3d11.context(), {textures[0].Get(), textures[1].Get()},
+                    {frame.device_id, frame.generation, frame.capture_sequence, frame.render_pose_sequence}, frame.hud_text);
+        };
         bool composition_ok = true;
         bool old_text_discarded=false;
         const auto discard_old_text=[&]() noexcept {
@@ -554,6 +563,41 @@ struct OpenVrStereoPresenter::Impl {
                 if (frame.capture_sequence <= 8 || frame.capture_sequence % 127 == 0)
                     SetError("native HUD text composition unavailable");
             }
+            const auto& source=frame.hud_text.subtitle_capture;
+            if(source.source==runtime::SubtitleSource::none||source.pose_sequence!=frame.render_pose_sequence)return;
+            const auto d=hud_text_compositor.LastSubtitleDiagnostic();
+            const auto& text=frame.hud_text.text.subtitle;
+            const bool visible=!text.view().empty();
+            const auto fingerprint=visible?runtime::SubtitleFingerprint(text.view()):0;
+            const bool same_capture=d.capture_sequence==frame.capture_sequence;
+            unsigned eye_status=source.read_valid?1U:0U;
+            if(same_capture)for(unsigned eye=0;eye<2;++eye) {
+                const unsigned outcome=(d.projected[eye]?1U:0U)|(d.clipped[eye]?2U:0U)|
+                    (d.offscreen[eye]?4U:0U)|(d.draw_queued[eye]?8U:0U);
+                eye_status|=outcome<<(1+4*eye);
+            }
+            if(!subtitle_diagnostic_budget.Admit(frame.capture_sequence,source.source,source.owner_epoch,
+                fingerprint,eye_status,visible))return;
+            try {
+                std::ostringstream line;
+                line<<"native_stereo_subtitle: frame_sequence="<<frame.capture_sequence
+                    <<";pose_sequence="<<source.pose_sequence<<";recenter_sequence="<<source.recenter_sequence
+                    <<";generation="<<frame.generation<<";device="<<frame.device_id
+                    <<";source="<<static_cast<unsigned>(source.source)<<";owner_epoch="<<source.owner_epoch
+                    <<";read_valid="<<source.read_valid<<";characters="<<text.length<<";fingerprint="<<fingerprint
+                    <<";projection_attempted="<<(same_capture&&d.projection_attempted);
+                if(same_capture&&visible) {
+                    line<<";raster="<<d.panel_width<<'x'<<d.panel_height
+                        <<";distance_m="<<d.placement.distance_m<<";center_y_m="<<d.placement.center_y_m;
+                    for(unsigned eye=0;eye<2;++eye) {
+                        line<<";eye"<<eye<<'='<<d.projected[eye]<<','<<d.clipped[eye]<<','
+                            <<d.offscreen[eye]<<','<<d.draw_queued[eye];
+                        if(d.projected[eye]||d.offscreen[eye])for(const auto& corner:d.quads[eye].clip_positions)
+                            for(float value:corner)line<<','<<value;
+                    }
+                }
+                Log(line.str());
+            } catch(...) {}
         };
         const auto draw_gameplay_reticle = [&]() noexcept {
             if (!authority_ok()) { composition_ok = false; return; }
@@ -695,6 +739,7 @@ struct OpenVrStereoPresenter::Impl {
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
             discard_old_text();
+            capture_native_subtitle_eyes();
             if(!process_graphics())return false;
             draw_gameplay_reticle();
             draw_hud_text();
@@ -944,6 +989,7 @@ struct OpenVrStereoPresenter::Impl {
                 if (!update_output(eye, nullptr, CpuEyeData(source), source.stride)) return false;
             }
         }
+        capture_native_subtitle_eyes();
         if(!process_graphics())return false;
         draw_gameplay_reticle();
         draw_hud_text();
@@ -1018,6 +1064,11 @@ struct OpenVrStereoPresenter::Impl {
         neural::Presenter neural_processor(neural_options);
         runtime::VrInputReleaseGate input_release_gate;
         const auto settings_path=runtime::DefaultVrSettingsPath();
+        SubtitleEyeCapture subtitle_capture;
+        try {
+            if (!fixed_configuration.enabled && !settings_path.empty())
+                subtitle_capture.Load(settings_path.parent_path() / L"subtitle-eye-capture.txt");
+        } catch (...) {}
         auto& preference_store=runtime::SharedVrPreferences();
         const auto loaded_settings=preference_store.Initialize(settings_path);
         auto& graphics_store=runtime::SharedGraphicsPreferences();
@@ -1240,6 +1291,7 @@ struct OpenVrStereoPresenter::Impl {
             LogRuntimeState(previous_runtime_state, "initialized");
 
             while (!stop_requested.load(std::memory_order_acquire)) {
+                subtitle_capture.Poll(d3d11.context());
                 if (fixed_outputs && !fixed_frame_authority.Allows(active_fixed_authority_epoch)) cadence.Invalidate();
                 shared_bridge.Poll(d3d11.context());
                 {
@@ -1828,7 +1880,7 @@ struct OpenVrStereoPresenter::Impl {
                     std::uint64_t replay_left=0,replay_right=0;double replay_hash=0,replay_upload=0;
                     D3D9SharedTextureCopyTiming replay_timing{};
                     auto& retained=neural_processor.RetainedFrame();
-                    if(!UploadFrame(d3d11,shared_bridge,retained,0,{},flat_pointer_scratch,flat_menu_compositor,
+                    if(!UploadFrame(d3d11,shared_bridge,subtitle_capture,retained,0,{},flat_pointer_scratch,flat_menu_compositor,
                         menu_gpu_disabled,spatial_processor,neural_processor,neural_preferences.revision,true,true,
                         neural_preferences.values,spatial_disabled,false,textures,texture_width,texture_height,texture_format,
                         replay_left,replay_right,replay_hash,replay_upload,replay_timing)){
@@ -1934,7 +1986,7 @@ struct OpenVrStereoPresenter::Impl {
                         }
                         if (fixed_outputs) cadence.Invalidate();
                         const bool uploaded = (!fixed_outputs || fixed_frame_authority.Allows(incoming_fixed_authority_epoch)) && UploadFrame(
-                                d3d11, shared_bridge, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
+                                d3d11, shared_bridge, subtitle_capture, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
                                 flat_pointer_scratch, flat_menu_compositor, menu_gpu_disabled,
                                 spatial_processor, neural_processor, active_graphics.revision,
                                 pose_ok&&runtime_state.focused&&runtime_state.connected&&runtime_state.tracking_valid&&!dashboard_visible,
@@ -1942,6 +1994,7 @@ struct OpenVrStereoPresenter::Impl {
                                 active_graphics.values, spatial_disabled, flat_reference_changed,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
+                        if (!uploaded) subtitle_capture.DiscardUnsubmitted();
                         // An optional filter setup failure may fall back to a
                         // healthy native pair. Removed consumer resources may
                         // already contain partial writes: revoke old/new cadence
@@ -2324,9 +2377,13 @@ struct OpenVrStereoPresenter::Impl {
                     fixed_frame_authority.Execute(active_fixed_authority_epoch,retire_text):retire_text();
                 if(!text_authorized){cadence.Invalidate();continue;}
                 if (fixed_outputs) fixed_submission_attempted = true;
+                const bool capture_subtitle = pending_content == PresentationContent::new_frame &&
+                    subtitle_capture.BeforeSubmit(d3d11.context(), {textures[0].Get(), textures[1].Get()},
+                        {active_device_id, active_generation, active_capture_sequence, active_render_pose_sequence});
                 if (!SubmitEyes(
                         runtime, textures, submit_pose, active_fixed_authority_epoch,
                         left_result, right_result, submit_ms, scene_focus_pending)) {
+                    if (capture_subtitle) subtitle_capture.DiscardUnsubmitted();
                     if (fixed_outputs) cadence.Invalidate();
                     if(fixed_outputs&&!flat_theater_active&&!scene_focus_pending&&
                        fixed_frame_authority.Allows(active_fixed_authority_epoch)){
@@ -2361,6 +2418,12 @@ struct OpenVrStereoPresenter::Impl {
                 const std::uint64_t submit_sequence =
                     new_frame_submissions.load(std::memory_order_acquire) +
                     repeated_frame_submissions.load(std::memory_order_acquire);
+                if (capture_subtitle) {
+                    subtitle_capture.ConfirmSubmitted(submit_sequence);
+                    // Kick the optional copies even if the game stops providing
+                    // fresh frames. The subsequent readback never waits.
+                    d3d11.context()->Flush();
+                }
                 // Keep sampled upload/capture identities observable even when
                 // earlier theater/repeated submissions shift the submit cadence.
                 if (ShouldLogSequence(submit_sequence) ||

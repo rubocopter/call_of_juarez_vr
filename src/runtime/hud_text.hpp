@@ -3,6 +3,7 @@
 #include "runtime/vr_types.hpp"
 #include "runtime/gameplay_ui.hpp"
 #include "runtime/action_prompts.hpp"
+#include "runtime/subtitle_diagnostics.hpp"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -94,6 +95,7 @@ struct HolsterGuides {
 
 struct StereoHudTextOverlay {
     std::uint64_t frame_sequence = 0;
+    SubtitleCaptureDiagnostic subtitle_capture{};
     // Capture-time game-owner availability/epoch, independent of textures.
     std::uint64_t feedback_context_token = 0;
     ReloadInsertionFeedback reload_feedback{};

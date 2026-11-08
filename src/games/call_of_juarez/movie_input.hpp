@@ -6,6 +6,16 @@ struct CoJMovieSkipResult {
     bool attempted=false,delivered=false;
     const char* reason="unavailable";
 };
+// Rendering a qualified movie does not dispatch input or mutate the player.
+// A missing controller still blocks native skip and settings hand mapping.
+inline bool CoJCameraOnlyStereoAllowed(const CoJPresentationOwner& owner,
+    bool observed,bool immersive,bool settings,bool restored,bool release_pending,
+    std::uint64_t expected_movie_epoch) noexcept {
+    if(!observed||!restored)return false;
+    if(immersive)return owner.immersive_movie_allowed()&&expected_movie_epoch&&
+        owner.movie_input_epoch==expected_movie_epoch;
+    return settings&&!release_pending&&!owner.blocked();
+}
 // Rejection alone is not a camera mutation. Actual native calls can fade or
 // replace a scene even when they throw, so those always retire the old pair.
 inline bool CoJContinueMovieAfterSkip(const CoJMovieSkipResult& result,

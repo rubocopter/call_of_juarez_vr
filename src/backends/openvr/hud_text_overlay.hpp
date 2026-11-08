@@ -45,6 +45,15 @@ struct ProjectedHudPanel {
     std::array<std::array<float, 4>, 4> clip_positions{};
 };
 
+struct HudSubtitleDiagnostic {
+    std::uint64_t capture_sequence=0;
+    std::uint32_t characters=0,panel_width=0,panel_height=0;
+    HudPanelPlacement placement{};
+    bool projection_attempted=false;
+    std::array<bool,2> projected{},clipped{},offscreen{},draw_queued{};
+    std::array<ProjectedHudPanel,2> quads{};
+};
+
 [[nodiscard]] bool BuildThreatPanelPlacement(const runtime::ThreatMarker& marker,
     HudPanelPlacement& result) noexcept;
 
@@ -52,7 +61,7 @@ struct ProjectedHudPanel {
 [[nodiscard]] bool ProjectHudPanel(const HudTextPanel& source,
     const runtime::EyeView& eye, std::uint32_t target_width,
     std::uint32_t target_height, HudPanelPlacement placement,
-    ProjectedHudPanel& result) noexcept;
+    ProjectedHudPanel& result, ProjectedHudPanel* outside_view=nullptr) noexcept;
 
 // Timer, hint, notices; fit the complete measured stack to BOTH captured eyes.
 [[nodiscard]] bool FitCriticalHudPanels(const std::array<const HudTextPanel*,3>& panels,
@@ -61,6 +70,7 @@ struct ProjectedHudPanel {
 // Operates exclusively on presenter-owned D3D11 resources/context.
 class HudTextCompositor {
 public:
+    [[nodiscard]] HudSubtitleDiagnostic LastSubtitleDiagnostic() const noexcept;
     HudTextCompositor();
     ~HudTextCompositor();
     void Reset() noexcept;

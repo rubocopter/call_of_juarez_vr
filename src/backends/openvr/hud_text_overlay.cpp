@@ -136,8 +136,9 @@ bool BuildThreatPanelPlacement(const runtime::ThreatMarker& marker,HudPanelPlace
 }
 bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
     const std::uint32_t target_width, const std::uint32_t target_height,
-    const HudPanelPlacement placement, ProjectedHudPanel& result) noexcept {
+    const HudPanelPlacement placement, ProjectedHudPanel& result, ProjectedHudPanel* outside_view) noexcept {
     result = {};
+    if(outside_view)*outside_view={};
     const auto& pose = eye.eye_to_head;
     const auto q = pose.orientation;
     const float norm = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
@@ -172,7 +173,11 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
         min_x = std::min(min_x, x/w); max_x = std::max(max_x, x/w);
         min_y = std::min(min_y, y/w); max_y = std::max(max_y, y/w);
     }
-    if (max_x <= -1 || min_x >= 1 || max_y <= -1 || min_y >= 1) { result = {}; return false; }
+    if (max_x <= -1 || min_x >= 1 || max_y <= -1 || min_y >= 1) {
+        if(outside_view)*outside_view=result;
+        result={};
+        return false;
+    }
     const auto x0 = static_cast<std::uint32_t>(std::floor((std::clamp(min_x, -1.F, 1.F)+1)*0.5F*target_width));
     const auto x1 = static_cast<std::uint32_t>(std::ceil((std::clamp(max_x, -1.F, 1.F)+1)*0.5F*target_width));
     const auto y0 = static_cast<std::uint32_t>(std::floor((1-std::clamp(max_y, -1.F, 1.F))*0.5F*target_height));
@@ -204,6 +209,7 @@ bool FitCriticalHudPanels(const std::array<const HudTextPanel*,3>& panels,
     result={};return false;
 }
 struct HudTextCompositor::Impl {
+    HudSubtitleDiagnostic subtitle_diagnostic{};
     ComPtr<ID3D11Device> owner;
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11VertexShader> cartridge_vs;
@@ -471,11 +477,16 @@ bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
     } catch (...) { return false; }
 }
 
+HudSubtitleDiagnostic HudTextCompositor::LastSubtitleDiagnostic() const noexcept {
+    return impl_?impl_->subtitle_diagnostic:HudSubtitleDiagnostic{};
+}
+
 bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const runtime::StereoHudTextOverlay& overlay, const std::uint64_t capture_sequence,
     const std::array<ID3D11Texture2D*, 2>& targets,const bool show_holster_guides,
     const std::uint64_t reload_owner_token,const std::uint64_t bow_owner_token,
     const std::uint64_t tutorial_owner_token, const runtime::Pose& render_hmd_pose) noexcept {
+    if(impl_&&!impl_->replaying_controls)impl_->subtitle_diagnostic={};
     DiscardRepeatedText(); // World was freshly copied: never restore its predecessor.
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
@@ -595,6 +606,11 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         placement[7].head_corners = overlay.interaction_gaze_head_corners;
         const auto& subtitle = impl_->raster[2].Render(*texts[2],HudTextRasterStyle::subtitle);
         placement[2]=BuildSubtitlePlacement(subtitle);
+        if(!impl_->replaying_controls){
+            auto& d=impl_->subtitle_diagnostic;
+            d.capture_sequence=capture_sequence;d.characters=texts[2]->length;
+            d.panel_width=subtitle.width;d.panel_height=subtitle.height;d.placement=placement[2];
+        }
         const auto& interaction_text = impl_->raster[1].Render(*texts[1]);
         // Only the semantic reload owner supplies artwork metadata. Native HUD
         // strings are never parsed and retain their original pixels/priority.
@@ -790,7 +806,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     overlay.reload_cartridge_surfaces[surface].head_corners;
                 if(part==0||part==8||part==9)
                     surface_placement=impl_->AnchorReadingPanel(panel,surface_placement);
-                std::array<ProjectedHudPanel, 2> quads{};
+                std::array<ProjectedHudPanel, 2> quads{},outside_view{};
                 std::array<bool,2> eye_projected{};
                 std::array<D3D11_TEXTURE2D_DESC, 2> descriptions{};
                 bool projected = true;
@@ -798,8 +814,20 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     if (!targets[eye]) return false;
                     targets[eye]->GetDesc(&descriptions[eye]);
                     eye_projected[eye] = ProjectHudPanel(panel, overlay.eyes[eye],
-                        descriptions[eye].Width, descriptions[eye].Height, surface_placement, quads[eye]);
+                        descriptions[eye].Width, descriptions[eye].Height, surface_placement, quads[eye],
+                        part==2?&outside_view[eye]:nullptr);
                     projected = eye_projected[eye] && projected;
+                }
+                if(part==2){
+                    auto& d=impl_->subtitle_diagnostic;d.projection_attempted=true;
+                    d.projected=eye_projected;d.quads=quads;
+                    for(std::size_t eye=0;eye<2;++eye) {
+                        d.offscreen[eye]=outside_view[eye].clip_positions[0][3]>0;
+                        if(d.offscreen[eye])d.quads[eye]=outside_view[eye];
+                        if(!eye_projected[eye])continue;
+                        for(const auto& c:quads[eye].clip_positions)
+                            d.clipped[eye]=d.clipped[eye]||std::abs(c[0])>c[3]||std::abs(c[1])>c[3];
+                    }
                 }
                 if (!projected&&!cartridge_surfaces) continue;
                 const bool fenced_text=part<2&&controlled[part];
@@ -885,6 +913,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     context->PSSetShaderResources(0, 1, &image);
                     context->PSSetSamplers(0, 1, &sampler);
                     context->Draw(4, 0);
+                    if(part==2)impl_->subtitle_diagnostic.draw_queued[eye]=true;
                     ID3D11ShaderResourceView* empty = nullptr;
                     context->PSSetShaderResources(0, 1, &empty);
                     context->OMSetRenderTargets(0, nullptr, nullptr);
