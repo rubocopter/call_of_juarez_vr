@@ -28,6 +28,14 @@ Publication and a staged manifest do not establish headset or campaign support.
 
 ## Current host-tested changes awaiting physical checks
 
+- **Native vertex-program diagnostic:** the opt-in resource census retains up to
+  four exact programs from the first 64 draws per scene producer, with each
+  program's first observed float constants. Host fixtures cover bound program
+  readback, immutable snapshots, getter/budget failures and the complete JSON
+  evidence route. Native skinning/wind/animated-material association, fragment
+  coverage and diagnostic overhead await a fresh game/headset run. No current-
+  color mask, object velocity or DLSS presentation is admitted by this witness.
+
 - **Skip refusal:** retained camera-only stereo requires a positively unchanged
   admissible Movie/sequence epoch. A native key call, including a throwing call,
   may change camera/fade and always retires the old image. Native permission,

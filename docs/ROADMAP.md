@@ -198,9 +198,10 @@ opt-in paired-session/worker owner now commits private depth only after complete
 stereo inference, seeds reset pairs with current color and retires old mask
 storage before new workloads. The active game adapter leaves this disabled.
 Static original-material review identifies skinning, wind deformation and
-time-animated water/clouds as distinct temporal exclusion candidates. The next
-source investigation must associate bounded vertex-program and deformation-
-constant witnesses with the same qualified eye/frame and measured coverage;
+time-animated water/clouds as distinct temporal exclusion candidates. The
+source investigation now has host-tested bounded vertex-program/current-constant
+witnesses frozen at the native scene copy. Collect those witnesses in the game,
+then associate deformation families with qualified eye/frame and measured coverage;
 camera/depth reprojection or blend state alone does not qualify these surfaces.
 Next qualify native
 dynamic/material exclusions, scoped game jitter and dynamic motion, connect

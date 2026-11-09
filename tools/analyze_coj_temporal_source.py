@@ -8,6 +8,9 @@ END=re.compile(r'^run_end: run_id=(\S+)$')
 PREFIX='native_hdr_alpha_probe: '
 SCOPE='native_hdr_source_scope: '
 QUEUE='native_hdr_alpha_queue: '
+# Existing event allowance plus four programs, each with at most 1024 code
+# and 1024 raw-constant uint32 words (10 digits + comma), plus record metadata.
+MAX_EVENT_CHARS=64*1024+4*(2*1024*11+512)
 WRITE_FIELDS=('sourceWriteCalls','sourceAlphaWriteCalls','sourceLastWriterShader',
               'sourceWriteObservationComplete')
 COPY_FIELDS=('sourceCopyCalls','sourceLastCopySource','sourceLastCopySourceFormat',
@@ -54,6 +57,47 @@ def alpha_blend_observation(producer):
         additionalBlendDrawCalls=producer['alphaBlendDrawCalls']-int(b['observed']),
         coverage='first_blend_enabled_alpha_draw_only')
 
+def vertex_program_observation(producer):
+    unknown=dict(available=False,complete=False,materialQualified=False,programs=[])
+    if 'vertexPrograms' not in producer:return unknown
+    v=producer['vertexPrograms']
+    if not isinstance(v,dict) or type(v.get('schema')) is not int or v['schema']!=1:
+        raise ValueError('Invalid vertex-program schema')
+    if v.get('coverage')!='first_64_draws_first_4_distinct_programs':raise ValueError('Invalid vertex coverage')
+    for key in ('draws','unobservedDraws','readFailures'):integer(v,key,0)
+    if v['draws']!=producer['drawCalls']:raise ValueError('Vertex draw ledger mismatch')
+    records=v.get('programs')
+    if not isinstance(records,list) or len(records)>4:raise ValueError('Invalid vertex-program budget')
+    observed=0;out=[];seen=set()
+    for p in records:
+        if not isinstance(p,dict):raise ValueError('Invalid vertex program')
+        integer(p,'shader',0);integer(p,'shaderBytes',0,4096);integer(p,'draws',1,64)
+        if type(p.get('constantsComplete')) is not bool:raise ValueError('Invalid vertex constants state')
+        code=p.get('bytecode');bits=p.get('constantBits')
+        for words in (code,bits):
+            if not isinstance(words,list) or any(type(w) is not int or not 0<=w<2**32 for w in words):
+                raise ValueError('Invalid vertex-program words')
+        if len(code)>1024 or len(code)*4!=p['shaderBytes']:raise ValueError('Invalid vertex-program length')
+        if p['shader']:
+            if len(code)<2 or code[0] not in (0xfffe0101,0xfffe0200,0xfffe0300) or code[-1]!=0xffff:
+                raise ValueError('Invalid vertex-program envelope')
+        elif code or p['constantsComplete']:raise ValueError('Invalid fixed-function witness')
+        if len(bits)!=(1024 if p['constantsComplete'] else 0):raise ValueError('Invalid vertex-constant extent')
+        raw=b''.join(struct.pack('<I',w) for w in code)
+        if raw in seen:raise ValueError('Duplicate vertex program')
+        seen.add(raw);observed+=p['draws']
+        out.append(dict(p,shaderSha256=hashlib.sha256(raw).hexdigest() if code else None,
+            constantSha256=hashlib.sha256(b''.join(struct.pack('<I',w) for w in bits)).hexdigest() if bits else None))
+    if observed+v['unobservedDraws']+v['readFailures']!=v['draws'] or observed+v['readFailures']>64:
+        raise ValueError('Invalid vertex-program accounting')
+    budget_omitted=max(0,v['draws']-64)
+    if v['unobservedDraws']<budget_omitted or (v['unobservedDraws']>budget_omitted and len(records)!=4):
+        raise ValueError('Invalid vertex-program overflow')
+    return dict(available=True,complete=not(v['unobservedDraws'] or v['readFailures']) and
+                all(not p['shader'] or p['constantsComplete'] for p in records),materialQualified=False,
+                unobservedDraws=v['unobservedDraws'],readFailures=v['readFailures'],programs=out,
+                semantics='first_draw_constants_per_exact_program_only')
+
 def producer_observation(event):
     """Optional direct-RT0 producer intents frozen at the native copy boundary.
 
@@ -64,7 +108,7 @@ def producer_observation(event):
     if 'sourceCopyProducer' not in event:
         return dict(available=False,observed=False,complete=False,surface=None,drawCalls=None,
             alphaDrawCalls=None,rgbOnlyDrawCalls=None,alphaBlendDrawCalls=None,clearCalls=None,
-            firstAlphaBlend=alpha_blend_observation({}))
+            firstAlphaBlend=alpha_blend_observation({}),vertexPrograms=vertex_program_observation({}))
     counts=('surface','drawCalls','alphaDrawCalls','alphaBlendDrawCalls','clearCalls',
             'firstAlphaShader','lastAlphaShader')
     if not isinstance(p,dict):raise ValueError('Invalid sourceCopyProducer')
@@ -87,7 +131,8 @@ def producer_observation(event):
         rgbOnlyDrawCalls=p['drawCalls']-p['alphaDrawCalls'] if observed else None,
         alphaBlendDrawCalls=p['alphaBlendDrawCalls'] if observed else None,clearCalls=p['clearCalls'] if observed else None,
         firstAlphaShader=p['firstAlphaShader'] if observed else None,lastAlphaShader=p['lastAlphaShader'] if observed else None,
-        firstAlphaBlend=alpha_blend_observation(p),coverage=p['coverage'],semantics='successful_rt0_call_intent_only')
+        firstAlphaBlend=alpha_blend_observation(p),vertexPrograms=vertex_program_observation(p),
+        coverage=p['coverage'],semantics='successful_rt0_call_intent_only')
 
 def producer_snapshot_changed(before,after,copy_delta):
     # Both values are frozen at the native copy, not running producer totals.
@@ -236,7 +281,7 @@ def analyze(lines,run_id,build_id):
         elif line.startswith((PREFIX,SCOPE,QUEUE)):
             try:
                 if not running:raise ValueError('Observation outside run interval')
-                if len(line)>64*1024:raise ValueError('Oversized sample')
+                if len(line)>MAX_EVENT_CHARS:raise ValueError('Oversized sample')
                 if line.startswith(QUEUE):
                     if len(queues)>=60:raise ValueError('Queue budget exceeded')
                     queues.append(dict(line=number,event=parse_queue(line)));continue

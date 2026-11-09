@@ -165,8 +165,8 @@ compatibility, not generic MANAGED emulation. Successful BeginStateBlock returns
 immediately reacquire owned hook slots because the engine can rewrite its vtable.
 A periodic watchdog alone cannot protect the next engine call.
 
-The optional hardware-depth candidate requires queryable D3D9 device state.
-Its startup factory policy removes `D3DCREATE_PUREDEVICE` while retaining all
+The optional hardware-depth and render-resource candidates require queryable
+D3D9 device state. Their startup factory policy removes `D3DCREATE_PUREDEVICE` while retaining all
 other requested behavior flags through classic creation and the Ex bridge or
 fallback. The pre-create callback records requested flags and the post-create
 callback receives effective flags. Ordinary factory policy preserves flags.
@@ -1937,6 +1937,12 @@ surface arguments remain scoped to the synchronous hook callback; copied numeric
 addresses never authorize COM access. Diagnostic copies are excluded from their
 own ledger. Scope-end totals
 can expose writes after a sampled consumer. No source qualification follows.
+The same frozen copy-producer snapshot now retains up to four distinct vertex
+programs from its first 64 draws and the first draw's 256 float constant registers
+per program. Program bytes and raw constant bits are immutable copied values;
+COM getter references retire in the callback. Omitted draws, read failures and
+unavailable constants remain explicit. This is a bounded material-investigation
+witness, not per-instance motion, fragment coverage or temporal admission.
 The [postprocess ownership findings](research/COJ_PPFX_TARGET_OWNERSHIP.md#hdr-alpha-depth-candidate)
 own material semantics and remaining coverage gates.
 Live copy witnesses now separate pre-copy consumer contents from the subsequent

@@ -1,5 +1,6 @@
 #pragma once
 #include "backends/d3d9/render_resource_probe.hpp"
+#include "backends/d3d9/hdr_vertex_programs.hpp"
 #include <wrl/client.h>
 
 namespace cojvr::backends::d3d9 {
@@ -36,6 +37,7 @@ struct HdrProducerWrites {
     std::uintptr_t surface=0,first_alpha_shader=0,last_alpha_shader=0;
     std::uint64_t draw_calls=0,alpha_draw_calls=0,alpha_blend_draw_calls=0,clear_calls=0;
     HdrAlphaBlendWitness first_alpha_blend{};
+    HdrVertexPrograms vertex_programs{};
 };
 // Scope-local successful call intents, not proof of modified pixels, full
 // coverage, depth semantics or an atomic lifetime. No retained native pointers.
@@ -77,6 +79,7 @@ inline void ObserveHdrProducerWrites(IDirect3DDevice9* device,IDirect3DSurface9*
     if(!entry){out.producer_observation_complete=false;return;}
     if(!draw){++entry->clear_calls;return;}
     ++entry->draw_calls;
+    ObserveHdrVertexPrograms(device,entry->vertex_programs);
     if(mask&D3DCOLORWRITEENABLE_ALPHA) {
         if(!entry->alpha_draw_calls)entry->first_alpha_shader=reinterpret_cast<std::uintptr_t>(shader.Get());
         ++entry->alpha_draw_calls;

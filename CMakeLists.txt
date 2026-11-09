@@ -1237,6 +1237,10 @@ if(COJVR_BUILD_TESTS)
     add_executable(cojvr_hdr_alpha_probe_test tests/hdr_alpha_probe.cpp src/backends/d3d9/system_d3d9.cpp)
     target_link_libraries(cojvr_hdr_alpha_probe_test PRIVATE cojvr_runtime d3d9)
     add_test(NAME hdr_alpha_probe COMMAND cojvr_hdr_alpha_probe_test)
+    add_executable(cojvr_hdr_vertex_programs_test tests/hdr_vertex_programs.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_link_libraries(cojvr_hdr_vertex_programs_test PRIVATE cojvr_runtime cojvr_d3d9_hooks d3d9 d3dcompiler)
+    add_test(NAME hdr_vertex_programs COMMAND python "${CMAKE_SOURCE_DIR}/tests/hdr_vertex_programs.py" $<TARGET_FILE:cojvr_hdr_vertex_programs_test>)
+    set_tests_properties(hdr_vertex_programs PROPERTIES SKIP_RETURN_CODE 77)
     set_tests_properties(hdr_alpha_probe PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(

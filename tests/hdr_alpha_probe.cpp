@@ -14,6 +14,8 @@ void CheckProducer(const cojvr::backends::d3d9::HdrSourceWrites& value,std::uint
     Check(p.surface==surface&&value.copy_producer_complete==complete&&p.draw_calls==draws&&
         p.alpha_draw_calls==alpha&&p.alpha_blend_draw_calls==blend&&p.clear_calls==clears,
         "copy producer snapshot lost surface/mask/blend/clear call intents");
+    Check(p.vertex_programs.draws==draws&&(!draws||p.vertex_programs.programs[0]),
+        "copy boundary lost frozen vertex-program observations");
 }
 void CheckFirstBlend(const cojvr::backends::d3d9::HdrProducerWrites& p,std::uintptr_t shader) {
         const auto& b=p.first_alpha_blend;

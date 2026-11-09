@@ -365,7 +365,9 @@ void AppendHdrProducerWitness(std::ostream& out,const cojvr::backends::d3d9::Hdr
        <<",\"shaderBytes\":"<<b.shader_bytes<<",\"bytecode\":[";
     if(b.shader_complete&&b.shader_bytes<=sizeof(b.bytecode))for(unsigned i=0;i<b.shader_bytes/sizeof(DWORD);++i)
         out<<(i?",":"")<<b.bytecode[i];
-    out<<"]},\"observationComplete\":"<<(complete?"true":"false")
+    out<<"]},\"vertexPrograms\":";
+    cojvr::backends::d3d9::AppendHdrVertexPrograms(out,p.vertex_programs);
+    out<<",\"observationComplete\":"<<(complete?"true":"false")
        <<",\"coverage\":\"same_extent_fp16_rt0_draw_clear_only\"}";
 }
 void PollFrameLumaProbes() noexcept {
@@ -3813,7 +3815,8 @@ void ObserveFactory(IDirect3D9* factory) noexcept {
             .before_create_device = &BeforeCreateDevice,
             .after_create_device = &AfterCreateDevice,
             .com_trace = &FactoryComTrace,
-            .require_state_queries = g_sampled_depth_enabled.load(std::memory_order_acquire),
+            .require_state_queries = g_sampled_depth_enabled.load(std::memory_order_acquire) ||
+                g_resource_probe_enabled.load(std::memory_order_acquire),
         };
         const bool installed =
             cojvr::backends::d3d9::InstallFactoryVtableHook(factory, callbacks);

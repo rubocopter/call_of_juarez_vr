@@ -22,6 +22,47 @@ def report(events,extra=()):return analyze([f'run_start: run_id={RUN} build_mani
     *[e if isinstance(e,str) else ('native_hdr_source_scope: ' if 'complete' in e else 'native_hdr_alpha_probe: ')+json.dumps(e) for e in events],
     f'run_end: run_id={RUN}',*extra],RUN,BUILD)
 class Analysis(unittest.TestCase):
+    def vertex_producer(self):
+        s=self.producer(copies(writes(sample(),2,2,shader=0)))
+        s['sourceCopyProducer']['vertexPrograms']=dict(schema=1,draws=9,unobservedDraws=0,readFailures=1,
+            coverage='first_64_draws_first_4_distinct_programs',programs=[dict(shader=17,shaderBytes=8,
+            bytecode=[0xfffe0300,0x0000ffff],draws=8,constantsComplete=True,constantBits=[0]*1024)])
+        return s
+    def test_vertex_programs_hash_raw_constants_without_material_admission(self):
+        s=self.vertex_producer();r=report([s,scope(0)])
+        self.assertNotEqual(r['status'],'rejected',r)
+        v=r['rows'][0]['sourceCopyProducerObservation'].get('vertexPrograms',{})
+        self.assertTrue(v.get('available'));self.assertFalse(v.get('materialQualified',True))
+        self.assertFalse(v.get('complete',True));self.assertEqual(v.get('readFailures'),1)
+        self.assertEqual(len(v['programs'][0]['shaderSha256']),64)
+        self.assertEqual(len(v['programs'][0]['constantSha256']),64)
+    def test_legacy_vertex_programs_remain_unknown(self):
+        s=self.producer(copies(writes(sample(),2,2,shader=0)))
+        v=report([s,scope(0)])['rows'][0]['sourceCopyProducerObservation'].get('vertexPrograms',{})
+        self.assertIs(v.get('available'),False);self.assertIs(v.get('materialQualified'),False)
+    def test_maximum_vertex_payload_survives_full_event_reader(self):
+        s=self.vertex_producer();v=s['sourceCopyProducer']['vertexPrograms'];v.update(unobservedDraws=4)
+        p=v['programs'][0];p.update(draws=1,shaderBytes=4096,constantBits=[0xffffffff]*1024)
+        v['programs']=[]
+        for i in range(4):
+            v['programs'].append(dict(p,shader=17+i,bytecode=[0xfffe0300,0xffffffff-i]+[0xffffffff]*1021+[0xffff]))
+        self.assertGreater(len(json.dumps(s)),65536)
+        self.assertEqual(report([s,scope(0)])['status'],'observed')
+        s['unexpectedPadding']='x'*160000
+        self.assertEqual(report([s])['status'],'rejected')
+    def test_invalid_vertex_programs_fail_closed(self):
+        for key,value in [('schema',2),('draws',True),('draws',10),('unobservedDraws',1),
+                          ('readFailures',-1),('coverage','all_materials'),('programs',[{}]*5)]:
+            s=self.vertex_producer();s['sourceCopyProducer']['vertexPrograms'][key]=value
+            self.assertEqual(report([s])['status'],'rejected',key)
+        s=self.vertex_producer();v=s['sourceCopyProducer']['vertexPrograms']
+        v.update(unobservedDraws=1,readFailures=0)
+        self.assertEqual(report([s])['status'],'rejected','unjustified program overflow')
+        for key,value in [('shader',0),('shaderBytes',12),('bytecode',[0xffff0300,0xffff]),
+                          ('draws',0),('constantsComplete',1),('constantBits',[0]),
+                          ('constantBits',[True]*1024),('constantBits',[2**32]*1024)]:
+            s=self.vertex_producer();s['sourceCopyProducer']['vertexPrograms']['programs'][0][key]=value
+            self.assertEqual(report([s])['status'],'rejected',key)
     def blend_producer(self):
         s=self.producer(copies(writes(sample(),2,2,shader=0)))
         s['sourceCopyProducer']['firstAlphaBlend']=dict(observed=True,shader=31,
