@@ -13,15 +13,15 @@ void Check(bool value,const char* message) {
     if(!value){std::cerr<<message<<'\n';std::exit(1);}
 }
 struct Page { bool exact=true,visible=true,ready=false;std::int32_t id=0x81234567,
-    serial=1,request=0,cinematics=0,turning=0,guides=0;
+    serial=1,request=0,cinematics=0,turning=0,guides=0,manual_reload=99;
     bool graphics_ready=false;
     std::int32_t enabled=0,sharpness=0,contrast=100,saturation=100,gamma=100,smoothing=0,reconstruction=0,render_scale=0,horse_comfort=0,neural=0;
     int syncs=0,graphics_syncs=0,completions=0,status_syncs=0;std::string status,neural_status; } page;
 struct Object { int references=0; } klass,other_class,exception,text;
-bool pending=false,missing_marker=false,fail_complete=false;
+bool pending=false,missing_marker=false,fail_complete=false,missing_manual=false;
 int writes=0,callbacks=0;std::string java_text;
 enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,guides,complete,
-    graphics_ready,graphics_sync,enabled,sharpness,contrast,saturation,gamma,smoothing,reconstruction,render_scale,horse_comfort,neural,neural_status };
+    graphics_ready,graphics_sync,enabled,sharpness,contrast,saturation,gamma,smoothing,reconstruction,render_scale,horse_comfort,neural,neural_status,manual_reload };
 void* Token(int id){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(id));}
 int Number(void* id){return static_cast<int>(reinterpret_cast<std::uintptr_t>(id));}
 void* __stdcall Find(void*,const char* name){Check(std::string(name)=="MenuOptionsGame","unexpected class lookup");++klass.references;return &klass;}
@@ -43,7 +43,7 @@ void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     const std::string n(name);
     if(n=="IsActuallyVisible")return Token(visible);
     if(n=="GetThisID")return Token(identity);
-    if(n=="cojvrSyncSettings"){Check(std::string(descriptor)=="(IIII)V","sync JNI descriptor mismatch");return Token(sync);}
+    if(n=="cojvrSyncSettings"){Check(std::string(descriptor)=="(IIIII)V","sync JNI descriptor mismatch");return Token(sync);}
     if(n=="cojvrSyncGraphics"){Check(std::string(descriptor)=="(IIIIIIIIIII)V","graphics sync JNI descriptor mismatch");return Token(graphics_sync);}
     if(n=="cojvrNeuralStatus"){Check(std::string(descriptor)=="(Ljava/lang/String;)V","Neural status JNI descriptor mismatch");return Token(neural_status);}
     if(n=="cojvrNeuralValue")return Token(neural);
@@ -59,6 +59,11 @@ void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     if(n=="cojvrCinematicsValue")return Token(cinematics);
     if(n=="cojvrTurningValue")return Token(turning);
     if(n=="cojvrHolsterGuidesValue"){Check(std::string(descriptor)=="()I","guide JNI descriptor mismatch");return Token(guides);}
+    if(n=="cojvrManualReloadValue"){
+        Check(std::string(descriptor)=="()I","manual reload JNI descriptor mismatch");
+        if(missing_manual){pending=true;return nullptr;}
+        return Token(manual_reload);
+    }
     if(n=="cojvrCompleteSettings")return Token(complete);
     Check(false,"unexpected method");return nullptr;
 }
@@ -68,6 +73,7 @@ std::int32_t __stdcall Int(void*,void*,void* method,const void*) {
     if(Number(method)==identity)return page.id;
     if(Number(method)==cinematics)return page.cinematics;
     if(Number(method)==guides)return page.guides;
+    if(Number(method)==manual_reload)return page.manual_reload;
     if(Number(method)==enabled)return page.enabled;
     if(Number(method)==sharpness)return page.sharpness;
     if(Number(method)==contrast)return page.contrast;
@@ -93,7 +99,8 @@ void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values)
     ++callbacks;
     if(Number(method)==sync){
         page.cinematics=values[0].i;page.turning=values[1].i;page.guides=values[2].i;
-        Check(values[3].i==0||values[3].i==1,"invalid sync language");
+        page.manual_reload=values[3].i;
+        Check(values[4].i==0||values[4].i==1,"invalid sync language");
         page.ready=true;page.request=0;page.status.clear();++page.syncs;return;
     }
     if(Number(method)==graphics_sync) {
@@ -139,6 +146,7 @@ int main(){
     page.visible=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"hidden page failed");
     Check(page.syncs==0&&page.status_syncs==0,"hidden page acquired settings");Clean();page.visible=true;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.ready&&page.syncs==1,"fresh visible page not synchronized");Clean();
+    Check(page.manual_reload==1,"native menu did not synchronize saved manual reload Off");
     Check(page.graphics_ready&&page.graphics_syncs==1&&page.enabled==0&&page.contrast==100,
         "native graphics controls not synchronized with comfort controls");
     Check(!std::filesystem::exists(graphics_path),"opening native menu wrote graphics preferences");
@@ -277,6 +285,50 @@ int main(){
             "accepted high pixel profile not persisted");Clean();
         reopen();Check(page.render_scale==scale,"saved high pixel profile lost on reopen");
     }
+    // All three stored intents survive OK/reopen and publish through the shared
+    // owner; merely selecting or cancelling cannot change runtime policy.
+    for(const auto choice : {ManualReloadPreference::install_default,ManualReloadPreference::off,ManualReloadPreference::on}) {
+        reopen();const auto before=store.Read();
+        page.manual_reload=static_cast<int>(choice);
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&
+            store.Read().revision==before.revision&&CurrentManualReloadPreference()==before.values.manual_reload,
+            "highlighting manual reload changed runtime policy");
+        page.visible=false;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"manual cancel failed");
+        reopen();Check(page.manual_reload==static_cast<int>(before.values.manual_reload),"cancel retained manual edit");
+        page.manual_reload=static_cast<int>(choice);page.request=1;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
+            CurrentManualReloadPreference()==choice&&LoadVrSettings(path).manual_reload==choice,
+            "manual reload choice not persisted and published");Clean();
+        reopen();Check(page.manual_reload==static_cast<int>(choice),"manual reload lost on reopen");
+    }
+    for(const auto invalid : {-1,3,255}) {
+        const auto before=store.Read();const auto graphics_revision=graphics.Read().revision;
+        page.manual_reload=invalid;page.request=1;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.visible&&page.request==0&&
+            store.Read().revision==before.revision&&graphics.Read().revision==graphics_revision,
+            "invalid manual selection committed a preference");Clean();
+    }
+    reopen();page.manual_reload=1;page.request=1;missing_manual=true;
+    const auto missing_before=store.Read();
+    Check(!bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&
+        store.Read().revision==missing_before.revision,"missing manual getter applied preferences");Clean();
+    missing_manual=false;reopen();
+    const auto changed=store.Read();auto changed_values=changed.values;changed_values.manual_reload=ManualReloadPreference::off;
+    Check(store.Apply(changed_values,changed.revision).saved,"manual conflict setup failed");
+    page.manual_reload=2;page.request=1;const auto conflict_closes=page.completions;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.visible&&
+        page.completions==conflict_closes&&page.manual_reload==1&&CurrentManualReloadPreference()==ManualReloadPreference::off,
+        "stale manual edit bypassed conflict refresh");Clean();
+    page.manual_reload=2;page.request=1;
+    HANDLE manual_locked=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    Check(manual_locked!=INVALID_HANDLE_VALUE,"manual save denial setup failed");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.visible&&
+        CurrentManualReloadPreference()==ManualReloadPreference::on&&LoadVrSettings(path).manual_reload==ManualReloadPreference::off&&
+        store.Read().save_failed,"manual save denial lost session or damaged persisted choice");
+    CloseHandle(manual_locked);Clean();page.request=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
+        LoadVrSettings(path).manual_reload==ManualReloadPreference::on,"manual explicit save retry failed");Clean();
     std::filesystem::remove_all(root);
     std::cout<<"native_settings_bridge: comfort/graphics ownership, live tuple, precision, conflicts, invalid selections and save retries passed\n";
 }

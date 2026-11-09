@@ -27,7 +27,7 @@ class ArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(output) as pak:
                 menu = parse_class(pak.read('MenuOptionsGame.class'))
                 self.assertIn(('cojvrHolsterGuidesValue', '()I'), {(m.name,m.descriptor) for m in menu.methods})
-                self.assertIn(('cojvrSyncSettings', '(IIII)V'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrSyncSettings', '(IIIII)V'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrSyncGraphics', '(IIIIIIIIIII)V'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrNeuralStatus', '(Ljava/lang/String;)V'), {(m.name,m.descriptor) for m in menu.methods})
                 for row in GRAPHICS:

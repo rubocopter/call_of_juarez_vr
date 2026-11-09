@@ -9,7 +9,8 @@ initializes once per Show; OnOK publishes request=1 only for ready valid prefere
 The bridge consumes 1->2 before any effects; accepted completion requires 2 and
 runs the retained original OnOK after clearing it. Back (including Cancel/Escape) revokes it. The caller must also reject stale
 serials/modal owners before completion and keep JNI calls on the game thread.
-Sync takes (cinematics, turning, holster guides, language), each bounded to 0/1.
+Sync takes (cinematics, turning, holster guides, manual reload, language).
+Manual reload uses install-default/off/on (0/1/2); other values use 0/1.
 Graphics sync separately takes (enabled, sharpness%, contrast%, saturation%,
 gamma%, edge smoothing, reconstruction request, render scale, horse comfort,
 Neural request, language). Both ready flags are required for OK; an
@@ -67,8 +68,9 @@ GRAPHICS_ROWS += (("Neural", "ID_VR_NEURAL", 0, 1, 1, 0,
     ("Neural", "Solicita procesamiento de imagen Neural si está instalado. Consulta estado real y pares aplicados abajo.")),)
 BRIDGE_FIELDS = (("cojvrSettingsReady", "Z"), ("cojvrGraphicsReady", "Z"), ("cojvrSettingsRequest", "I"),
                  ("cojvrSettingsOpenSerial", "I"))
-BRIDGE_METHODS = (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
+BRIDGE_METHODS = (("cojvrSyncSettings", "(IIIII)V"), ("cojvrCinematicsValue", "()I"),
                   ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"),
+                  ("cojvrManualReloadValue", "()I"),
                   ("cojvrCompleteSettings", "(ZLjava/lang/String;)V"),
                   ("cojvrNeuralStatus", "(Ljava/lang/String;)V"),
                   ("cojvrSyncGraphics", "(IIIIIIIIIII)V")) + tuple(
@@ -101,6 +103,7 @@ def patch_menu_class(data: bytes) -> bytes:
     for name, desc in (("cojvrCinematicsControl", "L" + SELECT + ";"),
                        ("cojvrTurningControl", "L" + SELECT + ";"),
                        ("cojvrHolsterGuidesControl", "L" + SELECT + ";"),
+                       ("cojvrManualReloadControl", "L" + SELECT + ";"),
                        ("cojvrStatusControl", "LUIStatic;"),
                        ("cojvrNeuralStatusControl", "LUIStatic;")) + tuple(
                            ("cojvr" + row[0] + "Control", "L" + SELECT + ";") for row in GRAPHICS_ROWS):
@@ -154,6 +157,7 @@ def patch_menu_class(data: bytes) -> bytes:
     for field, id_, type_ in (("cojvrCinematicsControl", "ID_VR_CINEMATICS", SELECT),
                                ("cojvrTurningControl", "ID_VR_TURNING", SELECT),
                                ("cojvrHolsterGuidesControl", "ID_VR_HOLSTER_GUIDES", SELECT),
+                               ("cojvrManualReloadControl", "ID_VR_MANUAL_RELOAD", SELECT),
                                ("cojvrStatusControl", "ID_VR_STATUS", "UIStatic"),
                                ("cojvrNeuralStatusControl", "ID_VR_NEURAL_STATUS", "UIStatic")) + tuple(
                                    ("cojvr" + row[0] + "Control", row[1], SELECT) for row in GRAPHICS_ROWS):
@@ -205,40 +209,58 @@ def patch_menu_class(data: bytes) -> bytes:
     c.emit(0x2b, 0x15, 6); c.ref(0xb6, set_selection); c.emit(0xb1)
     row = helper("cojvrSettingsRow", row_desc, c, 7)
 
+    # Three localized stored intents; capability remains owned by the adapter.
+    manual_row_desc = "(L" + SELECT + ";" + "Ljava/lang/String;" * 5 + "I)V"
+    c = Code()
+    c.emit(0x2b); c.ref(0xb6, clear)
+    c.emit(0x2b, 0x2c); c.ref(0xb6, set_label)
+    c.emit(0x2b, 0x19, 6); c.ref(0xb6, set_tip)
+    c.emit(0x2b, 0x04); c.ref(0xb6, cycle)
+    for local, constant in ((3, 0x03), (4, 0x04), (5, 0x05)):
+        c.emit(0x2b, 0x19, local); c.ref(0xbb, e.cls("java/lang/Integer")); c.emit(0x59, constant)
+        c.ref(0xb7, integer_init); c.ref(0xb6, add); c.emit(0x57)
+    c.emit(0x2b, 0x15, 7); c.ref(0xb6, set_selection); c.emit(0xb1)
+    manual_row = helper("cojvrManualReloadRow", manual_row_desc, c, 8)
+
     c = Code()
     c.emit(0x2a); c.ref(0xb4, fields["cojvrSettingsReady"]); c.branch(0x9a, "done")
     put(c, "cojvrSettingsRequest", 0x03)
     c.emit(0x2a); c.ref(0x13, string("")); c.ref(0xb6, status)
-    for load in ((0x1b,), (0x1c,), (0x1d,), (0x15, 4)):
+    for load in ((0x1b,), (0x1c,), (0x1d,), (0x15, 5)):
         # cinema, turning, guides, locale are independently bounded integers.
         c.emit(*load); c.branch(0x9b, "done")
         c.emit(*load, 0x04); c.branch(0xa3, "done")
-    for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl"):
+    c.emit(0x15, 4); c.branch(0x9b, "done")
+    c.emit(0x15, 4, 0x05); c.branch(0xa3, "done")
+    for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl", "cojvrManualReloadControl"):
         c.emit(0x2a); c.ref(0xb4, fields[field]); c.branch(0xc6, "done")
     for tag, field, selected_load, english, spanish in (
-        ("cinema", "cojvrCinematicsControl", 0x1b,
+        ("cinema", "cojvrCinematicsControl", (0x1b,),
          ("VR cinematics", "Theater", "Immersive", "Presentation of in-game cinematics in VR."),
          ("Cinemáticas RV", "Teatro", "Inmersivo", "Presentación de las cinemáticas del juego en RV.")),
-        ("turning", "cojvrTurningControl", 0x1c,
+        ("turning", "cojvrTurningControl", (0x1c,),
          ("VR turning", "Smooth", "Snap", "Turn continuously or in fixed steps."),
          ("Giro RV", "Suave", "Por pasos", "Gira de forma continua o en pasos fijos.")),
-        ("guides", "cojvrHolsterGuidesControl", 0x1d,
+        ("guides", "cojvrHolsterGuidesControl", (0x1d,),
          ("VR Comfort: weapon guides", "Off", "On", "Show holsters, rifle support and ammunition pickup."),
-         ("Comodidad RV: guías de armas", "No", "Sí", "Muestra fundas, agarre del fusil y recogida de munición."))):
+         ("Comodidad RV: guías de armas", "No", "Sí", "Muestra fundas, agarre del fusil y recogida de munición.")),
+        ("manual", "cojvrManualReloadControl", (0x15, 4),
+         ("VR manual reload", "Install default", "Off", "On", "On requires installed manual reload capability. Off uses native reload; Install default follows installation."),
+         ("Recarga manual RV", "Según instalación", "No", "Sí", "Sí requiere recarga manual instalada. No usa la recarga nativa; Según instalación conserva la elección de instalación."))):
         c.emit(0x2a, 0x2a); c.ref(0xb4, fields[field])
-        c.emit(0x15, 4); c.branch(0x9a, tag + "_es")
+        c.emit(0x15, 5); c.branch(0x9a, tag + "_es")
         for text in english: c.ref(0x13, string(text))
         c.branch(0xa7, tag + "_row")
         c.label(tag + "_es")
         for text in spanish: c.ref(0x13, string(text))
-        c.label(tag + "_row"); c.emit(selected_load); c.ref(0xb6, row)
+        c.label(tag + "_row"); c.emit(*selected_load); c.ref(0xb6, manual_row if tag == "manual" else row)
     # Publish readiness last, after all configured values pass the same getters
     # the bridge/OnOK use. A repeated sync cannot overwrite local edits.
-    for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue"):
+    for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue", "cojvrManualReloadValue"):
         c.emit(0x2a); c.ref(0xb6, method(getter, "()I")); c.branch(0x9b, "done")
     put(c, "cojvrSettingsReady", 0x04)
     c.label("done"); c.emit(0xb1)
-    helper("cojvrSyncSettings", "(IIII)V", c, 5)
+    helper("cojvrSyncSettings", "(IIIII)V", c, 6)
 
     # Validate percentages at both synchronization and readback. intValue is the
     # original OptionInfo implementation (wrong data types return -1).
@@ -257,6 +279,9 @@ def patch_menu_class(data: bytes) -> bytes:
     c.emit(0x1c, 0x1d, 0x15, 4); c.ref(0xb6, range_value); c.emit(0xac)
     c.label("invalid"); c.emit(0x02, 0xac)
     graphics_value = helper("cojvrGraphicsValue", "(L" + SELECT + ";III)I", c, 6)
+    c = Code(); c.emit(0x2a, 0x2a); c.ref(0xb4, fields["cojvrManualReloadControl"])
+    c.emit(0x03, 0x05, 0x04); c.ref(0xb6, graphics_value); c.emit(0xac)
+    helper("cojvrManualReloadValue", "()I", c, 1)
     for tag, id_, low, high, step, default, english, spanish in GRAPHICS_ROWS:
         c = Code(); c.emit(0x2a, 0x2a); c.ref(0xb4, fields["cojvr" + tag + "Control"])
         for n in (low, high, step): integer(c, n)
@@ -351,7 +376,7 @@ def patch_menu_class(data: bytes) -> bytes:
     def defaults(c):
         put(c, "cojvrSettingsRequest", 0x03)
         c.emit(0x2a); c.ref(0x13, string("")); c.ref(0xb6, status)
-        for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl"):
+        for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl", "cojvrManualReloadControl"):
             c.emit(0x2a); c.ref(0xb4, fields[field]); c.branch(0xc6, field)
             c.emit(0x2a); c.ref(0xb4, fields[field]); c.emit(0x03); c.ref(0xb6, set_selection)
             c.label(field)
@@ -365,7 +390,7 @@ def patch_menu_class(data: bytes) -> bytes:
     def ok(c, native):
         c.emit(0x2a); c.ref(0xb4, fields["cojvrSettingsReady"]); c.branch(0x99, "native")
         c.emit(0x2a); c.ref(0xb4, fields["cojvrGraphicsReady"]); c.branch(0x99, "native")
-        for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue") + tuple(
+        for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue", "cojvrManualReloadValue") + tuple(
                 "cojvr" + row[0] + "Value" for row in GRAPHICS_ROWS):
             c.emit(0x2a); c.ref(0xb6, method(getter, "()I")); c.branch(0x9b, "native")
         # Preserve a queued/consumed token across duplicate native accept events.
@@ -405,8 +430,8 @@ def _block(data: bytes, kind: bytes, id_: bytes) -> tuple[int, int]:
 def patch_menu_script(data: bytes) -> bytes:
     """Compact whole native selectors; no pattern edits or new UI registration.
 
-    Logical screen coordinates: seventeen .465 x .034 rows at x=.045,
-    y=.15 + index*.037, ending at .776. Neural status .778..813;
+    Logical screen coordinates: eighteen .465 x .032 rows at x=.045,
+    y=.15 + index*.035, ending at .777. Neural status .778..813;
     save/reconstruction feedback .815..855. List decoration
     .10166667..86166667 remains above the native .87166667 separator.
     The shipped selector pattern sizes its label/option (height 1) and arrow
@@ -424,18 +449,18 @@ def patch_menu_script(data: bytes) -> bytes:
             raise ValueError("Unexpected native row size")
         # Position references ID_FRAME's .73333335 height, whereas LogicSize
         # remains screen-relative (ParentSizingY=0 in the original pattern).
-        y = f"{(.15 + index * .037 - .13833334) / .73333335:.8f}".encode("ascii")
+        y = f"{(.15 + index * .035 - .13833334) / .73333335:.8f}".encode("ascii")
         row, count = re.subn(rb"LogicPos\(0\.04411765,[^)]+\)",
                             b"LogicPos(0.04411765," + y + b")", row)
         if count != 1:
             raise ValueError("Unexpected native row position")
-        return row.replace(b"LogicSize(0.465,0.05)", b"LogicSize(0.465,0.034)")
+        return row.replace(b"LogicSize(0.465,0.05)", b"LogicSize(0.465,0.032)")
 
     for index, id_ in enumerate((b"ID_AUTO_RELOAD", b"ID_FULL_AKIMBO", b"ID_SELECT_SPEECH", b"ID_SUBTITLES")):
         a, b = _block(data, b"MenuButton", id_)
         data = data[:a] + compact(data[a:b], index) + data[b:]
     rows = []
-    new_ids = (b"ID_VR_CINEMATICS", b"ID_VR_TURNING", b"ID_VR_HOLSTER_GUIDES") + tuple(
+    new_ids = (b"ID_VR_CINEMATICS", b"ID_VR_TURNING", b"ID_VR_HOLSTER_GUIDES", b"ID_VR_MANUAL_RELOAD") + tuple(
         spec[1].encode("ascii") for spec in GRAPHICS_ROWS)
     for index, id_ in enumerate(new_ids, 4):
         row = template.replace(b"ID_SUBTITLES", id_)

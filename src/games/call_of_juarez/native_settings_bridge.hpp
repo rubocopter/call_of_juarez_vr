@@ -97,7 +97,7 @@ public:
             const bool initialized=comfort_initialized&&graphics_initialized;
             const auto pending=read_int(env,ui,request);
             if(!clean())return fail("Native options request failed");
-            auto sync=method(env,type,"cojvrSyncSettings","(IIII)V");
+            auto sync=method(env,type,"cojvrSyncSettings","(IIIII)V");
             if(!clean()||!sync)return fail("Native options synchronizer unavailable");
             auto sync_graphics=method(env,type,"cojvrSyncGraphics","(IIIIIIIIIII)V");
             if(!clean()||!sync_graphics)return fail("Native graphics synchronizer unavailable");
@@ -111,11 +111,12 @@ public:
                 if(!clean())return false;
                 write_bool(env,ui,graphics_ready,0);
                 if(!clean())return false;
-                NativeSettingsJValue args[4]{};
+                NativeSettingsJValue args[5]{};
                 args[0].i=static_cast<std::int32_t>(snapshot.values.cinematics);
                 args[1].i=static_cast<std::int32_t>(snapshot.values.turning);
                 args[2].i=snapshot.values.holster_guides?1:0;
-                args[3].i=language==runtime::SettingsLanguage::spanish?1:0;
+                args[3].i=static_cast<std::int32_t>(snapshot.values.manual_reload);
+                args[4].i=language==runtime::SettingsLanguage::spanish?1:0;
                 call(env,ui,sync,args);
                 if(!clean())return false;
                 NativeSettingsJValue graphic_args[11]{};
@@ -129,7 +130,7 @@ public:
                 graphic_args[7].i=graphics.values.render_scale;
                 graphic_args[8].i=graphics.values.horse_comfort;
                 graphic_args[9].i=graphics.values.neural?1:0;
-                graphic_args[10].i=args[3].i;
+                graphic_args[10].i=args[4].i;
                 call(env,ui,sync_graphics,graphic_args);
                 if(!clean())return false;
                 owner_=id;epoch_=epoch;revision_=snapshot.revision;
@@ -168,13 +169,17 @@ public:
             if(!clean()||!turning)return fail("Native turning selection unavailable");
             auto guides=method(env,type,"cojvrHolsterGuidesValue","()I");
             if(!clean()||!guides)return fail("Native holster guide selection unavailable");
+            auto manual_reload=method(env,type,"cojvrManualReloadValue","()I");
+            if(!clean()||!manual_reload)return fail("Native manual reload selection unavailable");
             const auto cinematic_value=integer(env,ui,cinema,nullptr);
             if(!clean())return fail("Native cinematic selection failed");
             const auto turning_value=integer(env,ui,turning,nullptr);
             if(!clean())return fail("Native turning selection failed");
             const auto guides_value=integer(env,ui,guides,nullptr);
             if(!clean())return fail("Native holster guide selection failed");
-            if(pending!=1||guides_value<0||guides_value>1||cinematic_value<0||cinematic_value>1||turning_value<0||turning_value>1){
+            const auto manual_reload_value=integer(env,ui,manual_reload,nullptr);
+            if(!clean())return fail("Native manual reload selection failed");
+            if(pending!=1||manual_reload_value<0||manual_reload_value>2||guides_value<0||guides_value>1||cinematic_value<0||cinematic_value>1||turning_value<0||turning_value>1){
                 return finish(false,es?"Seleccion VR no valida":"Invalid VR selection")||fail("Native options rejection failed");
             }
             constexpr std::array<const char*,10> getters{"cojvrGraphicsEnabledValue","cojvrSharpnessValue",
@@ -215,7 +220,8 @@ public:
             graphics.saturation=selected(selections[3],graphics.saturation);
             graphics.gamma=selected(selections[4],graphics.gamma);
             const auto applied=store.Apply({static_cast<runtime::CinematicsMode>(cinematic_value),
-                static_cast<runtime::TurnMode>(turning_value),guides_value!=0,current.values.manual_reload},revision_);
+                static_cast<runtime::TurnMode>(turning_value),guides_value!=0,
+                static_cast<runtime::ManualReloadPreference>(manual_reload_value)},revision_);
             revision_=applied.snapshot.revision;
             if(applied.conflict){
                 if(!synchronize(applied.snapshot,graphics_store.Read()))return fail("Native options conflict synchronization failed");

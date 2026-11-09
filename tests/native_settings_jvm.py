@@ -44,8 +44,8 @@ def verifier_class():
     c.emit(0x4c, 0x2b)  # retain verified Class for exact bridge reflection
     c.ref(0xb6, methods)
     c.emit(0x57)
-    for method_name, count in (("cojvrSyncSettings", 4), ("cojvrSyncGraphics", 11),
-                               ("cojvrHolsterGuidesValue", 0), *(
+    for method_name, count in (("cojvrSyncSettings", 5), ("cojvrSyncGraphics", 11),
+                               ("cojvrManualReloadValue", 0), ("cojvrHolsterGuidesValue", 0), *(
                                    ("cojvr" + row[1] + "Value", 0) for row in GRAPHICS)):
         c.emit(0x2b); c.ref(0x13, add(b'\x08' + u2(utf(method_name))))
         c.emit(0x10, count); c.ref(0xbd, class_type)
@@ -92,6 +92,8 @@ class JvmTests(unittest.TestCase):
             # Prove that the JVM verified old AND new helper bodies, not metadata.
             for target, name, desc in (
                     (MENU_CLASS_NAME,'cojvrSettingsRow', '(LUIOptionsControlSelect;' + 'Ljava/lang/String;'*4 + 'I)V'),
+                    (MENU_CLASS_NAME,'cojvrSyncSettings', '(IIIII)V'),
+                    (MENU_CLASS_NAME,'cojvrManualReloadRow', '(LUIOptionsControlSelect;' + 'Ljava/lang/String;'*5 + 'I)V'),
                     (MENU_CLASS_NAME,'cojvrNeuralStatus', '(Ljava/lang/String;)V'),
                     (MENU_CLASS_NAME,'cojvrSyncGraphics', '(IIIIIIIIIII)V'),
                     (MENU_CLASS_NAME,'cojvrSharpnessRow', '(LUIOptionsControlSelect;Ljava/lang/String;Ljava/lang/String;I)V'),
