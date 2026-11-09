@@ -97,7 +97,8 @@ add_library(cojvr_dlss_client STATIC
     src/backends/openvr/dlss_pair_session.cpp
     src/backends/openvr/scene_depth_transfer.cpp
     src/backends/openvr/scene_depth_worker.cpp
-    src/backends/openvr/temporal_guides.cpp)
+    src/backends/openvr/temporal_guides.cpp
+    src/backends/openvr/depth_history_mask.cpp)
 add_executable(cojvr_graphics_startup tools/graphics_startup.cpp)
 target_link_libraries(cojvr_graphics_startup PRIVATE cojvr_runtime)
 target_include_directories(cojvr_dlss_client PUBLIC src)
@@ -1220,6 +1221,9 @@ if(COJVR_BUILD_TESTS)
     add_executable(cojvr_temporal_guides_test tests/temporal_guides.cpp)
     target_link_libraries(cojvr_temporal_guides_test PRIVATE cojvr_dlss_client)
     add_test(NAME temporal_guides COMMAND cojvr_temporal_guides_test)
+    add_executable(cojvr_depth_history_mask_test tests/depth_history_mask.cpp)
+    target_link_libraries(cojvr_depth_history_mask_test PRIVATE cojvr_dlss_client)
+    add_test(NAME depth_history_mask COMMAND cojvr_depth_history_mask_test)
     add_executable(cojvr_temporal_reconstruction_test tests/temporal_reconstruction.cpp)
     target_link_libraries(cojvr_temporal_reconstruction_test PRIVATE cojvr_runtime)
     add_test(NAME temporal_reconstruction COMMAND cojvr_temporal_reconstruction_test)

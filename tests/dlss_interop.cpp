@@ -1,5 +1,6 @@
 #include "backends/openvr/dlss_client.hpp"
 #include "backends/openvr/temporal_guides.hpp"
+#include "backends/openvr/depth_history_mask.hpp"
 #include <wrl/client.h>
 #include <array>
 #include <iostream>
@@ -123,8 +124,37 @@ int main(int argc,char** argv) try {
         }
         Require(Read(device.Get(),context.Get(),client.Output(0))==protected_outputs[0],
             "right-eye resolve overwrote the completed left eye");
+        // Camera reprojection alone must not retain a newly exposed background.
+        // Generate the protective mask on GPU from the actual current guide Z
+        // and a controlled previous occluder, then exercise the helper resolve.
+        const float current_z=100.F/99.5F-50.F/(99.5F*10.F);
+        std::vector<float> old_depth(std::size_t(size)*size,current_z);
+        for(unsigned y=size/2-8;y<size/2+8;++y)for(unsigned x=size/2-8;x<size/2+8;++x)old_depth[y*size+x]=.5F;
+        auto previous_depth=Texture(device.Get(),size,size,DXGI_FORMAT_R32_FLOAT,old_depth.data(),4);
+        std::array<DepthHistoryMaskSource,2> history_sources;
+        for(unsigned eye=0;eye<2;++eye) {
+            auto& s=history_sources[eye];s.depth=guides.EyeInputs(eye).depth;s.previous_depth=previous_depth.Get();
+            s.exclusions=mask.Get();s.current_token=8+eye*10;s.previous_token=7+eye*10;
+            s.previous_near_metres=.5F;s.previous_far_metres=100;s.relative_tolerance=.05F;s.erosion_radius=1;s.source_qualified=true;
+        }
+        PairIdentity previous_identity{{reinterpret_cast<std::uintptr_t>(device.Get()),1,7,7,1,
+            size,size,output_size,output_size,static_cast<unsigned>(quality),true,true},1,1,1};
+        auto current_identity=previous_identity;++current_identity.frame.frame;++current_identity.frame.pose;
+        DepthHistoryMask history_mask;
+        Require(history_mask.Generate(device.Get(),context.Get(),current_identity,previous_identity,history_sources),
+            "GPU disocclusion mask generation failed");
+        const std::array<std::uint16_t,4> fresh_color{0x3400,0x3800,0x3000,0x3c00};
+        for(std::size_t p=0;p<colors.size();p+=4)std::copy(fresh_color.begin(),fresh_color.end(),colors.begin()+p);
+        auto exposed_color=Texture(device.Get(),size,size,DXGI_FORMAT_R16G16B16A16_FLOAT,colors.data(),8);
+        for(unsigned eye=0;eye<2;++eye) {
+            auto input=guides.EyeInputs(eye);input.color=exposed_color.Get();input.bias=history_mask.EyeMask(eye);
+            Require(client.Evaluate(context.Get(),eye,input),"GPU masked NGX evaluation failed");
+            const auto pixels=Read(device.Get(),context.Get(),client.Output(eye));
+            Require(std::equal(fresh_color.begin(),fresh_color.end(),pixels.begin()+center),
+                "GPU disocclusion mask did not preserve newly exposed current color");
+        }
         std::cout<<"Real NGX "<<(quality==Quality::dlaa?"DLAA":"DLSS Quality")<<" x86->x64;render="<<size<<"x"<<size
-            <<";output="<<output_size<<"x"<<output_size<<";eyes=2;frames_per_eye=7;finite_distinct_output=true;protected_current_color=true\n";
+            <<";output="<<output_size<<"x"<<output_size<<";eyes=2;frames_per_eye=8;finite_distinct_output=true;protected_current_color=true;gpu_disocclusion_mask=true\n";
         Require(!client.Evaluate(nullptr,1,guides.EyeInputs(1))&&!client.Output(1),"missing context retained stale output");
         // Incomplete guides reject before sending work or exposing stale output.
         Inputs invalid=guides.EyeInputs(0);invalid.depth=nullptr;
