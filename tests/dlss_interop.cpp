@@ -102,8 +102,29 @@ int main(int argc,char** argv) try {
         Require(left[center]>left[center+2]&&right[center+2]>right[center],"NGX output lost per-eye primary color");
         // Half-float NaN/Inf bit patterns must not occur in returned colors.
         for(const auto* pixels:{&left,&right})for(auto half:*pixels)Require((half&0x7C00)!=0x7C00,"NGX output contains NaN/Inf");
+        // Exercise the actual x64 output fence with fully protected pixels.
+        // New colors make stale output observable. A later eye must not
+        // overwrite the earlier shared output when it reuses private scratch.
+        std::fill(bias.begin(),bias.end(),255);
+        auto protected_mask=Texture(device.Get(),size,size,DXGI_FORMAT_R8_UNORM,bias.data(),1);
+        std::array<std::vector<std::uint16_t>,2> protected_outputs;
+        for(unsigned eye=0;eye<2;++eye) {
+            const std::array<std::uint16_t,4> expected{eye?std::uint16_t{0x3400}:std::uint16_t{0x3800},
+                0x3000,eye?std::uint16_t{0x3800}:std::uint16_t{0x3400},0x3c00};
+            for(std::size_t p=0;p<colors.size();p+=4)std::copy(expected.begin(),expected.end(),colors.begin()+p);
+            auto protected_color=Texture(device.Get(),size,size,DXGI_FORMAT_R16G16B16A16_FLOAT,colors.data(),8);
+            auto protected_input=guides.EyeInputs(eye);
+            protected_input.color=protected_color.Get();protected_input.bias=protected_mask.Get();
+            Require(client.Evaluate(context.Get(),eye,protected_input),"protected NGX output failed");
+            auto& pixels=protected_outputs[eye];pixels=Read(device.Get(),context.Get(),client.Output(eye));
+            for(std::size_t p=0;p<pixels.size();p+=4)
+                Require(std::equal(expected.begin(),expected.end(),pixels.begin()+p),
+                    "fenced helper output did not preserve protected current color");
+        }
+        Require(Read(device.Get(),context.Get(),client.Output(0))==protected_outputs[0],
+            "right-eye resolve overwrote the completed left eye");
         std::cout<<"Real NGX "<<(quality==Quality::dlaa?"DLAA":"DLSS Quality")<<" x86->x64;render="<<size<<"x"<<size
-            <<";output="<<output_size<<"x"<<output_size<<";eyes=2;frames_per_eye=6;finite_distinct_output=true\n";
+            <<";output="<<output_size<<"x"<<output_size<<";eyes=2;frames_per_eye=7;finite_distinct_output=true;protected_current_color=true\n";
         Require(!client.Evaluate(nullptr,1,guides.EyeInputs(1))&&!client.Output(1),"missing context retained stale output");
         // Incomplete guides reject before sending work or exposing stale output.
         Inputs invalid=guides.EyeInputs(0);invalid.depth=nullptr;

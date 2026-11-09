@@ -20,7 +20,7 @@ Output PS(float4 position:SV_Position) {
     bool valid=(!packedDepth||packedValid)&&isfinite(z)&&(deviceDepth?(z>=0&&z<=1):(z>=optics.x&&z<=optics.y));
     float standardZ=optics.y/(optics.y-optics.x)-optics.y*optics.x/((optics.y-optics.x)*max(z,optics.x));
     o.depth=valid?(deviceDepth?z:saturate(standardZ)):1;
-    float2 uv=(position.xy+sampling.xy)/optics.zw;
+    float2 uv=(position.xy-sampling.xy)/optics.zw;
     float4 previous=mul(float4(uv.x*2-1,1-uv.y*2,o.depth,1),reproject);
     bool projectionValid=isfinite(previous.w)&&previous.w>1e-6&&
         isfinite(previous.z)&&previous.z>=0&&previous.z<=previous.w;

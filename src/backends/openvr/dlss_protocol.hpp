@@ -7,7 +7,8 @@
 namespace cojvr::backends::openvr::dlss {
 // Original wire protocol. Fixed-width POD only: no pointer, size_t, native bool,
 // COM object or compiler-dependent enum crosses the x86/x64 boundary.
-constexpr std::uint32_t magic=0x43564E47,version=1;
+// Version 2 returns explicitly resolved current-color exclusions in Slot::output.
+constexpr std::uint32_t magic=0x43564E47,version=2;
 enum class Operation:std::uint32_t {hello=1,build=2,evaluate=3,quit=4};
 enum class Quality:std::uint32_t {dlaa=0,quality=1,balanced=2,performance=3};
 enum class Slot:std::uint32_t {color,depth,motion,bias,output,count};
@@ -23,7 +24,7 @@ struct Request {
     std::uint32_t width=0,height=0,out_width=0,out_height=0;
     Quality quality=Quality::dlaa;
     std::uint32_t reset=1;
-    float jitter_x=0,jitter_y=0;
+    float jitter_x=0,jitter_y=0; // Current image translation in input pixels, +X right, +Y down.
     std::array<std::uint64_t,slots> textures{};
     std::uint64_t fence_in=0,fence_out=0;
 };

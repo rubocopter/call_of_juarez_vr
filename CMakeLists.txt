@@ -92,6 +92,7 @@ add_library(cojvr_runtime STATIC
 # Optional reconstruction backend has no NGX dependency in the x86 process.
 # Its x64 SDK host is built separately from tools/dlss_host.
 add_library(cojvr_dlss_client STATIC
+    src/backends/openvr/current_color_resolve.cpp
     src/backends/openvr/dlss_client.cpp
     src/backends/openvr/dlss_pair_session.cpp
     src/backends/openvr/scene_depth_transfer.cpp

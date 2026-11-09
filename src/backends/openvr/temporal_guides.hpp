@@ -17,7 +17,8 @@ struct GuideSource {
     ID3D11Texture2D* linear_depth_alpha=nullptr; // RGBA16F. Interpretation is set by depth_encoding.
     ID3D11Texture2D* current_color_mask=nullptr; // R8; dynamic/near-pass exclusions, not an invented depth mask
     runtime::TemporalMatrix clip_to_previous=runtime::TemporalIdentity();
-    float near_metres=0,far_metres=0,jitter_x=0,jitter_y=0;
+    float near_metres=0,far_metres=0;
+    float jitter_x=0,jitter_y=0; // Rendered image shift in input pixels, +X right, +Y down.
     bool history=false;
     // Owning game adapter must qualify actual source semantics. Format/size,
     // source-level USE_WRITEZ or a synthetic test alone cannot set this in CoJ.

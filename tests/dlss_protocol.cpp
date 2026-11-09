@@ -15,7 +15,7 @@ int main() {
     if(!ValidRequest(r))return 8;
     r.jitter_x=std::numeric_limits<float>::infinity();if(ValidRequest(r))return 9;r.jitter_x=0;
     r.eye=2;if(ValidRequest(r))return 10;r.eye=1;
-    r.protocol=2;if(ValidRequest(r))return 11;r.protocol=version;
+    r.protocol=1;if(ValidRequest(r))return 11;r.protocol=version;
     r.operation=static_cast<Operation>(99);if(ValidRequest(r))return 12;
     std::cout<<"DLSS x86/x64 wire sizes, bounds, finite jitter and invalid requests passed\n";
 }

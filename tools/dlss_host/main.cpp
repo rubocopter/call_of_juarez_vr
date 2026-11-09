@@ -2,6 +2,7 @@
 // no SDK/game source or runtime is embedded in the repository.
 #include "backends/openvr/dlss_protocol.hpp"
 #include "backends/openvr/dlss_pipe.hpp"
+#include "backends/openvr/current_color_resolve.hpp"
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <wrl/client.h>
@@ -21,6 +22,7 @@ struct Eye {
     Request build{};
     std::array<ComPtr<ID3D11Texture2D>,slots> textures;
     ComPtr<ID3D11Fence> incoming,outgoing;
+    CurrentColorResolve::Targets resolve_targets;
     NVSDK_NGX_Handle* feature=nullptr;
     std::uint64_t previous=0;
     ~Eye(){if(feature)NVSDK_NGX_D3D11_ReleaseFeature(feature);}
@@ -33,7 +35,9 @@ struct Host {
     NVSDK_NGX_Parameter* parameters=nullptr;
     bool initialized=false;
     std::array<std::unique_ptr<Eye>,2> eyes;
+    CurrentColorResolve current_color;
     std::uint32_t ngx=0;
+    bool gpu_work_pending=false;
     ~Host(){
         for(auto& eye:eyes)eye.reset();
         if(parameters)NVSDK_NGX_D3D11_DestroyParameters(parameters);
@@ -80,6 +84,20 @@ struct Host {
         }
         return false;
     }
+    bool RetireGpuWork() noexcept {
+        if(!gpu_work_pending)return true;
+        ComPtr<ID3D11Fence> proof;
+        if(FAILED(device5->CreateFence(0,D3D11_FENCE_FLAG_NONE,IID_PPV_ARGS(&proof)))||
+           FAILED(context4->Signal(proof.Get(),1)))return false;
+        context->Flush();
+        if(!Wait(proof.Get(),1))return false;
+        gpu_work_pending=false;
+        return true;
+    }
+    bool CanReleaseNgx() noexcept {
+        return !gpu_work_pending||FAILED(device->GetDeviceRemovedReason())||RetireGpuWork()||
+            FAILED(device->GetDeviceRemovedReason());
+    }
     bool Build(const Request& request) {
         auto next=std::make_unique<Eye>();next->build=request;
         // Adopt duplicated handles immediately, including failure paths.
@@ -97,13 +115,21 @@ struct Host {
         }
         if(FAILED(device5->OpenSharedFence(handles[slots].value,IID_PPV_ARGS(&next->incoming)))||
            FAILED(device5->OpenSharedFence(handles[slots+1].value,IID_PPV_ARGS(&next->outgoing))))return false;
+        const auto texture=[&](Slot slot){return next->textures[static_cast<std::size_t>(slot)].Get();};
+        if(!current_color.Bind(device.Get(),texture(Slot::color),texture(Slot::bias),texture(Slot::output),next->resolve_targets)||
+           !current_color.Prepare(device.Get(),request.out_width,request.out_height))return false;
         constexpr std::array<NVSDK_NGX_PerfQuality_Value,4> quality{NVSDK_NGX_PerfQuality_Value_DLAA,
             NVSDK_NGX_PerfQuality_Value_MaxQuality,NVSDK_NGX_PerfQuality_Value_Balanced,NVSDK_NGX_PerfQuality_Value_MaxPerf};
         NVSDK_NGX_DLSS_Create_Params create{};
         create.Feature={request.width,request.height,request.out_width,request.out_height,quality[static_cast<unsigned>(request.quality)]};
         create.InFeatureCreateFlags=NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
-        if(!Ngx(NGX_D3D11_CREATE_DLSS_EXT(context.Get(),&next->feature,parameters,&create)))return false;
-        eyes[request.eye]=std::move(next);return true;
+        // Keep the new feature retained even when creation queues work and then
+        // fails. The previous feature's last request has already retired.
+        auto& eye=eyes[request.eye];
+        eye=std::move(next);
+        gpu_work_pending=true;
+        const bool created=Ngx(NGX_D3D11_CREATE_DLSS_EXT(context.Get(),&eye->feature,parameters,&create));
+        return RetireGpuWork()&&created;
     }
     bool Evaluate(const Request& request) {
         auto& eye=eyes[request.eye];if(!eye)return false;
@@ -112,19 +138,24 @@ struct Host {
             request.out_height!=b.out_height||request.quality!=b.quality||request.sequence<=eye->previous)return false;
         if(!Wait(eye->incoming.Get(),request.sequence))return false;
         const auto texture=[&](Slot slot){return eye->textures[static_cast<std::size_t>(slot)].Get();};
+        auto* reconstructed=current_color.Prepare(device.Get(),b.out_width,b.out_height);
+        if(!reconstructed)return false;
         NVSDK_NGX_D3D11_DLSS_Eval_Params evaluate{};
-        evaluate.Feature.pInColor=texture(Slot::color);evaluate.Feature.pInOutput=texture(Slot::output);
+        evaluate.Feature.pInColor=texture(Slot::color);evaluate.Feature.pInOutput=reconstructed;
         evaluate.pInDepth=texture(Slot::depth);evaluate.pInMotionVectors=texture(Slot::motion);
         evaluate.pInBiasCurrentColorMask=texture(Slot::bias);
         evaluate.InJitterOffsetX=request.jitter_x;evaluate.InJitterOffsetY=request.jitter_y;
         evaluate.InMVScaleX=float(b.width);evaluate.InMVScaleY=float(b.height);
         evaluate.InRenderSubrectDimensions={b.width,b.height};evaluate.InReset=request.reset||eye->previous==0;
         evaluate.InPreExposure=evaluate.InExposureScale=1;
-        const bool ok=Ngx(NGX_D3D11_EVALUATE_DLSS_EXT(context.Get(),eye->feature,parameters,&evaluate));
+        gpu_work_pending=true;
+        const bool evaluated=Ngx(NGX_D3D11_EVALUATE_DLSS_EXT(context.Get(),eye->feature,parameters,&evaluate));
+        const bool ok=evaluated&&current_color.Compose(context.Get(),eye->resolve_targets,request.jitter_x,request.jitter_y);
         // Even a refused evaluate can queue GPU work. Complete before sending
         // any acknowledgement; an ack is never substituted for fence proof.
         if(FAILED(context4->Signal(eye->outgoing.Get(),request.sequence)))return false;
         context->Flush();if(!Wait(eye->outgoing.Get(),request.sequence))return false;
+        gpu_work_pending=false;
         eye->previous=request.sequence;return ok;
     }
 };
@@ -138,7 +169,13 @@ int wmain(int argc,wchar_t** argv) try {
     if(pipe.value==INVALID_HANDLE_VALUE)return 3;
     ULONG server=0;if(!GetNamedPipeServerProcessId(pipe.value,&server)||server!=parent)return 3;
     Handle peer(OpenProcess(SYNCHRONIZE,FALSE,parent));if(!peer.value)return 3;
-    Host host;bool initialized=false;
+    const auto dispose=[](Host* host) noexcept {
+        if(host->CanReleaseNgx())delete host;
+        // Terminal helper exit. Retain the SDK and resources until process
+        // teardown if neither GPU completion nor device removal is known.
+    };
+    const std::unique_ptr<Host,decltype(dispose)> host(new Host,dispose);
+    bool initialized=false;
     for(;;) {
         Request request{};
         // Idle is normal (menus/pause); parent lifetime and pipe closure still
@@ -148,10 +185,10 @@ int wmain(int argc,wchar_t** argv) try {
         Response response;response.operation=request.operation;response.eye=request.eye;response.sequence=request.sequence;
         if(!ValidRequest(request)) {response.system_error=ERROR_INVALID_DATA;}
         else if(request.operation==Operation::quit)return 0;
-        else if(request.operation==Operation::hello&&!initialized) {initialized=host.Init(request);response.ok=initialized;}
-        else if(initialized&&request.operation==Operation::build)response.ok=host.Build(request);
-        else if(initialized&&request.operation==Operation::evaluate)response.ok=host.Evaluate(request);
-        response.ngx_result=host.ngx;
+        else if(request.operation==Operation::hello&&!initialized) {initialized=host->Init(request);response.ok=initialized;}
+        else if(initialized&&request.operation==Operation::build)response.ok=host->Build(request);
+        else if(initialized&&request.operation==Operation::evaluate)response.ok=host->Evaluate(request);
+        response.ngx_result=host->ngx;
         if(!Transfer(pipe.value,&response,sizeof(response),true,2000,peer.value))return 4;
         if(!initialized||!response.ok)return 5;
     }

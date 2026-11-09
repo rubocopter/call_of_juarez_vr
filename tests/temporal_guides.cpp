@@ -1,4 +1,5 @@
 #include "backends/openvr/temporal_guides.hpp"
+#include "backends/openvr/current_color_resolve.hpp"
 #include <d3d11.h>
 #include <vector>
 #include <iostream>
@@ -9,10 +10,11 @@ using namespace cojvr::backends::openvr::dlss;
 using Microsoft::WRL::ComPtr;
 namespace {
 void Check(bool value,const char* why){if(!value)throw std::runtime_error(why);}
-ComPtr<ID3D11Texture2D> Make(ID3D11Device* device,DXGI_FORMAT format,const void* data,UINT pitch) {
-    D3D11_TEXTURE2D_DESC d{};d.Width=d.Height=16;d.ArraySize=d.MipLevels=d.SampleDesc.Count=1;
-    d.Format=format;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;D3D11_SUBRESOURCE_DATA initial{data,pitch,0};
-    ComPtr<ID3D11Texture2D> texture;Check(SUCCEEDED(device->CreateTexture2D(&d,&initial,&texture)),"fixture texture");return texture;
+ComPtr<ID3D11Texture2D> Make(ID3D11Device* device,DXGI_FORMAT format,const void* data,UINT pitch,
+    UINT size=16,UINT bind=D3D11_BIND_SHADER_RESOURCE) {
+    D3D11_TEXTURE2D_DESC d{};d.Width=d.Height=size;d.ArraySize=d.MipLevels=d.SampleDesc.Count=1;
+    d.Format=format;d.BindFlags=bind;D3D11_SUBRESOURCE_DATA initial{data,pitch,0};
+    ComPtr<ID3D11Texture2D> texture;Check(SUCCEEDED(device->CreateTexture2D(&d,data?&initial:nullptr,&texture)),"fixture texture");return texture;
 }
 std::array<unsigned char,8> Read(ID3D11Device* device,ID3D11DeviceContext* context,ID3D11Texture2D* input,UINT x,UINT y,UINT bytes) {
     D3D11_TEXTURE2D_DESC d{};input->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;
@@ -21,6 +23,43 @@ std::array<unsigned char,8> Read(ID3D11Device* device,ID3D11DeviceContext* conte
     Check(SUCCEEDED(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped)),"map");
     std::array<unsigned char,8> result{};std::copy_n(static_cast<const unsigned char*>(mapped.pData)+std::size_t(y)*mapped.RowPitch+x*bytes,bytes,result.data());
     context->Unmap(staging.Get(),0);return result;
+}
+void CheckCurrentColorResolve(ID3D11Device* device,ID3D11DeviceContext* context) {
+    constexpr auto color_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    std::vector<std::uint16_t> current(16*16*4,0x3c00),reconstructed(32*32*4,0x4800);
+    std::vector<unsigned char> mask(16*16,0);
+    for(unsigned y=0;y<16;++y) {
+        for(unsigned x=8;x<16;++x)current[(y*16+x)*4]=0x4200;
+        mask[y*16+8]=255;
+        mask[y*16+9]=128;
+    }
+    for(unsigned x=0;x<16;++x) {
+        mask[8*16+x]=255;
+        for(unsigned y=8;y<16;++y)current[(y*16+x)*4+1]=0x4200;
+    }
+    auto color=Make(device,color_format,current.data(),16*8);
+    auto bias=Make(device,DXGI_FORMAT_R8_UNORM,mask.data(),16);
+    auto output=Make(device,color_format,nullptr,0,32,D3D11_BIND_UNORDERED_ACCESS);
+    CurrentColorResolve resolve;
+    CurrentColorResolve::Targets targets;
+    Check(resolve.Bind(device,color.Get(),bias.Get(),output.Get(),targets),"resolve binding");
+    auto* scratch=resolve.Prepare(device,32,32);
+    Check(scratch&&scratch==resolve.Prepare(device,32,32)&&scratch!=output.Get(),"missing private reusable scratch");
+    context->UpdateSubresource(scratch,0,nullptr,reconstructed.data(),32*8,0);
+    const auto channel=[&](unsigned x,unsigned y,unsigned slot){const auto bytes=Read(device,context,output.Get(),x,y,8);
+        std::uint16_t half=0;std::memcpy(&half,bytes.data()+slot*sizeof(half),sizeof(half));return half;};
+    const auto red=[&](unsigned x){return channel(x,8,0);};
+    Check(resolve.Compose(context,targets,0,0),"resolve dispatch");
+    Check(red(15)==0x4800&&red(16)==0x4100&&red(17)==0x4200&&red(18)==0x4800,
+        "mask did not retain only fully protected current pixels with bilinear scaling");
+    Check(resolve.Compose(context,targets,.5F,.5F)&&red(14)==0x4800&&red(15)==0x4100&&red(16)==0x4200&&
+        channel(4,14,1)==0x4800&&channel(4,15,1)==0x4100&&channel(4,16,1)==0x4200,
+        "jittered current image and protection mask did not move together");
+    Check(!resolve.Compose(context,targets,1,0)&&red(15)==0x4100,"bad jitter wrote a resolved output");
+    Check(!resolve.Bind(device,color.Get(),color.Get(),output.Get(),targets)&&
+        !resolve.Compose(context,targets,0,0),"failed binding retained old resolve targets");
+    D3D11_PRIMITIVE_TOPOLOGY topology{};context->IAGetPrimitiveTopology(&topology);
+    Check(topology==D3D11_PRIMITIVE_TOPOLOGY_LINELIST,"resolve changed caller pipeline state");
 }
 }
 int main()try {
@@ -59,6 +98,14 @@ int main()try {
     pair[0].color=left.color;
     Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"private output accepted as its own shader input");
     pair[0].color=c.Get();
+    pair[0].jitter_x=pair[0].jitter_y=.5F; // Current image shifts right/down by half a pixel.
+    pair[0].clip_to_previous[0]=pair[0].clip_to_previous[5]=1.5F;
+    Check(guides.Generate(device.Get(),context.Get(),pair),"jittered guide generation");
+    pixel=Read(device.Get(),context.Get(),guides.EyeInputs(0).motion,8,8,4);
+    std::memcpy(motion,pixel.data(),4);
+    Check(motion[0]==0&&motion[1]==0,"jitter shifted the unjittered centre of reprojection");
+    pair[0].jitter_x=pair[0].jitter_y=0;
+    pair[0].clip_to_previous=cojvr::runtime::TemporalIdentity();
     // A sampleable hardware depth texture contains device Z, not axial metres.
     // Its valid [0,1] endpoints must survive rather than be reinterpreted as metres.
     for(unsigned p=0;p<256;++p)depth[p*4+3]=0x3800; // 0.5 device Z
@@ -91,5 +138,6 @@ int main()try {
     pair[1].source_qualified=false;
     Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"invalid second eye cannot expose stale guides");
     guides.Reset();Check(!guides.EyeInputs(1).color,"reset retains output");
+    CheckCurrentColorResolve(device.Get(),context.Get());
     std::cout<<"Real GPU temporal guide depth, per-eye reprojection, dynamic/invalid masks and qualification gates passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
