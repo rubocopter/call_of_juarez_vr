@@ -33,8 +33,9 @@ struct Producer {
     ComPtr<IDirect3DTexture9> color;
     ComPtr<IDirect3DSurface9> surface;
     d::D3D9SampledDepthCapture capture;
+    std::unique_ptr<d::D3D9SampledDepthCapture> resized_capture;
     unsigned size,height;
-    std::uint64_t sequence=0,integrity=1;
+    std::uint64_t sequence=0,integrity=1,generation=1,epoch=1;
     Clock::time_point capture_time{};
     explicit Producer(unsigned extent,unsigned image_height=0):size(extent),height(image_height?image_height:extent){
         const auto create=d::SystemDirect3DCreate9Ex();Require(create!=nullptr,"system D3D9Ex absent");
@@ -54,8 +55,27 @@ struct Producer {
         Check(device->SetRenderState(D3DRS_STENCILENABLE,FALSE),"D24X8 stencil off");
     }
     ~Producer(){(void)device->SetDepthStencilSurface(nullptr);}
+    void Resize(unsigned new_width,unsigned new_height){
+        // The same D3D9Ex owner/device continues across new native capture generations.
+        // Retire old render bindings before replacing the producer's extent.
+        Check(device->SetDepthStencilSurface(nullptr),"unbind previous source depth");
+        ComPtr<IDirect3DSurface9> backbuffer;
+        Check(device->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&backbuffer),"source backbuffer");
+        Check(device->SetRenderTarget(0,backbuffer.Get()),"unbind previous source color");
+        surface.Reset();color.Reset();resized_capture.reset();
+        size=new_width;height=new_height;++generation;++epoch;
+        resized_capture=std::make_unique<d::D3D9SampledDepthCapture>();
+        const d::D3D9SampledDepthConfig config{size,height,D3DFMT_A16B16G16R16F,D3DFMT_D24X8,
+            D3DMULTISAMPLE_NONE,0,generation,true};
+        Check(resized_capture->Initialize(device.Get(),config),"resized source INTZ/FP16 init");
+        Check(device->CreateTexture(size,height,1,D3DUSAGE_RENDERTARGET,config.native_color_format,
+            D3DPOOL_DEFAULT,&color,nullptr),"resized native scene color");
+        Check(color->GetSurfaceLevel(0,&surface),"resized native scene surface");
+        Check(device->SetRenderTarget(0,surface.Get()),"bind resized scene target");
+        Check(device->SetDepthStencilSurface(resized_capture->native_depth_surface()),"bind resized scene depth");
+    }
     s::SceneDepthStamp Stamp(std::uint64_t frame)const{
-        return {reinterpret_cast<std::uintptr_t>(device.Get()),1,frame,frame,42,integrity,1};
+        return {reinterpret_cast<std::uintptr_t>(device.Get()),generation,frame,frame,42,integrity,epoch};
     }
     std::array<s::SceneDepthEye,2> Produce(std::uint64_t frame,bool expose_background=false){
         capture_time=Clock::now();
@@ -72,7 +92,8 @@ struct Producer {
             }
             pair[eye].stamp=Stamp(frame);pair[eye].eye=eye;
             pair[eye].capture_time=capture_time;
-            Check(capture.Snapshot(++sequence,1,pair[eye].snapshot),"immutable source capture");
+            auto& active_capture=resized_capture?*resized_capture:capture;
+            Check(active_capture.Snapshot(++sequence,generation,pair[eye].snapshot),"immutable source capture");
             Check(device->EndScene(),"end source scene");
             Wait([&]{const auto hr=pair[eye].snapshot.PollReady();Check(hr,"source query");return hr==S_OK;},"source query timeout");
         }
@@ -302,8 +323,37 @@ void QueuedStop(){
         eyes={};
     }
 }
+void WorkerExtentTransitions(){
+    Producer producer(64);s::SceneDepthWorker worker;
+    s::SceneWorkerAuthority authority{1,1,1,true,true};
+    Require(worker.Start(producer.device.Get())&&worker.SetAuthority(authority),"resizing worker startup");
+    Wait([&]{return worker.status().phase==s::SceneWorkerPhase::idle;},"resizing worker readiness");
+    for(unsigned frame=1;frame<=3;++frame){
+        if(frame==2)producer.Resize(96,72);
+        if(frame==3)producer.Resize(64,64);
+        auto eyes=producer.Produce(frame);
+        std::array<d::D3D9SampledDepthPoint,2> expected{};
+        for(unsigned eye=0;eye<2;++eye)
+            Check(eyes[eye].snapshot.ReadDiagnosticPoint(expected[eye]),"resizing source diagnostic pixel");
+        Require(worker.Submit(eyes,Request(producer,authority,false)),"resizing worker source submit");
+        eyes={};
+        s::SceneWorkerReport report;
+        Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"resizing worker delivery");
+        Require(report.outcome==s::SceneWorkerOutcome::copied&&
+            report.width==producer.size&&report.height==producer.height,
+            "resizing worker lost native source extent");
+        for(unsigned eye=0;eye<2;++eye){
+            Require(report.center_rgba16f[eye]==expected[eye].color,
+                "resizing worker copied stale or corrupted source color");
+            Require(report.center_depth_rgba16f[eye]==expected[eye].depth,
+                "resizing worker copied stale or corrupted source depth");
+        }
+    }
+    Require(worker.Stop(),"resizing worker stop");
+}
 int wmain(int argc,wchar_t** argv){try{
-    ControlledWorker();NativeAuditCoordinator();NativeAuditCoordinator(2560,1440);QueuedStop();
+    ControlledWorker();NativeAuditCoordinator();NativeAuditCoordinator(2560,1440);
+    QueuedStop();WorkerExtentTransitions();
     if(argc==2)RealWorker(argv[1]);else Require(argc==1,"unexpected arguments");
     std::cout<<"Persistent worker lifecycle/authority/source retirement tests passed. No game/headset qualification.\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
