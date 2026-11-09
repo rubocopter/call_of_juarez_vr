@@ -211,6 +211,11 @@ backpressure. Producer polling releases native sources after both GPU copies
 retire, independently of slower inference on private worker textures. Explicit
 shutdown joins outside render/presenter hot paths; unproven copies remain
 quarantined. A stopped worker cannot silently restart its authority domain.
+Copy-only jobs stop the optional reconstruction session and release upload
+masks before source allocation. Returning to reconstruction restarts the helper
+on the same worker thread with fresh history; restart failure faults the worker.
+Blocking lifecycle work is followed by fresh authority and capture-age checks.
+Existing unproven-GPU retirement quarantine remains authoritative.
 
 Capture timestamps originate at scene entry and travel with each eye. Requests
 must retain the oldest source time and supply an explicit age bound. Settings,

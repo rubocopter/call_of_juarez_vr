@@ -60,6 +60,9 @@ struct SceneWorkerStatus {
 // belongs outside render/presenter hot paths. Unproven source drain quarantines
 // the retained pair through SceneDepthTransfer; do not restart a failed owner.
 // Reports are diagnostics ONLY: no image/COM output reaches presentation here.
+// Copy-only requests stop the optional reconstruction session and retire its
+// upload masks on the worker thread. Reconstruction restarts lazily with fresh
+// history; helper restart failure faults this owner instead of retrying forever.
 class SceneDepthWorker final {
 public:
     explicit SceneDepthWorker(std::unique_ptr<PairExecutor> executor={});

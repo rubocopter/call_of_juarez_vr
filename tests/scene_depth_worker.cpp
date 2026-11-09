@@ -105,6 +105,8 @@ struct Control {
     bool allow_start=false,allow_evaluate=false;
     std::atomic_bool started=false,evaluating=false;
     std::atomic<unsigned> evaluations=0,worker_thread=0,stop_thread=0;
+    std::atomic<unsigned> starts=0,stops=0;
+    std::atomic_bool fail_start=false;
     std::atomic<int> fail_eye=-1;
     void Release(){std::lock_guard lock(mutex);allow_start=allow_evaluate=true;cv.notify_all();}
 };
@@ -116,6 +118,7 @@ class ControlledExecutor final:public s::PairExecutor {
 public:
     explicit ControlledExecutor(std::shared_ptr<Control> c):control_(std::move(c)){}
     bool Start(ID3D11Device* device,const std::filesystem::path&)noexcept override{
+        ++control_->starts;if(control_->fail_start)return false;
         device_=device;control_->worker_thread=GetCurrentThreadId();control_->started=true;
         std::unique_lock lock(control_->mutex);control_->cv.wait(lock,[&]{return control_->allow_start;});return true;
     }
@@ -140,7 +143,7 @@ public:
     }
     ID3D11Texture2D* Output(unsigned eye)const noexcept override{return outputs_[eye].Get();}
     std::string_view last_error()const noexcept override{return "controlled worker failure";}
-    void Stop()noexcept override{control_->stop_thread=GetCurrentThreadId();outputs_={};device_.Reset();}
+    void Stop()noexcept override{++control_->stops;control_->stop_thread=GetCurrentThreadId();outputs_={};device_.Reset();}
 };
 s::SceneWorkerRequest Request(const Producer& p,s::SceneWorkerAuthority authority,bool reconstruct=true){
     s::SceneWorkerRequest r;r.authority=authority;r.capture_time=p.capture_time;
@@ -256,11 +259,20 @@ void RealWorker(const std::filesystem::path& helper){
     Wait([&]{const auto state=worker.status();Require(state.phase!=s::SceneWorkerPhase::faulted,state.error.data());
         return state.phase==s::SceneWorkerPhase::idle;},"real worker startup timeout");
     unsigned owner=0;
-    for(unsigned frame=1;frame<=4;++frame){
-        if(frame==3)++producer.integrity;
-        if(frame==4)++authority.history_epoch;
+    for(unsigned frame=1;frame<=7;++frame){
+        if(frame==6)++producer.integrity;
+        if(frame==7)++authority.history_epoch;
         Require(worker.SetAuthority(authority),"real worker authority");
         auto eyes=producer.Produce(frame,true);auto request=Request(producer,authority);
+        if(frame==3){
+            request.reconstruct=false;
+            Require(worker.Submit(eyes,std::move(request)),"real worker copy-mode source rejection");eyes={};
+            s::SceneWorkerReport report;
+            Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"real worker copy-mode timeout");
+            Require(report.outcome==s::SceneWorkerOutcome::copied&&!report.history_reused,
+                "real worker copy mode did not retire reconstruction");
+            continue;
+        }
         request.output_width=request.output_height=384;request.quality=s::Quality::quality;
         request.depth_mask.enabled=true;request.depth_mask.relative_tolerance=.05F;request.depth_mask.erosion_radius=1;
         std::array<d::D3D9SampledDepthPoint,2> expected;
@@ -274,7 +286,7 @@ void RealWorker(const std::filesystem::path& helper){
         s::SceneWorkerReport report;
         Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"real worker job timeout");
         Require(report.outcome==s::SceneWorkerOutcome::reconstructed,report.error.data());
-        Require(report.history_reused==(frame==2),"history did not follow adjacent source and authority boundaries");
+        Require(report.history_reused==(frame==2||frame==5),"history did not follow mode/source/authority boundaries");
         Require(report.width==384&&report.height==384&&report.center_rgba16f[0]!=report.center_rgba16f[1],
             "real worker output extent/eyes");
         for(unsigned eye=0;eye<2;++eye)Require(report.center_rgba16f[eye]==expected[eye].color,
@@ -284,7 +296,7 @@ void RealWorker(const std::filesystem::path& helper){
         if(!owner)owner=report.worker_thread;Require(owner==report.worker_thread,"real worker thread changed");
     }
     Require(worker.Stop(),"real worker stop failed");
-    std::cout<<"Persistent worker: 4 real NGX Quality stereo pairs at 384x384, transactional GPU masks, camera motion, adjacent history and integrity/authority resets.\n";
+    std::cout<<"Persistent worker: 6 real NGX Quality stereo pairs at 384x384, transactional GPU masks, camera motion, copy-mode helper restart, adjacent history and integrity/authority resets.\n";
 }
 void NativeAuditCoordinator(unsigned width=64,unsigned height=0){
     Producer producer(width,height);cojvr::games::call_of_juarez::CoJSampledWorkerAudit audit;
@@ -351,9 +363,70 @@ void WorkerExtentTransitions(){
     }
     Require(worker.Stop(),"resizing worker stop");
 }
+void WorkerModeTransitions(){
+    Producer producer(64);auto control=std::make_shared<Control>();control->Release();
+    s::SceneDepthWorker worker(std::make_unique<ControlledExecutor>(control));
+    s::SceneWorkerAuthority authority{1,1,1,true,true};
+    Require(worker.Start(producer.device.Get(),{L"E:/controlled-worker.exe",1000})&&worker.SetAuthority(authority),
+        "mode transition startup");
+    Wait([&]{return worker.status().phase==s::SceneWorkerPhase::idle;},"mode transition readiness");
+    const auto startup_stops=control->stops.load();
+    // Adjacent reconstruction keeps history; copy mode retires the session once.
+    for(unsigned frame=1;frame<=8;++frame){
+        const bool reconstruct=frame!=3&&frame!=4&&frame!=7;
+        if(frame==8)control->fail_start=true;
+        auto eyes=producer.Produce(frame);auto request=Request(producer,authority,reconstruct);
+        Require(worker.Submit(eyes,std::move(request)),"mode transition source submit");eyes={};
+        s::SceneWorkerReport report;
+        Wait([&]{return worker.Poll(producer.Stamp(frame),report);},"mode transition result");
+        if(frame==8){
+            Require(report.outcome==s::SceneWorkerOutcome::failed&&worker.status().phase==s::SceneWorkerPhase::faulted,
+                "failed session restart did not fault closed");
+            Require(report.center_rgba16f==decltype(report.center_rgba16f){},"failed restart published pixels");
+        }else{
+            Require(report.outcome==(reconstruct?s::SceneWorkerOutcome::reconstructed:s::SceneWorkerOutcome::copied),
+                "mode transition outcome");
+            Require(report.history_reused==(frame==2||frame==6),"copy mode preserved stale reconstruction history");
+        }
+        if(frame==3||frame==4)Require(control->stops==startup_stops+1,"copy-only mode retained or repeatedly stopped reconstruction resources");
+        if(frame==5||frame==6)Require(control->starts==2,"reconstruction did not restart exactly once");
+        Require(control->worker_thread!=GetCurrentThreadId()&&report.worker_thread==control->worker_thread,
+            "mode transition moved helper work onto producer thread");
+    }
+    Require(worker.Stop(),"mode transition final retirement");
+}
+void WorkerRestartCancellation(){
+    Producer producer(64);auto control=std::make_shared<Control>();control->Release();
+    s::SceneDepthWorker worker(std::make_unique<ControlledExecutor>(control));
+    ReleaseOnExit release{control};s::SceneWorkerAuthority authority{1,1,1,true,true};
+    Require(worker.Start(producer.device.Get(),{L"E:/controlled-worker.exe",1000})&&worker.SetAuthority(authority),
+        "restart cancellation startup");
+    Wait([&]{return worker.status().phase==s::SceneWorkerPhase::idle;},"restart cancellation readiness");
+    auto eyes=producer.Produce(1);
+    Require(worker.Submit(eyes,Request(producer,authority,false)),"restart cancellation copy submit");eyes={};
+    s::SceneWorkerReport report;
+    Wait([&]{return worker.Poll(producer.Stamp(1),report);},"restart cancellation copy result");
+    Require(report.outcome==s::SceneWorkerOutcome::copied,"restart cancellation copy failed");
+    {std::lock_guard lock(control->mutex);control->allow_start=false;}
+    eyes=producer.Produce(2);
+    Require(worker.Submit(eyes,Request(producer,authority)),"blocked restart submit");eyes={};
+    Wait([&]{return control->starts==2;},"helper did not begin blocked restart");
+    auto unavailable=authority;unavailable.available=false;
+    Require(worker.SetAuthority(unavailable)&&worker.SetAuthority(authority),"restart authority revoke/restore");
+    control->Release();
+    Wait([&]{return worker.Poll(producer.Stamp(2),report);},"cancelled restart delivery");
+    Require(report.outcome==s::SceneWorkerOutcome::cancelled&&control->evaluations==0,
+        "revoked helper restart evaluated stale sources");
+    eyes=producer.Produce(3);
+    Require(worker.Submit(eyes,Request(producer,authority)),"post-restart-cancellation submit");eyes={};
+    Wait([&]{return worker.Poll(producer.Stamp(3),report);},"post-restart-cancellation result");
+    Require(report.outcome==s::SceneWorkerOutcome::reconstructed&&!report.history_reused&&control->starts==2,
+        "cancelled restart poisoned fresh reconstruction or restarted helper again");
+    Require(worker.Stop(),"restart cancellation retirement");
+}
 int wmain(int argc,wchar_t** argv){try{
     ControlledWorker();NativeAuditCoordinator();NativeAuditCoordinator(2560,1440);
-    QueuedStop();WorkerExtentTransitions();
+    QueuedStop();WorkerExtentTransitions();WorkerModeTransitions();WorkerRestartCancellation();
     if(argc==2)RealWorker(argv[1]);else Require(argc==1,"unexpected arguments");
     std::cout<<"Persistent worker lifecycle/authority/source retirement tests passed. No game/headset qualification.\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

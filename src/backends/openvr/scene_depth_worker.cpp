@@ -144,10 +144,26 @@ struct SceneDepthWorker::Impl {
     }
     SceneWorkerReport Process(Job& j,ID3D11Device* device,ID3D11DeviceContext* context,
         SceneDepthScratch& scratch,D3D9SharedTextureBridge& color,D3D9SharedTextureBridge& depth,PairSession* session,
-        std::uint64_t& history_version,SceneDepthStamp& history_source,bool& fatal){
+        bool& session_active,std::uint64_t& history_version,SceneDepthStamp& history_source,bool& fatal){
         SceneWorkerReport report;report.source=j.work.stamp;report.authority=j.request.authority;
         const auto process_begin=Clock::now();
         report.worker_thread=GetCurrentThreadId();
+        if(!Live(j)){report.outcome=SceneWorkerOutcome::cancelled;return report;}
+        if(Expired(j.request)){report.outcome=SceneWorkerOutcome::expired;return report;}
+        // Copy-only work has no reconstruction allowance. Retire the previous
+        // workload before allocating source planes, even at unchanged extents.
+        // Stop preserves the client's quarantine if GPU retirement is unproven.
+        if(!j.request.reconstruct){
+            if(session&&session_active){session->Stop();session_active=false;}
+            scratch.masks={};history_version=0;history_source={};
+        }else if(session&&!session_active){
+            if(!session->Start(device,options.helper)){
+                fatal=true;Error(report.error,session->last_error());return report;
+            }
+            session_active=true;
+        }
+        // Helper shutdown/startup can block; recheck authority and the original
+        // capture deadline before queueing any new GPU source copies.
         if(!Live(j)){report.outcome=SceneWorkerOutcome::cancelled;return report;}
         if(Expired(j.request)){report.outcome=SceneWorkerOutcome::expired;return report;}
         const auto w=j.work.color->shared_eyes[0].width,h=j.work.color->shared_eyes[0].height;
@@ -227,11 +243,13 @@ struct SceneDepthWorker::Impl {
                 std::lock_guard lock(mutex);state.phase=SceneWorkerPhase::faulted;Error(state.error,"worker D3D11 adapter/device creation failed");return;
             }
             std::unique_ptr<PairSession> session;
+            bool session_active=false;
             if(!options.helper.empty()){
                 session=injected?std::make_unique<PairSession>(std::move(injected)):std::make_unique<PairSession>();
                 if(!session->Start(device.Get(),options.helper)){
                     std::lock_guard lock(mutex);state.phase=SceneWorkerPhase::faulted;Error(state.error,session->last_error());return;
                 }
+                session_active=true;
             }
             SceneDepthScratch scratch;D3D9SharedTextureBridge color,depth;std::uint64_t history_version=0;
             SceneDepthStamp history_source{};
@@ -246,7 +264,7 @@ struct SceneDepthWorker::Impl {
                     if(stop)break;current=std::move(job);job.reset();
                 }
                 bool fatal=false;
-                auto report=Process(*current,device.Get(),context.Get(),scratch,color,depth,session.get(),history_version,history_source,fatal);
+                auto report=Process(*current,device.Get(),context.Get(),scratch,color,depth,session.get(),session_active,history_version,history_source,fatal);
                 current->work={}; // Unqueued completion tokens release before result visibility.
                 current.reset();
                 {
