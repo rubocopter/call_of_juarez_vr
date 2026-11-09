@@ -20,11 +20,13 @@ CinematicsMode SafeMode(CinematicsMode mode) noexcept {
 }
 bool Valid(VrPreferences values) noexcept {
     return (values.cinematics==CinematicsMode::theater||values.cinematics==CinematicsMode::immersive)&&
-        (values.turning==TurnMode::smooth||values.turning==TurnMode::snap);
+        (values.turning==TurnMode::smooth||values.turning==TurnMode::snap)&&
+        values.manual_reload<=ManualReloadPreference::on;
 }
 void PublishPreferences(VrPreferences values) noexcept {
     const auto packed=static_cast<std::uint16_t>(static_cast<unsigned>(values.cinematics)|
-        (static_cast<unsigned>(values.turning)<<8)|(values.holster_guides?0x200U:0U));
+        (static_cast<unsigned>(values.turning)<<8)|(values.holster_guides?0x200U:0U)|
+        (static_cast<unsigned>(values.manual_reload)<<10));
     current_preferences.store(packed,std::memory_order_release);
 }
 struct File {
@@ -64,9 +66,12 @@ TurnMode CurrentTurnMode() noexcept {
 bool CurrentHolsterGuidesEnabled() noexcept {
     return (current_preferences.load(std::memory_order_acquire)&0x200U)!=0;
 }
+ManualReloadPreference CurrentManualReloadPreference() noexcept {
+    return static_cast<ManualReloadPreference>((current_preferences.load(std::memory_order_acquire)>>10)&3U);
+}
 bool SettingsInputCaptured() noexcept { return input_capture.load(std::memory_order_acquire); }
 void PublishCinematicMode(CinematicsMode mode) noexcept {
-    // Compatibility publisher: preserve turning and guides, including concurrent updates.
+    // Compatibility publisher: preserve the other preferences across concurrent updates.
     auto previous=current_preferences.load(std::memory_order_acquire);
     std::uint16_t next;
     do {
@@ -108,7 +113,7 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
         }
         std::string_view text=buffer;
         unsigned version=0;
-        bool cinematics=false,turning=false,holster_guides=false;
+        bool cinematics=false,turning=false,holster_guides=false,manual_reload=false;
         VrPreferences values;
         while(!text.empty()){
             const auto end=text.find('\n');const auto line=Trim(text.substr(0,end));
@@ -117,8 +122,8 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
             const auto equals=line.find('=');if(equals==std::string_view::npos)return result;
             const auto key=Trim(line.substr(0,equals)),value=Trim(line.substr(equals+1));
             if(key=="version"){
-                if(version||(value!="1"&&value!="2"&&value!="3"))return result;
-                version=value=="1"?1U:value=="2"?2U:3U;
+                if(version||value.size()!=1||value.front()<'1'||value.front()>'4')return result;
+                version=static_cast<unsigned>(value.front()-'0');
             }
             else if(key=="cinematics"){
                 if(cinematics||(value!="theater"&&value!="immersive"))return result;
@@ -129,12 +134,17 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
             }else if(key=="holster_guides"){
                 if(holster_guides||(value!="false"&&value!="true"))return result;
                 holster_guides=true;values.holster_guides=value=="true";
+            }else if(key=="manual_reload"){
+                if(manual_reload||(value!="install_default"&&value!="off"&&value!="on"))return result;
+                manual_reload=true;
+                if(value=="off")values.manual_reload=ManualReloadPreference::off;
+                if(value=="on")values.manual_reload=ManualReloadPreference::on;
             }else return result;
         }
-        if(cinematics&&((version==1&&!turning&&!holster_guides)||(version==2&&turning&&!holster_guides)||
-            (version==3&&turning&&holster_guides))){
+        if(version&&cinematics&&turning==(version>=2)&&holster_guides==(version>=3)&&manual_reload==(version>=4)){
             result.status=SettingsLoadStatus::loaded;result.mode=values.cinematics;
             result.turning=values.turning;result.holster_guides=values.holster_guides;
+            result.manual_reload=values.manual_reload;
         }
     }catch(...){result.status=SettingsLoadStatus::io_error;result.error_code=ERROR_NOT_ENOUGH_MEMORY;}
     return result;
@@ -179,17 +189,23 @@ SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMo
     const auto loaded=LoadVrSettings(path);
     if(loaded.status==SettingsLoadStatus::invalid)return {false,ERROR_INVALID_DATA};
     if(loaded.status==SettingsLoadStatus::io_error)return {false,loaded.error_code?loaded.error_code:ERROR_READ_FAULT};
-    return SaveVrSettings(path,VrPreferences{mode,loaded.turning,loaded.holster_guides});
+    return SaveVrSettings(path,VrPreferences{mode,loaded.turning,loaded.holster_guides,loaded.manual_reload});
 }
 SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,VrPreferences values) noexcept {
     if(!Valid(values))return {false,ERROR_INVALID_PARAMETER};
     try {
-        std::string content="version=3\ncinematics=";
+        std::string content="version=4\ncinematics=";
         content+=values.cinematics==CinematicsMode::immersive?"immersive":"theater";
         content+="\nturning=";
         content+=values.turning==TurnMode::snap?"snap":"smooth";
         content+="\nholster_guides=";
         content+=values.holster_guides?"true\n":"false\n";
+        content+="manual_reload=";
+        switch(values.manual_reload){
+        case ManualReloadPreference::install_default:content+="install_default\n";break;
+        case ManualReloadPreference::off:content+="off\n";break;
+        case ManualReloadPreference::on:content+="on\n";break;
+        }
         return WriteVrSettings(path,content);
     }catch(...){return {false,ERROR_NOT_ENOUGH_MEMORY};}
 }
@@ -199,7 +215,7 @@ VrPreferenceSnapshot VrPreferenceStore::Initialize(const std::filesystem::path& 
     try {
         file_=file;
         const auto loaded=LoadVrSettings(file_);
-        snapshot_.values={loaded.mode,loaded.turning,loaded.holster_guides};
+        snapshot_.values={loaded.mode,loaded.turning,loaded.holster_guides,loaded.manual_reload};
         snapshot_.load_status=loaded.status;
         snapshot_.load_error=loaded.error_code;
     }catch(...){
@@ -208,6 +224,8 @@ VrPreferenceSnapshot VrPreferenceStore::Initialize(const std::filesystem::path& 
         snapshot_.load_status=SettingsLoadStatus::io_error;
         snapshot_.load_error=ERROR_NOT_ENOUGH_MEMORY;
     }
+    if(snapshot_.load_status==SettingsLoadStatus::invalid||snapshot_.load_status==SettingsLoadStatus::io_error)
+        snapshot_.values.manual_reload=ManualReloadPreference::off;
     initialized_=true;
     snapshot_.revision=1;
     PublishPreferences(snapshot_.values);

@@ -8,6 +8,7 @@
 #include "games/call_of_juarez/gameplay_ui_adapter.hpp"
 #include "games/call_of_juarez/motion_reload_adapter.hpp"
 #include "games/call_of_juarez/manual_reload_session.hpp"
+#include "games/call_of_juarez/manual_reload_settings.hpp"
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
@@ -153,6 +154,7 @@ CoJGameplayOwnerState g_gameplay_owner;
 CoJGameplayCommandQueue g_gameplay_commands;
 CoJMotionReloadAdapter g_motion_reload;
 CoJManualReloadSession g_manual_reload;
+std::atomic_bool g_manual_reload_archive_verified{false};
 CoJReloadContextHints g_reload_context_hints;
 CoJMovieSkipDispatchGate g_movie_skip_dispatch;
 CoJDuelTutorial g_duel_tutorial;
@@ -744,6 +746,22 @@ bool ReadString(
     } catch (...) {
         return false;
     }
+}
+
+bool VerifyManualReloadArchive(const runtime::HostIdentity& host) noexcept {
+    try {
+        const auto directory=host.executable_path.parent_path();
+        std::ifstream stage(directory/L".cojvr-d3d9-stage.json",std::ios::binary|std::ios::ate);
+        const auto size=stage.tellg();
+        if(size<=0||size>65536)return false;
+        std::string record(static_cast<std::size_t>(size),'\0');
+        stage.seekg(0);
+        if(!stage.read(record.data(),static_cast<std::streamsize>(record.size())))return false;
+        const auto expected=CoJManualReloadStageArchiveHash(record,host.sha256);
+        if(expected.empty())return false;
+        const auto actual=runtime::Sha256File(directory/L"code.pak");
+        return actual&&*actual==expected;
+    }catch(...){return false;}
 }
 
 float Length(const CameraProbeVector value) noexcept {
@@ -6839,8 +6857,18 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
     if (motion_reload_context) g_motion_reload_last_reject = reload_diagnostic.reason;
     const auto prior_reload_stage = g_motion_reload.stage();
+    const auto reload_mode=ResolveCoJReloadMode(snapshot.command.manual_reload_installed,
+        g_manual_reload_archive_verified.load(std::memory_order_acquire)&&
+            (!snapshot.command.manual_reload_installed||g_java_player_bridge.HasLoadedManualReloadCapability()),
+        runtime::CurrentManualReloadPreference());
+    const bool legacy_motion_reload=reload_mode==CoJReloadMode::legacy_motion;
+    const bool manual_reload_enabled=reload_mode==CoJReloadMode::manual&&snapshot.command.independent_hands_enabled;
     CoJManualReloadInput manual_input{};
-    manual_input.enabled=snapshot.command.manual_reload_installed&&snapshot.command.independent_hands_enabled;
+    manual_input.enabled=manual_reload_enabled;
+    if((!manual_reload_enabled&&!legacy_motion_reload)||g_manual_reload.native_cleanup_pending()) {
+        manual_input.native_cleanup_pending=!g_java_player_bridge.CancelManualReload(nullptr,true)||
+            !g_java_player_bridge.ClearSingleRoundReload();
+    }
     manual_input.allowed=motion_reload_context;manual_input.recentered=recentered;
     manual_input.player=g_java_player_bridge.being_generation();manual_input.context=sample.native_gameplay_context_token;
     manual_input.sequence=sample.hmd_pose.sequence;manual_input.now=reload_now_ms;manual_input.raw=raw_reload_input;
@@ -6900,7 +6928,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_feedback.owner_token=reload_feedback_owner;
     std::string manual_error;
     auto insertion_pose_native=manual_input.native;
-    if(manual_result.cancel)(void)g_java_player_bridge.CancelManualReload(&manual_error);
+    if(manual_result.cancel&&manual_reload_enabled)(void)g_java_player_bridge.CancelManualReload(&manual_error);
     g_manual_reload_presentation=manual_result.tracked;
     if(manual_result.supervise&&
         !g_java_player_bridge.TryKeepManualReloadAlive(&manual_error)){
@@ -6964,7 +6992,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (manual_result.cancel || !g_manual_reload_presentation)
         (void)PublishReloadFeedbackOwner(0, 0, {});
     g_manual_reload_geometry_logging_enabled=snapshot.command.reload_trace_enabled&&
-        snapshot.command.manual_reload_installed;
+        manual_reload_enabled;
     if(!g_manual_reload_geometry_logging_enabled ||
         g_manual_reload.phase()!=CoJManualReloadPhase::ready)
         g_reload_ready_geometry_reference={};
@@ -6982,17 +7010,17 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     auto motion_reload = g_motion_reload.Update(gameplay_input, raw_reload_input,
         reload_owner, reload_diagnostic, g_java_player_bridge.being_generation(),
         relative_head_pose, relative_left_controller, relative_right_controller,
-        motion_reload_context&&!snapshot.command.manual_reload_installed, recentered, sample.hmd_pose.sequence, reload_now_ms,
+        motion_reload_context&&legacy_motion_reload&&!manual_result.transition_controls, recentered, sample.hmd_pose.sequence, reload_now_ms,
         sample.native_gameplay_context_token,native_reload_owner);
-    if(snapshot.command.manual_reload_installed)motion_reload=manual_result.gesture;
+    if(manual_reload_enabled)motion_reload=manual_result.gesture;
     if (snapshot.command.reload_trace_enabled) {
         CoJReloadTraceSample trace{};
         trace.player=g_java_player_bridge.being_generation();
         trace.context=sample.native_gameplay_context_token; trace.sequence=frame_sequence;
-        trace.allowed=motion_reload_context; trace.gesture=snapshot.command.manual_reload_installed?
+        trace.allowed=motion_reload_context; trace.gesture=manual_reload_enabled?
             g_manual_reload.gesture_stage():g_motion_reload.stage();
         trace.cartridge=motion_reload.cartridge_held;
-        trace.manual_session=snapshot.command.manual_reload_installed;
+        trace.manual_session=manual_reload_enabled;
         trace.vr_presentation_requested=g_manual_reload_presentation;
         trace.request=gameplay_input.reload && !g_java_player_bridge.AppliedGameplayCommands().reload;
         const bool poses_available=relative_head_pose.position_valid && relative_head_pose.orientation_valid &&
@@ -7004,12 +7032,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             gameplay_input.objectives || gameplay_input.logs || gameplay_input.alternate_fire ||
             std::any_of(gameplay_input.equipment_select.begin(),gameplay_input.equipment_select.end(),
                 [](bool pressed){return pressed;});
-        trace.reason=snapshot.command.manual_reload_installed&&std::strcmp(manual_result.reason,"none")!=0?
+        trace.reason=manual_reload_enabled&&std::strcmp(manual_result.reason,"none")!=0?
             manual_result.reason:!motion_reload_context ? "gameplay_context_lost" : recentered ? "recenter" :
             !poses_available ? "tracking_unavailable" : input_conflict ? "input_conflict" :
             CoJMotionReloadRejectReasonName(reload_diagnostic.reason);
         if (motion_reload_context && !g_java_player_bridge.TryObserveReloadTrace(
-                trace.native,snapshot.command.reload_wait_probe_installed||snapshot.command.manual_reload_installed))
+                trace.native,snapshot.command.reload_wait_probe_installed||manual_reload_enabled))
             trace.reason="native_observation_unavailable";
         if (trace.cartridge && motion_reload.cartridge_hand<2) {
             const auto& support=motion_reload.cartridge_hand==0?relative_right_controller:relative_left_controller;
@@ -7026,7 +7054,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
     // A still-held prior Square request cannot count as a new native edge.
     // A discarded gesture is never retained for a later owner or retry.
-    if (!snapshot.command.manual_reload_installed && motion_reload.reload && g_java_player_bridge.AppliedGameplayCommands().reload)
+    if (legacy_motion_reload && motion_reload.reload && g_java_player_bridge.AppliedGameplayCommands().reload)
         gameplay_input.reload = sample.gameplay.reload;
     if (prior_reload_stage != g_motion_reload.stage() || motion_reload.reload) {
         try {
@@ -7046,8 +7074,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // A pending ticket belongs only to this immediate action31 delivery. The
     // patched native request consumes it into native completion ownership;
     // cancelling pending later cannot turn an accepted round into a full loop.
-    const bool single_round_request = (snapshot.command.manual_reload_installed?manual_result.start:motion_reload.reload) &&
-        (snapshot.command.manual_reload_installed?reload_owner.SupportsManual():reload_owner.single_round_supported) &&
+    const bool single_round_request = (manual_reload_enabled?manual_result.start&&reload_owner.SupportsManual():
+        legacy_motion_reload&&motion_reload.reload&&reload_owner.single_round_supported) &&
         gameplay_input.reload && !g_java_player_bridge.AppliedGameplayCommands().reload;
     bool reload_ticket_ready = g_java_player_bridge.ClearSingleRoundReload(&gameplay_input_error);
     if (reload_ticket_ready && single_round_request)
@@ -7138,12 +7166,20 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         ordinary_input.turn = {};
         ordinary_input.turn_available = false;
     }
+    const bool cleanup_release=manual_input.native_cleanup_pending;
     bool input_context_restored=true;
-    bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled && duel_input_ok &&
-        reload_ticket_ready && DispatchWithRenderLevelContext(owner,[&]() noexcept {
+    const bool dispatched = snapshot.command.vr_gameplay_input_enabled &&
+        (cleanup_release||(duel_input_ok&&reload_ticket_ready)) && DispatchWithRenderLevelContext(owner,[&]() noexcept {
+            // Cleanup failure withholds new input. Deliver neutral actions on
+            // the same native owner so an earlier Square/fire cannot stick.
+            // Active neutral skips the inactive-input cleanup precondition.
+            if(cleanup_release)
+                return g_java_player_bridge.TryApplyGameplayInput({.active=true},&gameplay_input_error,
+                    CoJInputDispatchPhase::all,0.0F,input_time_us,&input_trace);
             return g_java_player_bridge.TryApplyGameplayInput(ordinary_input,&gameplay_input_error,
                 CoJInputDispatchPhase::pre_shoulder,head_relative_move_yaw_degrees,input_time_us,&input_trace);
         },input_context_restored);
+    bool gameplay_input_ok=dispatched&&!cleanup_release;
     if(!input_context_restored) { reject_render_input_context();return; }
     if (!duel_input_ok && gameplay_input_error.empty()) gameplay_input_error = duel_error;
     if (ShouldObserveBodyFrame(frame_sequence) || !duel_input_ok) {
@@ -7540,7 +7576,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     CoJReloadInsertionPoseInput insertion_pose{};
     insertion_pose.allowed=gameplay_input.active&&!loading_ui_input.suppress_gameplay&&
         snapshot.command.vr_gameplay_input_enabled&&motion_reload_context&&
-        snapshot.command.manual_reload_installed&&g_manual_reload_presentation&&
+        manual_reload_enabled&&g_manual_reload_presentation&&
         !manual_result.cancel&&raw_reload_input.active&&(raw_reload_input.digital_available&3U)==3U&&
         insertion_pose_native.valid&&insertion_pose_native.probe_valid&&
         (insertion_pose_native.probe_status==1||insertion_pose_native.probe_status==2);
@@ -7560,7 +7596,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
         snapshot.command.vr_gameplay_input_enabled) {
         CoJReloadPinchInput pinch{};
-        pinch.manual_load=motion_reload_context&&snapshot.command.manual_reload_installed&&
+        pinch.manual_load=motion_reload_context&&manual_reload_enabled&&
             g_manual_reload_presentation&&g_manual_reload.phase()==CoJManualReloadPhase::manual_load&&
             manual_input.native.valid&&manual_input.native.probe_valid;
         pinch.cartridge_held=motion_reload.cartridge_held;
@@ -7638,9 +7674,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // delivered. Resolve the parent hand/socket and verified muzzle first;
     // dispatch no locomotion, snap-turn, reload or weapon switch a second time.
     std::uint32_t scoped_rifle_frame_weapon=0;
-    if (snapshot.command.vr_gameplay_input_enabled) {
+    if (snapshot.command.vr_gameplay_input_enabled && !cleanup_release) {
         auto fire_input=gameplay_input;
         if (!gameplay_input_ok) fire_input={};
+        auto fire_raw=raw_reload_input;
+        // Special fire routes read physical triggers again. A fenced channel
+        // is unavailable to those routes, including mirrored native actions.
+        fire_raw.digital_available&=~manual_result.transition_controls;
         CoJStationaryWeaponOwner stationary_owner{};
         const bool stationary_known=fire_input.active&&
             g_java_player_bridge.TryObserveStationaryWeapon(stationary_owner);
@@ -7652,7 +7692,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         const bool fire_owner_known=fire_input.active&&
             g_java_player_bridge.TryObserveLongGunFireOwnership(rifle_fire);
         if(fire_input.active&&!fire_owner_known)rifle_fire={true,true};
-        g_long_gun_free_trigger.Filter(raw_reload_input,sample.hmd_pose.sequence,
+        g_long_gun_free_trigger.Filter(fire_raw,sample.hmd_pose.sequence,
             fire_input.active?rifle_fire:CoJLongGunFireRouting{},fire_input);
         FilterCoJLongGunGripInput(g_long_gun_claim.claim,fire_input);
         if(g_long_gun_failed_sequence==frame_sequence||g_long_gun_quarantined){
@@ -7805,7 +7845,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         bow_input.sequence=sample.hmd_pose.sequence;
         bow_input.now_ms=MonotonicMicroseconds()/1000;
         bow_input.recentered=recentered;
-        bow_input.right_available=raw_reload_input.active&&(raw_reload_input.digital_available&2U)!=0;
+        bow_input.right_available=fire_raw.active&&(fire_raw.digital_available&2U)!=0;
         bow_input.right_held=raw_reload_input.fire_right;
         CameraProbeBasis bow_basis{};CameraProbeVector bow_camera{};
         const bool bow_camera_valid=ReadNaturalCameraFrame(natural_render_state,bow_basis,bow_camera);
@@ -7825,7 +7865,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             bow_input.left_world_m=bow_world(relative_left_controller.position,bow_left);
             bow_input.right_world_m=bow_world(relative_right_controller.position,bow_right);
         }
-        bow_input.allowed=stationary_known&&!stationary_owner.active&&bow_input.selected&&bow_hand==1&&fire_input.active&&gameplay_input_ok&&
+        bow_input.allowed=(manual_result.transition_controls&2U)==0&&stationary_known&&!stationary_owner.active&&bow_input.selected&&bow_hand==1&&fire_input.active&&gameplay_input_ok&&
             boxing_observed&&!boxing_selected&&bow_pose_pair_mapped&&
             CoJBowDrawControlsAvailable(raw_reload_input,gameplay_input)&&
             !loading_ui_input.suppress_gameplay&&!loading_ui_input.suppress_fire&&
@@ -7933,7 +7973,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_long_gun_failed_sequence!=frame_sequence&&!g_long_gun_quarantined;
         g_scoped_rifle_fire.Filter(scoped_known,scoped_current,
             g_java_player_bridge.being_generation(),sample.native_gameplay_context_token,
-            sample.hmd_pose.sequence,raw_reload_input,fire_input,scoped_safe);
+            sample.hmd_pose.sequence,fire_raw,fire_input,scoped_safe);
         if(scoped_known&&scoped_safe)scoped_rifle_frame_weapon=scoped_current.right_button1_weapon;
         if(scoped_current.right_button1_weapon&&
             (ShouldObserveBodyFrame(frame_sequence)||raw_reload_input.fire_right||raw_reload_input.reload)){
@@ -7953,7 +7993,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             }
         }
         if(recentered)fire_input.fire_left=fire_input.fire_right=false;
-        auto stationary_raw=raw_reload_input;
+        auto stationary_raw=fire_raw;
         if(recentered||loading_ui_input.suppress_gameplay)stationary_raw.active=false;
         const bool stationary_routed=g_stationary_fire.Filter(stationary_current_known,stationary_current,
             g_java_player_bridge.being_generation(),sample.native_gameplay_context_token,
@@ -8224,7 +8264,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         frame_sequence,
         sample.hmd_pose.sequence);
     const bool observe_reload_depth=snapshot.command.reload_trace_enabled&&
-        snapshot.command.manual_reload_installed&&g_reload_depth_observation_budget>0&&
+        manual_reload_enabled&&g_reload_depth_observation_budget>0&&
         g_stereo_callbacks.observe_reload_depth&&manual_result.tracked&&
         manual_result.gesture.cartridge_held&&!g_reload_cartridge_last_visible&&
         manual_result.gesture.claimed_hand==manual_result.gesture.cartridge_hand&&
@@ -8540,16 +8580,16 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             hud_text.reload_feedback.zone_entered=false;
             (void)PublishReloadFeedbackOwner(0, 0, {});
         }
-        const bool manual_cartridge=snapshot.command.manual_reload_installed;
+        const bool manual_cartridge=manual_reload_enabled;
         const bool physically_held=motion_reload.claimed_hand==motion_reload.cartridge_hand&&
             (motion_reload.cartridge_hand==0?raw_reload_input.fire_right:
              motion_reload.cartridge_hand==1?raw_reload_input.fire_left:false);
         const bool anchored=motion_reload.cartridge_hand<2&&
             g_reload_cartridge_anchors[motion_reload.cartridge_hand].position_valid;
         const bool cartridge_visible = gameplay_input.active && motion_reload_context &&
-            (snapshot.command.manual_reload_installed ?
+            (manual_cartridge ?
                 g_manual_reload_presentation&&g_manual_reload.phase()==CoJManualReloadPhase::manual_load :
-                reload_owner.single_round_supported) && motion_reload.cartridge_held &&
+                legacy_motion_reload&&reload_owner.single_round_supported) && motion_reload.cartridge_held &&
             motion_reload.cartridge_hand < 2&&
             (!manual_cartridge||(physically_held&&anchored&&hands_restored&&weapon_restored));
         auto cartridge_pose = motion_reload.cartridge_hand == 0
@@ -9867,6 +9907,8 @@ CameraProbeInstallStatus InitializeCameraProbe(
             g_original_render_view = reinterpret_cast<RenderViewFn>(*g_render_view_entry);
         }
 
+        const bool manual_archive_verified=StereoCallbacksReady()&&VerifyManualReloadArchive(*host);
+        g_manual_reload_archive_verified.store(manual_archive_verified,std::memory_order_release);
         g_control_path = control_path;
         g_java_player_bridge.SetUiLanguage(ReadCoJUiLanguage(control_path.parent_path()/L"Game.ini"));
         g_original_render_camera_update = reinterpret_cast<RenderCameraUpdateFn>(
@@ -9922,6 +9964,7 @@ CameraProbeInstallStatus InitializeCameraProbe(
         }
         std::ostringstream detail;
         detail << "engine_sha256=" << *engine_hash
+               << ";manual_reload_archive_verified=" << manual_archive_verified
                << ";vtable_rva=0x" << std::hex << kBaseCameraVtableRva
                << ";render_update_rva=0x" << kRenderCameraUpdateRva
                << ";set_fov_rva=0x" << kSetFovRva

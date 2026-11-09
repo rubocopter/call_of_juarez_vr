@@ -7,16 +7,19 @@
 namespace cojvr::runtime {
 enum class CinematicsMode : std::uint8_t { theater, immersive };
 enum class TurnMode : std::uint8_t { smooth, snap };
+enum class ManualReloadPreference : std::uint8_t { install_default, off, on };
 struct VrPreferences {
     CinematicsMode cinematics = CinematicsMode::theater;
     TurnMode turning = TurnMode::smooth;
     bool holster_guides = false; // Visual comfort only; never changes selection eligibility.
+    ManualReloadPreference manual_reload = ManualReloadPreference::install_default;
 };
 enum class SettingsLanguage : std::uint8_t { english, spanish };
 // Game-thread reads never touch presenter-owned menu or filesystem objects.
 [[nodiscard]] CinematicsMode CurrentCinematicMode() noexcept;
 [[nodiscard]] TurnMode CurrentTurnMode() noexcept;
 [[nodiscard]] bool CurrentHolsterGuidesEnabled() noexcept;
+[[nodiscard]] ManualReloadPreference CurrentManualReloadPreference() noexcept;
 [[nodiscard]] bool SettingsInputCaptured() noexcept;
 void PublishCinematicMode(CinematicsMode mode) noexcept;
 void PublishSettingsInputCapture(bool captured) noexcept;
@@ -28,11 +31,12 @@ struct SettingsLoadResult {
     std::uint32_t error_code = 0;
     TurnMode turning = TurnMode::smooth;
     bool holster_guides = false;
+    ManualReloadPreference manual_reload = ManualReloadPreference::install_default;
 };
 struct SettingsSaveResult { bool ok = false; std::uint32_t error_code = 0; };
 [[nodiscard]] std::filesystem::path DefaultVrSettingsPath() noexcept;
-// Strict v3 writes; v1/v2 reads supply guides=false. Cinema-only saves preserve
-// the other persisted values and refuse malformed/unreadable files.
+// Strict v4 writes. Legacy files inherit their installation's reload default.
+// Cinema-only saves preserve the other values and protect unreadable files.
 [[nodiscard]] SettingsLoadResult LoadVrSettings(const std::filesystem::path& file) noexcept;
 [[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, CinematicsMode mode) noexcept;
 [[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, VrPreferences values) noexcept;

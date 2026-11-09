@@ -443,11 +443,15 @@ public:
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
         bool include_wait_probe = false, int selected_index = -1) noexcept;
     // Only the explicitly staged manual derivative has these exact helpers.
-    void NoteManualReloadRequest() noexcept { manual_reload_owned_=true; }
+    void NoteManualReloadRequest() noexcept {
+        manual_reload_owned_=true;
+        manual_reload_request_pending_=true;
+    }
+    [[nodiscard]] bool HasLoadedManualReloadCapability(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr,
         int selected_index=-1) noexcept;
-    [[nodiscard]] bool CancelManualReload(std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool CancelManualReload(std::string* error=nullptr,bool wait_for_retirement=false) noexcept;
     [[nodiscard]] bool TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept;
@@ -696,6 +700,16 @@ private:
     [[nodiscard]] bool ClearSingleRoundReloadField(void* env, std::string* error) noexcept;
     bool single_round_reload_pending_ = false;
     bool manual_reload_owned_ = false;
+    bool manual_reload_request_pending_ = false;
+    // The retained player's Java class is immutable for that object's lifetime.
+    // ClearBeing retires this proof before its global handle can be reused.
+    struct {
+        void* vm=nullptr;
+        void* player=nullptr;
+        std::uint64_t generation=0;
+        bool checked=false, available=false;
+    } manual_reload_capability_;
+    bool manual_reload_retirement_pending_ = false;
     [[nodiscard]] bool CallManualReloadBoolean(const char* name,bool& result,std::string* error,
         int selected_index=-1) noexcept;
 

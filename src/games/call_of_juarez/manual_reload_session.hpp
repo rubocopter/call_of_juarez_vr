@@ -6,6 +6,7 @@ inline constexpr double kCoJManualGripInsertionRadiusM = 0.18;
 enum class CoJManualReloadPhase { ready, opening, manual_load, closing };
 struct CoJManualReloadInput {
     bool enabled=false, allowed=false, recentered=false;
+    bool native_cleanup_pending=false;
     bool native_fallback_allowed=false; // Positive unsupported context; never a failed read.
     bool native_reload_held=false; // Last applied action31, independent of physical Square.
     std::uint64_t player=0,context=0,sequence=0,now=0;
@@ -25,6 +26,7 @@ struct CoJManualReloadGestureTarget {
 };
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
+    std::uint32_t transition_controls=0; // Gameplay digital bits held by the preference transition.
     int selected_index=-1; // Captured at indexed pickup, never inferred at release.
     runtime::MotionReloadGestureOutput gesture{};
     CoJManualReloadGestureTarget target{};
@@ -35,10 +37,14 @@ public:
     // UI/native ownership and ammunition are observations, not state replicas.
     CoJManualReloadOutput Update(runtime::GameplayInputState& input,const CoJManualReloadInput& s) noexcept {
         CoJManualReloadOutput out{};
+        constexpr std::uint32_t reload_controls=1U|2U|8U;
+        native_cleanup_pending_=s.native_cleanup_pending;
+        if(s.native_cleanup_pending)transition_release_|=known_controls_;
         const bool source_valid=s.context&&s.raw.input_context_generation&&s.player&&s.sequence&&s.now;
         const std::array<std::uint64_t,3> source{s.context,s.raw.input_context_generation,s.player};
         if(source_valid&&source<trigger_source_){
             out.cancel=Cancel();out.reason="retired_trigger_source";
+            out.transition_controls=reload_controls;
             input.fire_left=input.fire_right=input.reload=false;
             out.gesture.consumed_trigger_mask=trigger_claims_;
             out.gesture.consume_free_trigger=trigger_claims_!=0;
@@ -69,11 +75,24 @@ public:
             }
         }
         const bool poses=Valid(s.head)&&Valid(s.left)&&Valid(s.right);
+        const std::uint32_t pressed=(s.raw.fire_left?1U:0U)|(s.raw.fire_right?2U:0U)|(s.raw.reload?8U:0U);
+        const auto observed=s.raw.active?s.raw.digital_available&reload_controls:0U;
+        if(source_valid&&fresh&&!regression&&!gap)known_controls_|=observed;
+        const bool disabled=enabled_&&!s.enabled;
+        enabled_=s.enabled;
+        if(disabled||s.native_cleanup_pending)transition_release_|=known_controls_|pressed;
+        out.transition_controls=s.native_cleanup_pending?reload_controls:transition_release_;
+        if(transition_release_) {
+            // Each physical channel recovers on its own observed release.
+            if(!s.native_cleanup_pending&&!source_changed&&fresh&&!regression&&!gap&&
+                s.raw.active&&input.active&&poses&&!s.recentered&&(s.context&1U)!=0)
+                transition_release_&=~(observed&~pressed);
+        }
         const bool conflict=input.interact||input.quick_save||input.quick_load||input.weapon_next||
             input.weapon_previous||input.hands||input.discard_weapon||input.objectives||input.logs||
             input.alternate_fire||s.raw.weapon_radial||input.weapon_radial||
             std::any_of(input.equipment_select.begin(),input.equipment_select.end(),[](bool x){return x;});
-        const bool allowed=s.enabled&&s.allowed&&input.active&&s.raw.active&&poses&&!s.recentered&&!conflict&&
+        const bool allowed=s.enabled&&!out.transition_controls&&s.allowed&&input.active&&s.raw.active&&poses&&!s.recentered&&!conflict&&
             source_valid&&!replacement&&!regression&&!gap&&(s.context&1U)!=0&&(s.raw.digital_available&3U)==3U;
         const bool available=allowed&&(s.raw.digital_available&8U)!=0&&s.player!=0;
         const bool reload_owner_changed=s.player!=reload_player_||s.context!=reload_context_||
@@ -222,6 +241,9 @@ public:
         if((trigger_claims_&2U)!=0)input.fire_left=false;
         if(!out.start&&(reload_claim_||owned||
             (s.enabled&&s.native.probe_valid&&s.native.probe_status>0&&s.native.probe_status<4)))input.reload=false;
+        if(out.transition_controls&1U)input.fire_left=false;
+        if(out.transition_controls&2U)input.fire_right=false;
+        if(out.transition_controls&8U)input.reload=false;
         return out;
     }
     void NoteStart(bool accepted) noexcept {if(!accepted){phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;}}
@@ -253,6 +275,7 @@ public:
         phase_=CoJManualReloadPhase::closing;replenish_=false;cartridge_index_=-1;return true;
     }
     CoJManualReloadPhase phase() const noexcept {return phase_;}
+    bool native_cleanup_pending() const noexcept {return native_cleanup_pending_;}
     bool waiting_for_shot_reload() const noexcept {return after_shot_at_!=0;}
     int selected_index() const noexcept {return cartridge_index_;}
     runtime::MotionReloadGestureStage gesture_stage() const noexcept {return gesture_.stage();}
@@ -284,8 +307,10 @@ private:
     int cartridge_index_=-1;
     CoJManualReloadKind kind_=CoJManualReloadKind::unit;
     std::uint8_t trigger_claims_=0;
+    std::uint32_t known_controls_=0,transition_release_=0;
     std::array<std::uint64_t,3> trigger_source_{};
     std::array<bool,2> fire_ready_{};
     bool have_sample_=false,reload_available_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
+    bool enabled_=false,native_cleanup_pending_=false;
 };
 }

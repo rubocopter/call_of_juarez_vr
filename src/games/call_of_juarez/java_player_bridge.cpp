@@ -1788,6 +1788,46 @@ bool JavaPlayerBridge::TryObserveNativeReloadFallback(CoJMotionReloadOwner* afte
     return observed;
 }
 
+bool JavaPlayerBridge::HasLoadedManualReloadCapability(std::string* error) noexcept {
+    const auto revoke=[&]() noexcept { manual_reload_capability_={}; return false; };
+    if(!vm_||!being_||!being_generation_)return revoke();
+    void* const vm=vm_;void* const player=being_;const auto generation=being_generation_;
+    const auto current=[&]() noexcept {
+        return vm_==vm&&being_==player&&being_generation_==generation;
+    };
+    void* env=Environment(error);
+    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kGetObjectClass,kGetMethodId};
+    for(auto slot:required)if(!EnvFunction<void*>(env,slot))return revoke();
+    if(ClearException(env,error,"manual capability entry")||!current())return revoke();
+    const auto& cached=manual_reload_capability_;
+    if(cached.checked&&cached.vm==vm&&cached.player==player&&cached.generation==generation)
+        return cached.available;
+    manual_reload_capability_={};
+    void* cls=EnvFunction<GetObjectClassFn>(env,kGetObjectClass)(env,player);
+    if(ClearException(env,error,"manual capability class")||!cls||!current()){
+        DeleteLocal(env,cls);return revoke();
+    }
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    struct Method { const char* name; const char* signature; };
+    constexpr Method methods[]{
+        {"cojvrKeepManualReloadAlive","()Z"},
+        {"cojvrInsertManualRound","()Z"},
+        {"cojvrInsertManualIndexedRound","(I)Z"},
+        {"cojvrCancelReloadProbe","()V"}
+    };
+    bool available=true;
+    for(const auto& method:methods){
+        void* id=lookup(env,cls,method.name,method.signature);
+        const bool exception=ClearException(env,error,"manual capability method unavailable");
+        if(exception||!id||!current()){available=false;break;}
+    }
+    DeleteLocal(env,cls);
+    if(!current())return revoke();
+    manual_reload_capability_={vm,player,generation,true,available};
+    return available;
+}
+
 bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error,
     const int selected_index) noexcept {
     result=false;
@@ -1822,7 +1862,7 @@ bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std
 bool JavaPlayerBridge::TryKeepManualReloadAlive(std::string* error) noexcept {
     bool valid=false;
     const bool read=CallManualReloadBoolean("cojvrKeepManualReloadAlive",valid,error);
-    if(read&&valid)manual_reload_owned_=true;
+    if(read&&valid){manual_reload_owned_=true;manual_reload_request_pending_=false;}
     return read&&valid;
 }
 
@@ -1833,13 +1873,20 @@ bool JavaPlayerBridge::TryInsertManualRound(bool& accepted,std::string* error,co
         "cojvrInsertManualIndexedRound":"cojvrInsertManualRound",accepted,error,selected_index);
 }
 
-bool JavaPlayerBridge::CancelManualReload(std::string* error) noexcept {
+bool JavaPlayerBridge::CancelManualReload(std::string* error,bool wait_for_retirement) noexcept {
     if(!manual_reload_owned_)return true;
+    manual_reload_retirement_pending_|=wait_for_retirement;
     if(!being_)return false;
     // Closing runs native Set/Clear callbacks and may replace the skin/attachment.
     // Never restore an old VR capture over that new native state. A failed
     // restore retains its owner; stop supervision and leave the native watchdog.
     if(!RestoreTrackedHands(error)||!RestoreTrackedWeapons(error))return false;
+    void* const player=being_;
+    void* const vm=vm_;
+    const auto generation=being_generation_;
+    const auto current=[&]() noexcept {
+        return being_==player&&vm_==vm&&being_generation_==generation;
+    };
     void* env=Environment(error);
     constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
         kGetObjectClass,kGetMethodId,kCallVoidMethodA};
@@ -1849,14 +1896,43 @@ bool JavaPlayerBridge::CancelManualReload(std::string* error) noexcept {
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
     const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
     const auto call=EnvFunction<CallVoidMethodAFn>(env,kCallVoidMethodA);
-    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual cancel entry"))return false;
-    void* cls=cls_fn(env,being_);
+    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual cancel entry")||!current())return false;
+    void* cls=cls_fn(env,player);
     if(ClearException(env,error,"manual cancel class")||!cls){DeleteLocal(env,cls);return false;}
     void* method=lookup(env,cls,"cojvrCancelReloadProbe","()V");
     const bool failed=ClearException(env,error,"manual cancel helper unavailable")||!method;
-    DeleteLocal(env,cls);if(failed)return false;
-    call(env,being_,method,nullptr);
-    if(ClearException(env,error,"manual cancel failed"))return false;
+    DeleteLocal(env,cls);if(failed||!current())return false;
+    call(env,player,method,nullptr);
+    if(ClearException(env,error,"manual cancel failed")||!current())return false;
+    if(manual_reload_retirement_pending_){
+        // A void cancel request may fail to find ReloadEnd or be vetoed by
+        // native callbacks. Keep ownership and retry until its probe is cleared.
+        constexpr std::size_t proof_slots[]{kGetFieldId,kGetIntField,kGetObjectField,kCallBooleanMethodA};
+        for(auto slot:proof_slots)if(!EnvFunction<void*>(env,slot))return false;
+        using namespace long_gun_observer_detail;
+        Reader reader{env};
+        auto type=reader.Class(player);
+        auto status=reader.Field(type,"cojvrReloadProbeStatus","I");
+        auto weapon=reader.Field(type,"cojvrReloadProbeWeapon","LWeapon;");
+        auto machine=reader.Field(type,"cojvrReloadProbeMachine","LPlayerStateMashine;");
+        auto reloading=reader.Method(type,"IsWeaponReloading","()Z");
+        if(!reader.ok||!current())return false;
+        const int observed_status=reader.IntField(player,status);
+        if(!reader.ok||!current())return false;
+        const bool never_admitted=manual_reload_request_pending_&&observed_status==0;
+        if(observed_status>0)manual_reload_request_pending_=false;
+        if(observed_status!=4&&!never_admitted)return false;
+        for(unsigned repeat=0;repeat<2;++repeat){
+            if(reader.IntField(player,status)!=observed_status||!reader.ok||!current())return false;
+            auto retained_weapon=reader.ObjectField(player,weapon);
+            if(!reader.ok||retained_weapon.value||!current())return false;
+            auto retained_machine=reader.ObjectField(player,machine);
+            if(!reader.ok||retained_machine.value||!current())return false;
+            if(reader.Bool(player,reloading)||!reader.ok||!current())return false;
+        }
+        manual_reload_retirement_pending_=false;
+    }
+    manual_reload_request_pending_=false;
     manual_reload_owned_=false;return true;
 }
 
@@ -6368,6 +6444,7 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     }
     being_ = nullptr;
     independent_hand_generation_ = 0;
+    manual_reload_capability_ = {};
     get_mesh_element_method_ = nullptr;
     get_element_id_method_ = nullptr;
     hide_element_method_ = nullptr;

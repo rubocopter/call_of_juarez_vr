@@ -128,6 +128,9 @@ int main(){
     const auto root=std::filesystem::temp_directory_path()/
         (L"cojvr-native-settings-"+std::to_wstring(GetCurrentProcessId()));
     std::filesystem::create_directories(root);const auto path=root/L"settings.ini";
+    VrPreferences initial_preferences{};
+    initial_preferences.manual_reload=ManualReloadPreference::off;
+    Check(SaveVrSettings(path,initial_preferences).ok,"manual reload preference fixture failed");
     VrPreferenceStore store;(void)store.Initialize(path);GraphicsPreferenceStore graphics;
     const auto graphics_path=root/L"graphics.ini";(void)graphics.Initialize(graphics_path);
     NativeSettingsBridge bridge;std::string error;
@@ -168,6 +171,8 @@ int main(){
     auto snapshot=store.Read();
     Check(snapshot.values.cinematics==CinematicsMode::immersive&&snapshot.values.turning==TurnMode::snap&&snapshot.values.holster_guides&&CurrentHolsterGuidesEnabled(),"native choices not published together");
     Check(LoadVrSettings(path).turning==TurnMode::snap&&LoadVrSettings(path).holster_guides,"native choices not persisted");
+    Check(snapshot.values.manual_reload==ManualReloadPreference::off&&
+        LoadVrSettings(path).manual_reload==ManualReloadPreference::off,"native OK discarded the separate manual reload choice");
     const auto saved_graphics=LoadGraphicsSettings(graphics_path);
     Check(saved_graphics.values.enabled&&saved_graphics.values.sharpness==.35F&&saved_graphics.values.contrast==1.1F&&
         saved_graphics.values.saturation==.9F&&saved_graphics.values.gamma==1.25F&&saved_graphics.values.edge_smoothing&&saved_graphics.values.neural&&

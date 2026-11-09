@@ -215,7 +215,7 @@ public:
             graphics.saturation=selected(selections[3],graphics.saturation);
             graphics.gamma=selected(selections[4],graphics.gamma);
             const auto applied=store.Apply({static_cast<runtime::CinematicsMode>(cinematic_value),
-                static_cast<runtime::TurnMode>(turning_value),guides_value!=0},revision_);
+                static_cast<runtime::TurnMode>(turning_value),guides_value!=0,current.values.manual_reload},revision_);
             revision_=applied.snapshot.revision;
             if(applied.conflict){
                 if(!synchronize(applied.snapshot,graphics_store.Read()))return fail("Native options conflict synchronization failed");

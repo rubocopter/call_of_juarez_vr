@@ -18,6 +18,7 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #undef private
 #include "../src/games/call_of_juarez/java_player_bridge.cpp"
+#include "games/call_of_juarez/manual_reload_settings.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -353,12 +354,122 @@ void NativeFallbackBridgeTests(JavaPlayerBridge& bridge) {
     reset();Require(refs==0&&!pending&&writes==0,"fallback mutated native reload state or leaked JNI");
     fallback_bridge=nullptr;Set(6,Find);Set(51,Integer);Set(94,TicketField);Set(95,static_cast<void*>(nullptr));
 }
+JavaPlayerBridge* capability_bridge=nullptr;
+int capability_mutation=0, capability_profile=0, capability_lookups=0;
+void* capability_class=&player_class;
+void** capability_vm_holder=vm_table;
+void* JNI_CALL CapabilityClass(void*,void* object){
+    Require(object==capability_bridge->being_,"capability did not query actual player class");
+    if(Fail())return nullptr;
+    return Ref(capability_class);
+}
+void* JNI_CALL CapabilityLookup(void*,void* cls,const char* name,const char* signature){
+    Require(cls==capability_class,"capability used an unrelated class");
+    ++capability_lookups;
+    const bool cancel=!std::strcmp(name,"cojvrCancelReloadProbe");
+    const bool indexed=!std::strcmp(name,"cojvrInsertManualIndexedRound");
+    Require(cancel||indexed||!std::strcmp(name,"cojvrKeepManualReloadAlive")||
+        !std::strcmp(name,"cojvrInsertManualRound"),"unexpected capability method");
+    Require(!std::strcmp(signature,cancel?"()V":indexed?"(I)Z":"()Z"),"wrong capability descriptor");
+    if(Fail()||capability_profile==1||(capability_profile==2&&!cancel)||
+        (fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
+    if(capability_mutation==1)capability_bridge->vm_=&capability_vm_holder;
+    if(capability_mutation==2)capability_bridge->being_=&replacement;
+    if(capability_mutation==3)++capability_bridge->being_generation_;
+    return const_cast<char*>(name);
+}
+void ManualReloadCapabilityTests(JavaPlayerBridge& bridge){
+    std::array<void*,174> saved{};std::copy(std::begin(table),std::end(table),saved.begin());
+    const auto reset=[&]() {
+        TicketReset(bridge);bridge.being_generation_=7;bridge.manual_reload_capability_={};
+        capability_bridge=&bridge;capability_mutation=capability_profile=capability_lookups=0;
+        capability_class=&player_class;Set(31,CapabilityClass);Set(33,CapabilityLookup);
+        // Capability proof may only look up methods; it cannot supervise/insert/cancel.
+        Set(39,static_cast<void*>(nullptr));Set(63,static_cast<void*>(nullptr));
+    };
+    const auto check=[&](bool expected) {
+        Require(bridge.HasLoadedManualReloadCapability()==expected,"loaded manual capability mismatch");
+        Require(refs==0&&!pending&&writes==0&&!bridge.manual_reload_owned_,
+            "capability proof leaked JNI or changed reload ownership");
+    };
+    reset();bridge.manual_reload_owned_=false;check(true);
+    Require(capability_lookups==4,"manual capability did not prove every endpoint");
+    const int proven_steps=step;check(true);
+    Require(step==proven_steps&&capability_lookups==4,"stable player repeated capability lookup");
+    for(int profile:{1,2}){
+        reset();capability_profile=profile;check(false);const int lookups=capability_lookups;check(false);
+        Require(capability_lookups==lookups,"nonmanual profile repeated missing-method exceptions");
+        using Choice=cojvr::runtime::ManualReloadPreference;
+        // Even a matching stage journal cannot supply methods absent from the loaded class.
+        const std::string exe(64,'A'),archive(64,'B');
+        const std::string journal="{\"manualReloadInstalled\":true,\"codeArchiveManaged\":true,"
+            "\"originalCodeSha256\":\"F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12\","
+            "\"stagedExecutableSha256\":\""+exe+"\",\"stagedCodeSha256\":\""+archive+"\"}";
+        Require(CoJManualReloadStageArchiveHash(journal,exe)==archive,"test journal was not coherent");
+        Require(ResolveCoJReloadMode(true,!CoJManualReloadStageArchiveHash(journal,exe).empty()&&
+            bridge.HasLoadedManualReloadCapability(),Choice::on)==CoJReloadMode::native,
+            "matching journal admitted a nonmanual loaded class");
+        Require(ResolveCoJReloadMode(false,false,Choice::on)==CoJReloadMode::legacy_motion&&
+            ResolveCoJReloadMode(false,false,Choice::off)==CoJReloadMode::native,
+            "ordinary profile or explicit Off lost its existing route");
+    }
+    for(const char* missing:{"cojvrKeepManualReloadAlive","cojvrInsertManualRound",
+        "cojvrInsertManualIndexedRound","cojvrCancelReloadProbe"}){
+        for(bool null_only:{false,true}){reset();fail_lookup=missing;null_failure=null_only;check(false);}
+    }
+    for(int fault=1;fault<=proven_steps;++fault){
+        for(bool null_only:{false,true}){reset();fail_step=fault;null_failure=null_only;check(false);}
+    }
+    for(int slot:{15,17,23,31,33}){
+        reset();check(true);const auto fn=table[slot];table[slot]=nullptr;check(false);table[slot]=fn;
+        Require(!bridge.manual_reload_capability_.checked,"missing JNI slot retained positive proof");
+    }
+    for(int mutation:{1,2,3}){
+        reset();capability_mutation=mutation;check(false);
+        Require(!bridge.manual_reload_capability_.checked,"changed owner published capability proof");
+        reset();check(true);capability_profile=1;
+        if(mutation==1)bridge.vm_=&capability_vm_holder;
+        if(mutation==2){bridge.being_=&replacement;capability_class=&other_class;}
+        if(mutation==3){++bridge.being_generation_;capability_class=&other_class;}
+        check(false);Require(capability_lookups>4,"changed VM/player/class generation reused positive proof");
+    }
+    reset();check(true);pending=true;check(false);
+    Require(!bridge.manual_reload_capability_.checked,"entry exception retained positive proof");
+    capability_profile=1;check(false);
+    reset();check(true);bridge.being_=nullptr;check(false);
+    reset();check(true);bridge.being_generation_=0;check(false);
+    reset();check(true);bridge.vm_=nullptr;check(false);
+    reset();check(true);
+    // Real owner retirement must discard the proof even if a future handle/generation repeats.
+    std::copy(saved.begin(),saved.end(),std::begin(table));
+    bridge.ClearBeing(&ticket_env_holder);
+    Require(!bridge.being_&&!bridge.manual_reload_capability_.checked&&refs==0&&!pending,
+        "player retirement retained loaded capability proof");
+    reset();capability_bridge=nullptr;std::copy(saved.begin(),saved.end(),std::begin(table));
+}
+
 bool manual_result=true;
 int manual_calls=0, manual_cancels=0;
 int manual_index=-1;
 JavaPlayerBridge* manual_scoped_owner=nullptr;
 JavaPlayerBridge* manual_fault_owner=nullptr;
 int manual_callback_fault=0;
+int manual_retire_status=4;
+bool manual_retire_reloading=false,manual_retire_weapon=false,manual_retire_machine=false;
+void* JNI_CALL ManualRetireField(void*,void*,const char* name,const char* descriptor) {
+    if(Fail())return nullptr;
+    const auto expected=!std::strcmp(name,"cojvrReloadProbeStatus")?"I":
+        !std::strcmp(name,"cojvrReloadProbeWeapon")?"LWeapon;":
+        !std::strcmp(name,"cojvrReloadProbeMachine")?"LPlayerStateMashine;":nullptr;
+    Require(expected&&!std::strcmp(expected,descriptor),"unexpected manual retirement field");
+    return const_cast<char*>(name);
+}
+int JNI_CALL ManualRetireInt(void*,void*,void*) {return Fail()?0:manual_retire_status;}
+void* JNI_CALL ManualRetireObject(void*,void*,void* field) {
+    if(Fail())return nullptr;
+    return Ref(!std::strcmp(static_cast<char*>(field),"cojvrReloadProbeWeapon")?
+        (manual_retire_weapon?&weapon:nullptr):(manual_retire_machine?&player_class:nullptr));
+}
 void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* signature){
     if(std::string_view(name).starts_with("cojvr")){
         if(Fail()||(fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
@@ -370,6 +481,7 @@ void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* sig
     return TicketLookup(env,cls,name,signature);
 }
 std::uint8_t JNI_CALL ManualBoolean(void* env,void* object,void* method,const Value* args){
+    if(!std::strcmp(static_cast<char*>(method),"IsWeaponReloading"))return Fail()?0:manual_retire_reloading;
     if(!std::string_view(static_cast<char*>(method)).starts_with("cojvr"))return Boolean(env,object,method,args);
     const bool indexed=!std::strcmp(static_cast<char*>(method),"cojvrInsertManualIndexedRound");
     Require(object==&player&&(indexed?args!=nullptr:args==nullptr),"manual helper has wrong owner/arguments");
@@ -465,6 +577,34 @@ void ManualReloadJniTests(JavaPlayerBridge& bridge){
     Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_&&manual_cancels==1,
         "restoration recovery did not permit closing");
     manual_scoped_owner=nullptr;
+    for(int fault=0;fault<5;++fault){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();
+        manual_retire_status=fault==0?3:4;manual_retire_reloading=fault==1;
+        manual_retire_weapon=fault==2;manual_retire_machine=fault==3;
+        Set(94,ManualRetireField);Set(100,ManualRetireInt);Set(95,ManualRetireObject);
+        const auto saved=table[100];if(fault==4)table[100]=nullptr;
+        Require(!bridge.CancelManualReload(nullptr,true)&&bridge.manual_reload_owned_,
+            "disable released manual ownership before positive native retirement");
+        table[100]=saved;
+        manual_retire_status=4;manual_retire_reloading=manual_retire_weapon=manual_retire_machine=false;
+        Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_&&refs==0&&!pending,
+            "native retirement did not recover the retained disable cleanup");
+    }
+    for(bool admitted:{false,true}){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();
+        if(admitted)Require(bridge.TryKeepManualReloadAlive(),"fixture did not admit its native wait");
+        manual_retire_status=0;
+        manual_retire_reloading=manual_retire_weapon=manual_retire_machine=false;
+        Set(94,ManualRetireField);Set(100,ManualRetireInt);Set(95,ManualRetireObject);
+        Require(bridge.CancelManualReload(nullptr,true)==!admitted,
+            "never-admitted request and lost admitted probe were not distinguished");
+        if(admitted){
+            Require(bridge.manual_reload_owned_,"lost admitted probe discarded its retained owner");
+            manual_retire_status=4;
+            Require(bridge.CancelManualReload(),"admitted probe did not recover after positive clear");
+        }
+    }
+    Set(94,TicketField);Set(95,TicketOwner);Set(100,static_cast<void*>(nullptr));
     ManualReset(bridge);bridge.being_=nullptr;bridge.vm_=nullptr;Set(33,TicketLookup);Set(39,Boolean);
 }
 }
@@ -1465,6 +1605,7 @@ int main() {
         "invalid owner accepted");
     Require(!bridge.TryArmSingleRoundReload({0, 123, true}) && writes == 0,
         "owner without per-round support accepted");
+    ManualReloadCapabilityTests(bridge);
     ManualReloadJniTests(bridge);
     NativeFallbackBridgeTests(bridge);
     ReloadGeometryTests(bridge);

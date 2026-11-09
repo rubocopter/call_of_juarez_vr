@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/manual_reload_session.hpp"
+#include "games/call_of_juarez/manual_reload_settings.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
 #include "games/call_of_juarez/manual_reload_target.hpp"
 #include <cstdlib>
@@ -65,6 +66,70 @@ struct IndexedFixture:Fixture {
         Check(Poll().gesture.cartridge_held,"indexed fresh waist pickup missing");}
     CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
 };
+void ManualReloadCapability() {
+    using Mode=CoJReloadMode;
+    using Choice=ManualReloadPreference;
+    Check(ResolveCoJReloadMode(false,false,Choice::on)==Mode::legacy_motion,"preference manufactured installed capability");
+    Check(ResolveCoJReloadMode(false,false,Choice::off)==Mode::native,"missing installation metadata bypassed explicit off");
+    Check(ResolveCoJReloadMode(true,false,Choice::on)==Mode::native,"unverified manual archive admitted a reload gesture");
+    Check(ResolveCoJReloadMode(false,true,Choice::on)==Mode::native,"undeclared manual archive admitted a reload gesture");
+    Check(ResolveCoJReloadMode(true,true,Choice::install_default)==Mode::manual,"migration disabled an installed capability");
+    Check(ResolveCoJReloadMode(true,true,Choice::on)==Mode::manual,"explicit on did not enable verified capability");
+    Check(ResolveCoJReloadMode(true,true,Choice::off)==Mode::native,"off routed through a patched legacy ticket");
+    const std::string exe(64,'A'), archive(64,'B');
+    const std::string prefix="{\n \"manualReloadInstalled\": true,\n \"codeArchiveManaged\": true,\n"
+        " \"originalCodeSha256\": \"F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12\",\n"
+        " \"stagedExecutableSha256\": \""+exe+"\",\n";
+    const auto stage=prefix+"\"stagedCodeSha256\": \""+archive+"\"}";
+    Check(CoJManualReloadStageArchiveHash(stage,exe)==archive,"valid staged archive identity rejected");
+    Check(CoJManualReloadStageArchiveHash(stage,archive).empty(),"foreign executable authorized manual reload");
+    Check(CoJManualReloadStageArchiveHash(prefix+"\"stagedCodeSha256\": null}",exe).empty(),"missing derivative authorized manual reload");
+    Check(CoJManualReloadStageArchiveHash(prefix+"\"manualReloadInstalled\": false,\"stagedCodeSha256\": \""+archive+"\"}",exe).empty(),
+        "ambiguous stage identity authorized manual reload");
+}
+void DisableWhileCarrying() {
+    Fixture f;f.Open();f.Claim();
+    f.s.raw.reload=true;f.s.raw.fire_right=true;
+    f.s.enabled=false;f.s.native_cleanup_pending=true;
+    auto result=f.Poll();
+    Check(result.cancel&&result.transition_controls&&!result.tracked&&!result.supervise&&!result.insert&&
+        !result.target.valid&&!result.gesture.cartridge_held&&!f.mapped.reload&&!f.mapped.fire_left&&!f.mapped.fire_right,
+        "disable did not retire the carry and block held reload/fire");
+    Check(f.session.native_cleanup_pending(),"disable lost the retained native cleanup request");
+    f.s.raw.reload=f.s.raw.fire_left=f.s.raw.fire_right=false;
+    Check(f.Poll().transition_controls==11U,"pending native cleanup accepted neutral input");
+    f.s.enabled=true;
+    Check(f.Poll().transition_controls==11U&&f.session.native_cleanup_pending(),
+        "re-enabling released the fence before native cleanup succeeded");
+    f.s.enabled=false;
+    f.s.native_cleanup_pending=false;f.s.native={};f.s.raw.digital_available&=~8U;
+    Check(f.Poll().transition_controls&8U,"unavailable Square counted as a verified release");
+    Check(!f.session.native_cleanup_pending(),"verified cleanup remained queued");
+    f.s.raw.digital_available|=8U;
+    f.mapped=f.s.raw;
+    Check(f.session.Update(f.mapped,f.s).transition_controls&8U,"duplicate pose released the disable fence");
+    ++f.s.raw.input_context_generation;
+    Check(f.Poll().transition_controls&8U,"replacement baseline released the disable fence");
+    f.s.raw.reload=true;
+    Check((f.Poll().transition_controls&8U)&&!f.mapped.reload,"held Square escaped on owner replacement");
+    f.s.raw.reload=false;
+    (void)f.Poll();
+    f.s.raw.reload=f.s.raw.fire_left=f.s.raw.fire_right=true;
+    result=f.Poll();
+    Check(!result.transition_controls&&!result.start&&!result.insert&&f.mapped.reload&&f.mapped.fire_left&&f.mapped.fire_right,
+        "disabled session failed to return ordinary input after retirement and a fresh release");
+}
+void RetiredSampleRetainsCleanup() {
+    Fixture f;f.Open();f.Claim();
+    const auto previous_generation=f.s.raw.input_context_generation;
+    ++f.s.raw.input_context_generation;
+    (void)f.Poll();
+    f.s.raw.input_context_generation=previous_generation;
+    f.s.enabled=false;f.s.native_cleanup_pending=true;
+    const auto result=f.Poll();
+    Check(result.transition_controls==11U&&f.session.native_cleanup_pending(),
+        "retired pose discarded the native cancellation retry");
+}
 void IndexedCycleSession() {
     for(int hand:{0,1})for(bool lemant:{false,true}) {
         IndexedFixture f(hand,lemant);f.Open();f.Pickup();
@@ -389,6 +454,9 @@ void ReloadPressedDuringSchofieldShot() {
     }
 }
 int main(){
+    ManualReloadCapability();
+    DisableWhileCarrying();
+    RetiredSampleRetainsCleanup();
     ReloadPressedDuringSchofieldShot();
     {
         Fixture outside;
