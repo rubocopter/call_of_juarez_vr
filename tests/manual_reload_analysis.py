@@ -147,6 +147,35 @@ def winchester_loading_tip(**changes):
     return winchester_loading_sample(**fields)
 
 
+def mouth_preview(shotgun=False, **changes):
+    fields = dict(frame_sequence=11, pose_sequence=90, player_generation=7,
+                  native_context=5, input_generation=13, weapon_id=0x80000042,
+                  weapon_class='WeaponRifleRemingtonSawOff' if shotgun else 'WeaponRifleWinchester',
+                  armed_hand=1 if shotgun else 0, selected_index=1 if shotgun else 0,
+                  release=0, grip_release_admitted=0, tip_valid=1,
+                  clearance_proven='false', socket_admission='false',
+                  tip_cm='(13,24,31)', tip_axis='(1,0,0)')
+    points = ('(1,0,0)', '(-1,0,0)') if shotgun else (
+        '(1,0,0)', '(1,0,0)', '(2,1,0)', '(2,2,0)',
+        '(1,3,0)', '(0,3,0)', '(-1,2,0)', '(-1,1,0)')
+    fields.update({f'point{i}_cm': point for i, point in enumerate(points)})
+    fields.update(changes)
+    return event('manual_reload_mouth_preview', 'predicted', **fields)
+
+
+def remington_loading_sample(**changes):
+    fields = dict(pair.split('=', 1) for pair in winchester_loading_sample().split(' detail=', 1)[1].split(';'))
+    for key in ('loaded', 'loader', 'loader_up', 'loader_forward', *(f'lip{i}' for i in range(8))):
+        del fields[key]
+    fields.update(weapon_class='WeaponRifleRemingtonSawOff', armed_hand=1,
+                  source='post_overlay', selected_index=1, loaded0=0, loaded1=0,
+                  mouth_order='barrel_plus_x_minus_x', ammo_slot_mapping='unverified')
+    for part, point in (('lock', '(0,0,0)'), ('mouth_plus_x', '(1,0,0)'), ('mouth_minus_x', '(-1,0,2)')):
+        fields.update({part: point, part+'_up': '(0,1,0)', part+'_forward': '(0,0,1)'})
+    fields.update(changes)
+    return event('remington_loading_geometry', **fields)
+
+
 def depth_sample(frame=2, eye='left', **extra):
     matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
     fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
@@ -181,6 +210,67 @@ def finger_reference(frame=2, result='observed', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_mouth_preview_compares_same_frame_rim_and_displayed_nose(self):
+        report = self.evidence([mouth_preview(), winchester_loading_sample(), winchester_loading_tip()])
+        row, = report['loading_mouth_comparisons']
+        self.assertEqual(row['status'], 'compared')
+        self.assertEqual(row['mouth_point_distances_cm'], [1.0] + [0.0]*7)
+        self.assertEqual(row['tip_distance_cm'], 5.0)
+        self.assertEqual(row['tip_axis_angle_degrees'], 90.0)
+        self.assertEqual(row['render_line'], report['winchester_loading_observations'][1]['line'])
+        self.assertFalse(row['socket_admitted'])
+        self.assertFalse(row['headset_validated'])
+
+    def test_missed_release_compares_shotgun_mouths_in_spatial_order_without_a_tip(self):
+        report = self.evidence([mouth_preview(shotgun=True, release=1), remington_loading_sample()])
+        row, = report['loading_mouth_comparisons']
+        self.assertEqual(row['status'], 'compared')
+        self.assertEqual(row['mouth_point_distances_cm'], [0.0, 2.0])
+        self.assertTrue(row['release'])
+        self.assertIsNone(row['tip_distance_cm'])
+        self.assertFalse(row['ammo_slot_mapping_proven'])
+
+    def test_mouth_preview_does_not_pair_across_transfer_wait_slot_or_owner(self):
+        cases = (
+            ([mouth_preview(release=1, grip_release_admitted=1), winchester_loading_tip()], 'pre_transfer'),
+            ([mouth_preview(), winchester_loading_tip(native_status=1)], 'incomparable'),
+            ([mouth_preview(shotgun=True), remington_loading_sample(selected_index=0)], 'incomparable'),
+            ([mouth_preview(), winchester_loading_tip(native_context=7)], 'incomparable'),
+            ([mouth_preview(), winchester_loading_tip(frame_sequence=12)], 'unmatched'),
+            ([mouth_preview(), winchester_loading_sample()], 'unmatched'),
+            ([winchester_loading_tip(), mouth_preview()], 'incomparable'),
+            ([mouth_preview(), winchester_loading_tip(), winchester_loading_tip()], 'rejected'),
+            ([mouth_preview(), mouth_preview(), winchester_loading_tip()], 'rejected'),
+        )
+        for lines, expected in cases:
+            with self.subTest(lines=lines):
+                report = self.evidence(lines)
+                for row in report['loading_mouth_comparisons']:
+                    self.assertEqual(row['status'], expected)
+                    self.assertIsNone(row['mouth_point_distances_cm'])
+
+    def test_mouth_preview_rejects_invalid_or_admission_claiming_geometry(self):
+        for preview in (mouth_preview(tip_axis='(2,0,0)'), mouth_preview(socket_admission='true'),
+                        mouth_preview(point1_cm='(0,0,nan)'), mouth_preview() + ';point0_cm=(2,0,0)',
+                        mouth_preview(release=0, grip_release_admitted=1)):
+            with self.subTest(preview=preview):
+                report = self.evidence([preview, winchester_loading_tip()])
+                row, = report['loading_mouth_comparisons']
+                self.assertEqual(row['status'], 'rejected')
+                self.assertIsNone(row['tip_distance_cm'])
+                self.assertTrue(report['issues'])
+
+    def test_incomplete_loading_envelopes_are_retained_as_rejected_observations(self):
+        for name, key in (('manual_reload_mouth_preview','loading_mouth_comparisons'),
+                          ('remington_loading_geometry','remington_loading_observations'),
+                          ('winchester_loading_geometry','winchester_loading_observations')):
+            with self.subTest(name=name):
+                line=f'camera_probe_event: event={name} result=broken'
+                report=self.evidence([line])
+                row,=report[key]
+                self.assertEqual(row['status'],'rejected')
+                self.assertIn('malformed_event_envelope',row['issues'])
+
     def test_winchester_loading_observations_preserve_both_classes_and_rotated_frames(self):
         rotated = dict(root='(5,-2,7)', root_up='(0,0,1)', root_forward='(1,0,0)',
                        body_up='(0,0,1)', body_forward='(1,0,0)')

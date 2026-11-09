@@ -4,7 +4,7 @@ Use a finished evidence directory, not the installation's current mutable log.
 Inventory hashes establish internal consistency, not external authentication.
 """
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import hashlib
 import json
 import math
@@ -14,8 +14,10 @@ import re
 EVENT = re.compile(r'camera_probe_event: event=(\w+) result=(\w+) detail=(.*)$')
 # Retain malformed diagnostic results for rejection rather than silently
 # filtering them out with the legacy event grammar.
+STRICT_OBSERVATIONS = ('indexed_native_reload', 'winchester_loading_geometry', 'remington_loading_geometry',
+                       'manual_reload_mouth_preview', 'mounted_native_motion', 'mounted_comfort_motion')
 STRICT_OBSERVATION_EVENT = re.compile(
-    r'camera_probe_event: event=(indexed_native_reload|winchester_loading_geometry|mounted_native_motion|mounted_comfort_motion) result=(.*?) detail=(.*)$')
+    r'camera_probe_event: event=(' + '|'.join(STRICT_OBSERVATIONS) + r') result=(.*?) detail=(.*)$')
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
 END = re.compile(r'run_end: run_id=(\S+)(?:\s|$)')
 RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$')
@@ -24,7 +26,7 @@ RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
             'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
             'rifle_support_reference', 'winchester_native_reload', 'indexed_native_reload',
-            'winchester_loading_geometry',
+            'winchester_loading_geometry', 'remington_loading_geometry', 'manual_reload_mouth_preview',
             'physical_bow_draw', 'physical_bow_reset'}
 
 
@@ -157,18 +159,18 @@ def read_events(log, evidence, *, extra_events=()):
         match = STRICT_OBSERVATION_EVENT.search(line) or EVENT.search(line)
         feedback = RENDER_FEEDBACK.search(line) if not match else None
         if inside and not match:
-            malformed_mount = next((name for name in ('mounted_native_motion', 'mounted_comfort_motion')
-                                    if name in extra_events and f'camera_probe_event: event={name}' in line), None)
-            if malformed_mount:
-                events.append(dict(line=number, event=malformed_mount, result='', fields={},
+            malformed_observation = next((name for name in STRICT_OBSERVATIONS
+                                         if name in RELEVANT.union(extra_events) and re.search(
+                                             rf'camera_probe_event: event={name}(?:\s|$)',line)), None)
+            if malformed_observation:
+                events.append(dict(line=number, event=malformed_observation, result='', fields={},raw_detail=line,
                                    parse_issues=['malformed_event_envelope']))
                 continue
         if inside and ((match and match[1] in RELEVANT.union(extra_events)) or feedback):
             # Error descriptions can contain semicolons/key-like text. Treat the
             # trailing opaque detail as data, never extra telemetry or instructions.
             fields, parse_issues = {}, []
-            strict = bool(match and match[1] in ('indexed_native_reload', 'winchester_loading_geometry',
-                                                 'mounted_native_motion', 'mounted_comfort_motion'))
+            strict = bool(match and match[1] in STRICT_OBSERVATIONS)
             for pair in (match[3] if match else feedback[2]).split(';'):
                 if '=' not in pair:
                     if strict:
@@ -829,7 +831,33 @@ def winchester_reload_observations(events):
     return rows
 
 
-def winchester_loading_observations(events, runtime_complete):
+WINCHESTER_CLASSES = ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope')
+REMINGTON_CLASSES = ('WeaponRifleRemington', 'WeaponRifleRemingtonSawOff')
+
+
+def loading_number(raw):
+    if len(raw) > 64 or not re.fullmatch(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', raw):
+        raise ValueError('invalid finite number')
+    value = float(raw)
+    if not math.isfinite(value) or abs(value) > 3.402824e38:
+        raise ValueError('outside native float range')
+    return value
+
+
+def loading_vector(raw):
+    if raw.startswith('(') and raw.endswith(')'):
+        raw = raw[1:-1]
+    parts = raw.split(',')
+    if len(parts) != 3:
+        raise ValueError('invalid vector size')
+    return [loading_number(part) for part in parts]
+
+
+def loading_axis_unit(axis):
+    return abs(math.hypot(*axis)-1) <= .001
+
+
+def rendered_loading_observations(events, runtime_complete, event_name):
     """Copy restored-pair geometry; clocks and numeric owners grant no lease.
 
     Even an observed row is only a schema-valid report from a sparse snapshot.
@@ -838,23 +866,33 @@ def winchester_loading_observations(events, runtime_complete):
     claims = dict(schema='1', units='cm', native_phase_stable='1', owner_qualified='1',
                   native_restored='1', pair_verified='1', socket_admission='false',
                   gate_clearance='unverified', interaction_enabled='false')
+    shotgun = event_name == 'remington_loading_geometry'
+    classes = REMINGTON_CLASSES if shotgun else WINCHESTER_CLASSES
     ranges = dict.fromkeys(('frame_sequence', 'player_generation', 'native_context'), (1, 2**64-1))
     ranges.update(weapon_id=(1, 0xfffffffe), armed_hand=(0, 0), native_status=(1, 3),
                   loaded=(0, 12), reserve=(0, 2**31-1), tip_valid=(0, 1))
     ranges.update({'animation_id_'+hand: (-2**31, 2**31-1) for hand in ('right', 'left')})
+    if shotgun:
+        del ranges['loaded']
+        ranges.update(armed_hand=(0, 1), selected_index=(0, 1), loaded0=(0, 1), loaded1=(0, 1))
+        claims.update(mouth_order='barrel_plus_x_minus_x', ammo_slot_mapping='unverified')
     clocks = tuple(prefix+'_'+hand for prefix in ('native_time', 'start_time', 'play_time', 'duration')
                    for hand in ('right', 'left'))
     states = ('native_states_right', 'native_states_left')
-    parts = ('root', 'body', 'loader', 'holder', 'barrel')
+    parts = (('root', 'body', 'lock', 'holder', 'barrel', 'mouth_plus_x', 'mouth_minus_x') if shotgun else
+             ('root', 'body', 'loader', 'holder', 'barrel'))
     frame_keys = tuple(part+suffix for part in parts for suffix in ('', '_up', '_forward'))
-    lips = tuple('lip'+str(index) for index in range(8))
-    tip_vectors = ('tip', 'tip_up', 'tip_forward', 'tip_body_local', 'tip_axis_body_local')
-    tip_keys = set(tip_vectors) | {'tip_plane_cm', 'tip_edge_cm', 'tip_projected_inside'}
+    lips = () if shotgun else tuple('lip'+str(index) for index in range(8))
+    tip_vectors = ('tip', 'tip_up', 'tip_forward')
+    tip_keys = set(tip_vectors)
+    if not shotgun:
+        tip_vectors += ('tip_body_local', 'tip_axis_body_local')
+        tip_keys = set(tip_vectors) | {'tip_plane_cm', 'tip_edge_cm', 'tip_projected_inside'}
     required = (set(claims) | set(ranges) | set(clocks) | set(states) | set(frame_keys) | set(lips) |
                 {'source', 'weapon_class', 'tip_source'})
     rows, issues = [], []
     for e in events:
-        if e['event'] != 'winchester_loading_geometry':
+        if e['event'] != event_name:
             continue
         f, problems = e['fields'], list(e.get('parse_issues', ()))
         if not runtime_complete:
@@ -877,33 +915,21 @@ def winchester_loading_observations(events, runtime_complete):
         source = f.get('source')
         if source not in ('pre_native', 'post_overlay'):
             problems.append('invalid_source')
-        if f.get('weapon_class') not in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope'):
+        if f.get('weapon_class') not in classes:
             problems.append('unsupported_weapon_class')
-
-        def finite(raw):
-            if len(raw) > 64 or not re.fullmatch(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', raw):
-                raise ValueError('invalid finite number')
-            value = float(raw)
-            if not math.isfinite(value):
-                raise ValueError('nonfinite number')
-            return value
+        if f.get('weapon_class') == REMINGTON_CLASSES[0] and numbers['armed_hand'] != 0:
+            problems.append('invalid_armed_hand')
 
         def scalar(key):
             try:
-                return finite(f.get(key, ''))
+                return loading_number(f.get(key, ''))
             except ValueError:
                 problems.append('invalid_number:'+key)
                 return None
 
         def vector(key):
-            raw = f.get(key, '')
-            if raw.startswith('(') and raw.endswith(')'):
-                raw = raw[1:-1]
             try:
-                values = [finite(v) for v in raw.split(',')]
-                if len(values) != 3:
-                    raise ValueError('invalid vector size')
-                return values
+                return loading_vector(f.get(key, ''))
             except ValueError:
                 problems.append('invalid_vector:'+key)
                 return None
@@ -920,13 +946,11 @@ def winchester_loading_observations(events, runtime_complete):
             state_values[key] = values
         vectors = {key: vector(key) for key in frame_keys+lips}
 
-        def unit(axis):
-            return abs(math.hypot(*axis)-1) <= .001
-
         def rigid(label):
             up, forward = vectors[label+'_up'], vectors[label+'_forward']
             if up is not None and forward is not None and (
-                    not unit(up) or not unit(forward) or abs(sum(a*b for a, b in zip(up, forward))) > .002):
+                    not loading_axis_unit(up) or not loading_axis_unit(forward) or
+                    abs(sum(a*b for a, b in zip(up, forward))) > .002):
                 problems.append('nonrigid_frame:'+label)
 
         for part in parts:
@@ -938,17 +962,18 @@ def winchester_loading_observations(events, runtime_complete):
                 problems.append('invalid_tip_source')
             vectors.update({key: vector(key) for key in tip_vectors})
             rigid('tip')
-            axis = vectors['tip_axis_body_local']
-            if axis is not None and not unit(axis):
-                problems.append('nonunit_tip_body_axis')
-            plane, edge = scalar('tip_plane_cm'), scalar('tip_edge_cm')
-            if edge is not None and edge < 0:
-                problems.append('negative_tip_edge_distance')
-            if f.get('tip_projected_inside') not in ('0', '1'):
-                problems.append('invalid_tip_projected_inside')
-            tip = dict(position=vectors['tip'], up=vectors['tip_up'], forward=vectors['tip_forward'],
-                       body_local=vectors['tip_body_local'], axis_body_local=axis,
-                       plane_cm=plane, edge_cm=edge, projected_inside=f.get('tip_projected_inside') == '1')
+            tip = dict(position=vectors['tip'], up=vectors['tip_up'], forward=vectors['tip_forward'])
+            if not shotgun:
+                axis = vectors['tip_axis_body_local']
+                if axis is not None and not loading_axis_unit(axis):
+                    problems.append('nonunit_tip_body_axis')
+                plane, edge = scalar('tip_plane_cm'), scalar('tip_edge_cm')
+                if edge is not None and edge < 0:
+                    problems.append('negative_tip_edge_distance')
+                if f.get('tip_projected_inside') not in ('0', '1'):
+                    problems.append('invalid_tip_projected_inside')
+                tip.update(body_local=vectors['tip_body_local'], axis_body_local=axis,
+                           plane_cm=plane, edge_cm=edge, projected_inside=f.get('tip_projected_inside') == '1')
         else:
             if f.get('tip_source') != 'unavailable':
                 problems.append('invalid_tip_source')
@@ -963,10 +988,125 @@ def winchester_loading_observations(events, runtime_complete):
                        native_states=state_values, native_clocks=clock_values,
                        frames={part: dict(position=vectors[part], up=vectors[part+'_up'],
                                           forward=vectors[part+'_forward']) for part in parts},
-                       lip=[vectors[key] for key in lips], tip=tip)
+                       tip=tip)
+            if shotgun:
+                row['mouths'] = [vectors['mouth_plus_x'], vectors['mouth_minus_x']]
+                row['ammo_slot_mapping_proven'] = False
+            else:
+                row['lip'] = [vectors[key] for key in lips]
         else:
-            issues.append(dict(line=e['line'], kind='invalid_winchester_loading_geometry', issues=problems))
+            issues.append(dict(line=e['line'], kind='invalid_'+event_name, issues=problems))
         rows.append(row)
+    return rows, issues
+
+
+def loading_mouth_comparisons(events, rendered, runtime_complete, manual_candidate):
+    """Measure a preview against a later restored eye pair from the same frame."""
+    previews = [event for event in events if event['event'] == 'manual_reload_mouth_preview']
+    identity = ('frame_sequence', 'player_generation', 'native_context', 'weapon_id', 'armed_hand', 'weapon_class')
+    ranges = dict.fromkeys(('frame_sequence', 'pose_sequence', 'input_generation',
+                           'player_generation', 'native_context'), (1, 2**64-1))
+    ranges.update(weapon_id=(1, 0xfffffffe), armed_hand=(0, 1), selected_index=(0, 1),
+                  release=(0, 1), grip_release_admitted=(0, 1), tip_valid=(0, 1))
+    claims = dict(clearance_proven='false', socket_admission='false')
+
+    def frame_key(fields):
+        raw = fields.get('frame_sequence', '')
+        return int(raw) if re.fullmatch(r'[0-9]{1,20}', raw) else None
+
+    by_frame = defaultdict(list)
+    for candidate in rendered:
+        fields = candidate['raw_fields']
+        if fields.get('source') == 'post_overlay':
+            by_frame[frame_key(fields)].append(candidate)
+    preview_counts = Counter(frame_key(event['fields']) for event in previews)
+    rows, issues = [], []
+    for event in previews:
+        fields = event['fields']
+        problems = list(event['parse_issues'])
+        if not runtime_complete or not manual_candidate:
+            problems.append('missing_finished_manual_candidate')
+        if event['result'] != 'predicted':
+            problems.append('invalid_result')
+        weapon_class = fields.get('weapon_class')
+        shotgun = weapon_class in REMINGTON_CLASSES
+        if not shotgun and weapon_class not in WINCHESTER_CLASSES:
+            problems.append('unsupported_weapon_class')
+        points = [f'point{i}_cm' for i in range(2 if shotgun else 8)]
+        has_tip = fields.get('tip_valid') == '1'
+        required = set(ranges) | set(claims) | set(points) | {'weapon_class'}
+        if has_tip:
+            required |= {'tip_cm', 'tip_axis'}
+        problems.extend('missing_field:'+key for key in sorted(required-fields.keys()))
+        problems.extend('unexpected_field:'+key for key in sorted(fields.keys()-required))
+        problems.extend('invalid_claim:'+key for key, value in claims.items() if fields.get(key) != value)
+        numbers = {}
+        for key, (low, high) in ranges.items():
+            raw = fields.get(key, '')
+            value = int(raw) if re.fullmatch(r'[0-9]{1,20}', raw) else None
+            if value is None or not low <= value <= high:
+                problems.append('invalid_number:'+key)
+                value = None
+            numbers[key] = value
+        if numbers['native_context'] is not None and not numbers['native_context'] & 1:
+            problems.append('invalid_native_context')
+        if weapon_class != REMINGTON_CLASSES[1] and numbers['armed_hand'] != 0:
+            problems.append('invalid_armed_hand')
+        if not shotgun and numbers['selected_index'] != 0:
+            problems.append('invalid_selected_index')
+        if numbers['grip_release_admitted'] == 1 and numbers['release'] != 1:
+            problems.append('admitted_without_release')
+        if preview_counts[numbers['frame_sequence']] > 1:
+            problems.append('repeated_preview_frame')
+        vectors = {}
+        for key in points + (['tip_cm', 'tip_axis'] if has_tip else []):
+            try:
+                vectors[key] = loading_vector(fields.get(key, ''))
+            except ValueError:
+                problems.append('invalid_vector:'+key)
+        if 'tip_axis' in vectors and not loading_axis_unit(vectors['tip_axis']):
+            problems.append('nonunit_tip_axis')
+        row = dict(numbers, line=event['line'], weapon_class=weapon_class, raw_fields=dict(fields),
+                   release=numbers['release'] == 1, grip_release_admitted=numbers['grip_release_admitted'] == 1,
+                   status='rejected', reason=None, render_line=None, issues=problems,
+                   mouth_point_distances_cm=None, tip_distance_cm=None, tip_axis_angle_degrees=None,
+                   ammo_slot_mapping_proven=False, same_object_proven=False, gate_clearance='unverified',
+                   socket_admitted=False, headset_validated=False)
+        rows.append(row)
+        if problems:
+            row['reason'] = 'invalid_preview'
+            issues.append(dict(line=event['line'], kind='invalid_loading_mouth_preview', issues=problems))
+            continue
+        row['preview_points_cm'] = [vectors[key] for key in points]
+        row['preview_tip_cm'] = vectors.get('tip_cm')
+        row['preview_tip_axis'] = vectors.get('tip_axis')
+        if row['grip_release_admitted']:
+            row.update(status='pre_transfer', reason='release_precedes_native_insertion')
+            continue
+        candidates = by_frame[row['frame_sequence']]
+        if not candidates:
+            row.update(status='unmatched', reason='no_displayed_sample')
+            continue
+        if len(candidates) != 1 or candidates[0]['status'] != 'observed':
+            row['reason'] = 'repeated_or_invalid_displayed_sample'
+            issues.append(dict(line=event['line'], kind='ambiguous_loading_mouth_comparison',
+                               render_lines=[sample['line'] for sample in candidates]))
+            continue
+        display, = candidates
+        row['render_line'] = display['line']
+        if display['line'] <= row['line'] or any(row[key] != display[key] for key in identity):
+            row.update(status='incomparable', reason='displayed_order_or_owner_mismatch')
+            continue
+        if display['native_status'] != 2 or display.get('selected_index', 0) != row['selected_index']:
+            row.update(status='incomparable', reason='displayed_wait_or_index_mismatch')
+            continue
+        row.update(status='compared', mouth_point_distances_cm=[math.dist(before, after) for before, after in zip(
+            row['preview_points_cm'], display['mouths'] if shotgun else display['lip'])])
+        if not row['release'] and has_tip and display['tip']:
+            a, b = row['preview_tip_axis'], display['tip']['forward']
+            cosine = sum(x*y for x, y in zip(a, b)) / (math.hypot(*a)*math.hypot(*b))
+            row.update(tip_distance_cm=math.dist(row['preview_tip_cm'], display['tip']['position']),
+                       tip_axis_angle_degrees=math.degrees(math.acos(max(-1.0, min(1.0, cosine)))))
     return rows, issues
 
 
@@ -1158,12 +1298,17 @@ def analyze_evidence(directory):
     finger_observations, finger_issues = finger_reference_observations(events)
     rifle_samples = rifle_support_observations(events)
     winchester_samples = winchester_reload_observations(events)
-    loading_samples, loading_issues = winchester_loading_observations(events, evidence['runtimeEnded'])
+    loading_samples, loading_issues = rendered_loading_observations(
+        events, evidence['runtimeEnded'], 'winchester_loading_geometry')
+    remington_samples, remington_issues = rendered_loading_observations(
+        events, evidence['runtimeEnded'], 'remington_loading_geometry')
     indexed_samples, indexed_issues = indexed_reload_observations(events, evidence['runtimeEnded'])
     bow = bow_draw_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
+    mouth_comparisons, mouth_issues = loading_mouth_comparisons(
+        events, loading_samples + remington_samples, evidence['runtimeEnded'], manual)
     traces = [e for e in events if e['event'] == 'reload_trace']
-    insertions, issues, mechanics = [], list(finger_issues) + indexed_issues + loading_issues, []
+    insertions, issues, mechanics = [], list(finger_issues) + indexed_issues + loading_issues + remington_issues + mouth_issues, []
     mechanical_baselines = {}
     ready_references = {}
     reported = Counter((e['event'], e['result']) for e in events)
@@ -1370,6 +1515,7 @@ def analyze_evidence(directory):
                     winchester_reload_window_ends=sum(r['status'] == 'window_end' for r in winchester_samples),
                     winchester_loading_samples=sum(r['status'] == 'observed' for r in loading_samples),
                     winchester_loading_rejected_samples=sum(r['status'] == 'rejected' for r in loading_samples),
+                    loading_mouth_comparison_statuses=dict(Counter(r['status'] for r in mouth_comparisons)),
                     indexed_reload_samples=sum(r['status'] == 'observed' for r in indexed_samples),
                     indexed_reload_rejected_samples=sum(r['status'] == 'rejected' for r in indexed_samples),
                     bow_draw_samples=bow['draw_samples'],
@@ -1391,6 +1537,8 @@ def analyze_evidence(directory):
                 rifle_support_observations=rifle_samples,
                 winchester_reload_observations=winchester_samples,
                 winchester_loading_observations=loading_samples,
+                remington_loading_observations=remington_samples,
+                loading_mouth_comparisons=mouth_comparisons,
                 indexed_reload_observations=indexed_samples,
                 bow_draw_observations=bow,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
@@ -1408,6 +1556,7 @@ def analyze_evidence(directory):
                         'Relative mechanical changes compare sparse samples of one owner/session, not continuous animation.',
                         'Winchester sample continuity and rifle reserve changes do not validate native rounds, reload phase or a manual loading port.',
                         'Restored-pair Winchester loading geometry and displayed tip metrics remain sparse reported measurements; no cross-poll object identity, native phase, gate clearance, socket admission or physical acceptance is established.',
+                        'Mouth comparisons use ordered numeric frame ownership and matching wait/index metadata. Distances do not prove clearance, indexed mouth correspondence or valid insertion.',
                         'Indexed samples have no cross-poll object epoch or synchronous lease; numeric owner equality does not prove the same object, a transaction, unit insertion, callback completion or native index choice.',
                         'Full-frame relative rotation angles measure pose differences, not a hinge axis or usable loading-port clearance.',
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
