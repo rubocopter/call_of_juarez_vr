@@ -1073,6 +1073,17 @@ from the earlier double-precision CPU classification; mask equality and dynamic
 material qualification are not claimed. This pass remains separate from active
 game scheduling, native exclusions and presentation. Native-size sustained cost
 and headset quality remain unqualified.
+The experimental paired session and persistent worker now support explicit
+opt-in transactional mask history. Host fixtures cover all-current first/reset
+pairs, private previous-depth survival after input overwrite, independent eyes,
+invalid policies/tokens, policy changes, unsupported executors, second-eye and
+commit failure, cancellation during preparation/evaluation/commit, and mask-cache
+retirement before a new workload allocates. The real NGX worker preserves exact
+native center color on reset and newly exposed background while retaining source
+retirement and authority resets. Recorded reduced CoJ sequences also run through
+the integrated session in DLAA and Quality with same-source protected-color
+checks. This does not enable the active game presenter, prove native dynamic
+exclusions or qualify continuous scheduling, full-size cost or visor quality.
 The opt-in native HDR-alpha diagnostic has D3D9Ex GPU coverage for copied FP16
 values, bounded queue, source mutation after capture, provenance and preserved
 target/viewport. Inventoried game evidence now delivers complete paired post-copy

@@ -1883,10 +1883,27 @@ rejects out-of-image neighborhoods. Native partial exclusions remain partial.
 Both eyes validate before writes; failure withdraws both published masks and
 caller pipeline state is restored. Inputs remain immutable through retirement;
 the pass does not retain or commit history. Its private R8 storage is four input
-pixel planes. It is not wired into the active presenter or worker reconstruction
-policy. Depth agreement cannot identify same-depth or transparent motion, so
+pixel planes. Depth agreement cannot identify same-depth or transparent motion, so
 native dynamic/material exclusions remain an independent requirement. Explicit
 tolerance/halo experiments are not a qualified game preset.
+
+An opt-in `DepthMaskHistory` owner now connects this pass to `PairSession` and
+the persistent worker. The active game adapter leaves the option disabled.
+First/reset pairs use fully current-color masks. Later pairs use private R32
+depth from the last complete stereo reconstruction and value-only optics,
+matrix and capture-token metadata. The session prepares masks before inference
+and commits depth only after both eye outputs are available. Copies and later
+reads remain ordered on the serialized immediate context; no native capture
+lease is retained. Any failure/cancellation withdraws publication and mask
+history. Policy changes reset both eyes; source settings/epoch/context fences
+still apply. Unsupported executors reject enabled masking before evaluation.
+Infinite-far masking requires standard or packed device Z; the existing axial
+guide conversion has no infinite-projection contract. History and seed masks
+add ten input-pixel bytes to the four-plane mask pass, fourteen in total. The
+worker accounts for this optional storage in its guide/output allowance;
+reset/disablement retires cached mask allocations before new feature/guide
+allocation. This is not a bound on whole-process or driver residency. Ordinary
+supplied-mask reconstruction and the copy-only native audit retain their defaults.
 
 `runtime/temporal_reconstruction` provides unjittered row-vector reprojection and
 history admission/reset policy. `temporal_guides` privately generates paired

@@ -193,8 +193,11 @@ returned identical pixels to the full-current mask in that replay. Protocol 2
 now preserves fully marked current pixels explicitly after inference, with GPU
 and recorded-source replay coverage. An isolated GPU depth-disagreement pass
 also covers moving-occluder/exposed-background fixtures, both sampling jitters
-and explicit native exclusions, with recorded reduced-source NGX replay. It
-neither commits history nor changes active game scheduling. Next qualify native
+and explicit native exclusions, with recorded reduced-source NGX replay. An
+opt-in paired-session/worker owner now commits private depth only after complete
+stereo inference, seeds reset pairs with current color and retires old mask
+storage before new workloads. The active game adapter leaves this disabled.
+Next qualify native
 dynamic/material exclusions, scoped game jitter and dynamic motion, connect
 continuous reconstruction scheduling, then atomically present reconstructed
 pairs with native fallback. DLAA can
