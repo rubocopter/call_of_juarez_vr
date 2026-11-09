@@ -426,7 +426,7 @@ No whole-campaign or other-headset support is established. Community projection/
 | Ownership recovery | Global input release barriers/failed-poll rollback, partial stereo invalidation, pointer resize cancellation and latest manual-session recovery have host tests. Camera-owned pelvis/diagnostic-arm restores retain the original actor through failures; consumed bow R2 survives repeated owner-proof loss and input-source replacement. | Physical focus/dashboard/tracking/held-control and eligible resize recovery remain open; earlier menu/reload acceptance does not qualify these changes. Host fault injection does not qualify a live actor-replacement failure. |
 | Persisted validation verdicts | Host-tested reporting and rejection policy; live-tested canonical rejection remains inventoried through collection and original restoration. | A failed telemetry profile remains failed alongside scoped operator acceptance. No automatic headset acceptance; successful full-profile workflow coverage remains separate. |
 | Protected-target warning | Red aiming-cross alternative implemented and host-tested. | Visor visibility/target transitions; original warning was absent in visor. |
-| Temporal image reconstruction | DLAA/DLSS requests persist. The isolated NGX helper evaluates reduced CoJ color/depth pairs with separate eye histories and camera reprojection. Traced distinct current-color bias masks returned identical results on the recorded transitions. | CoJ game output stays native. Dynamic motion, jitter, explicit preservation of uncertain surfaces, full-size lifetime, atomic eye-pair presentation and measured GPU benefit remain unresolved. Independent resolution is rejected/default-off. |
+| Temporal image reconstruction | DLAA/DLSS requests persist. The isolated NGX helper evaluates reduced CoJ color/depth pairs with separate eye histories and camera reprojection. Protocol 2 explicitly preserves fully marked current color after inference. GPU fixtures and an offline replay of recorded CoJ sources verify that path. | CoJ game output stays native. Dynamic motion and mask semantics, scoped game jitter, full-size lifetime, atomic eye-pair presentation and measured GPU benefit remain unresolved. Independent resolution is rejected/default-off. |
 | Optional Neural / DirectNR | Real inference and committed native game pairs are live-tested; isolated static face comparisons and transport fixtures are host-tested. | Deferred by operator decision. No worthwhile visual improvement accepted; live quality/cadence rejected. Default Off, explicit developer capability only; no integrated human-only path, FPS benefit or binocular/comfort qualification. |
 | Other platforms | OpenXR experimental; D3D10 and additional games planned. | No physical support claim outside the active D3D9/OpenVR target. |
 | Optional body feedback | Neutral QA-event admission and recording/fault-sink policy host-tested for freshness, duplicates, epoch changes, silent recovery and shutdown. | bHaptics provider, game event producers, software output and physical vest feedback remain deferred/unqualified at the operator's request. Controller haptics acceptance does not transfer to a vest. |
@@ -894,6 +894,12 @@ JVM verifier and interpreted callback cases cover the production derivative.
 The bounded read-only mouth/tip prediction is host-tested for Winchester,
 scoped Winchester, Remington and SawOff. It awaits live comparison with the
 rendered geometry and clearance. The actual gesture still uses the grip zone.
+Host settings fixtures cover migration to the install default, rejection of
+missing or mismatched archive provenance, lookup of all manual endpoints on
+the loaded player class, preservation by native menu edits, and per-channel
+release after disablement and positive native retirement. Silent incomplete
+cancellation keeps ownership and the control barrier until readback recovers.
+The visible native menu selector and live interruption checks remain pending.
 Direct native completion without an observed closing sample now discards pending
 continuation tokens. Failed start/fresh preparation also clear them; a new
 session requires its own initial waist pickup. Host regressions reproduce and
@@ -1157,9 +1163,13 @@ final-color/depth optics and six adjacent transitions. Offline DLAA and DLSS
 Quality exercise history reuse using camera reprojection and zero jitter. In
 this replay, a spatial depth-disagreement bias mask and a full-current mask
 produced byte-identical outputs despite verified delivery of distinct masks.
-Resetting history changed the outputs. These results qualify source matching
-and the offline history path. Scoped jitter, dynamic-object motion, explicit
-current-pixel preservation and temporal headset quality remain open.
+Resetting history changed the outputs. Protocol 2 now replaces fully marked
+pixels explicitly after NGX. Its separate GPU readbacks check partial and fully
+marked regions, both jitter axes and distinct fenced eye outputs. Offline
+replay of the recorded zero-jitter pairs verifies the marked outputs against
+the corresponding full-current reference. This qualifies preservation of the
+provided mask in the isolated helper. Scoped game jitter, dynamic-object mask
+semantics, temporal headset quality and full-size cost remain open.
 
 The diagnostic candidate also implements joint FP16 color/packed-depth previews
 from the same `1B_16` boundary. They are point-sampled to at most 512 pixels per

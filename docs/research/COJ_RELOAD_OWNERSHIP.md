@@ -85,6 +85,15 @@ preview awaits live correlation with the rendered position, gate clearance and
 index-to-port correspondence before it can drive an insertion. The active grip
 zone and native ammunition transfer remain the production authority.
 
+The manual reload evidence analyzer compares predicted points with the later
+restored pair by frame, generation, native context, class, weapon and hand.
+It requires the same reported wait and selected index. It reports the rim
+point distances and, while held and present in both samples, the nose distance
+and axis angle. Missed releases can contribute mouth geometry. An admitted
+release stays a pre-transfer prediction because native playback can advance
+before rendering. Missing, ambiguous and mismatched pairs remain separate
+from compared rows. This is an offline measurement of reported geometry.
+
 ## Exact revolver profiles
 
 Current passive admission uses an exact concrete-class table, not a pistol base

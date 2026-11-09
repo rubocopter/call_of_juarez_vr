@@ -310,6 +310,15 @@ white transitions remain possible. Point coverage, missed samples and readback
 overhead remain explicit; no observation proves absence of flashes or performance
 acceptance. The binding census remains off by default in this content diagnostic.
 
+The luma probe can also record the observed left/right wrappers, capture and
+submit results, and any completed natural replay up to the next matching native
+device Present. It bounds rows separately for accepted, rejected and other
+outcomes and drops ambiguous continuity, including direct swap-chain Present.
+The analyzer joins sparse eye and desktop samples through the explicit frame
+and Present sequences, pose, device, generation and primary backbuffer identity.
+Host tests cover rejected capture and natural replay. Actual content and cause
+of the reported flicker remain unqualified.
+
 The [startup profile implementation](COJ_VR_RELEASE_RESOLUTION_PROFILES.md) provides
 saved launcher Auto/75%/100%/125%/Manual choices through those native seams, with
 host-tested bounds, layered recovery and isolated exact-game install coverage.

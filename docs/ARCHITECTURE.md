@@ -640,8 +640,10 @@ the editor. Modal replacement and focus/input loss cancel its owner; reacquisiti
 clears an old request before synchronization. Ordinary native menu input stays
 active; the presenter's neutral-input fence is separate from editor ownership.
 Existing pause/gameplay release barriers still apply.
-The three comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
-cinematic-only editor changes preserve turning and guide choices. Native labels
+The three visible comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`
+with the runtime manual reload preference. Version 4 adds `manual_reload` with
+`install_default`, `off` and `on`. Versions 1 through 3 retain the install
+default. Cinematic-only and native menu edits preserve the other choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
 separate VR language selector.
 `runtime/graphics_settings` owns the ten graphics values in its separate strict
@@ -1139,6 +1141,20 @@ The public launcher enables manual reload on fresh installs and preserves the
 installed choice on updates; Advanced > Manual reload changes it through
 Install/update while the game is closed. The legacy numbered launcher retains
 its equivalent choice. Developer candidates explicitly select `-ManualReload`.
+The runtime checks the staged executable identity and the declared derivative
+archive hash against the installed files. It also resolves all four manual JNI
+endpoints on the actual retained player's immutable Java class. The capability
+cache belongs to that VM, player and generation and retires with the player.
+The persisted preference can disable that route without changing the archive.
+Disablement cancels manual ownership and fences Square and both physical fire
+channels until native retirement and a fresh release for each channel. A void
+cancel return alone cannot retire ownership. The disable path keeps retrying
+until repeated same-player reads show a cleared probe, absent probe weapon and
+machine, and native reload inactive. A request that never entered the native
+probe can retire from status zero only with the explicit pending-request token
+and the same repeated empty/inactive proof. An admitted wait cannot use that
+exception. The native menu
+preserves the stored choice. A visible selector remains a separate UI change.
 Current source includes sixteen exact manual firearm profiles; archived
 prealpha.5 retains its earlier admission. Winchester and scoped Winchester restart the authored body21 cycle
 after one verified native unit; Volcanic uses the same policy with pistol reserve.
@@ -1840,6 +1856,16 @@ it never owns the game or SteamVR. CPU-completed shared fences precede
 acknowledgement/output admission; timeout/exit is not GPU completion. Uncertain
 client allocations are quarantined rather than recycled. Missing helpers,
 runtime, capabilities and incomplete guides reject reconstruction.
+
+Protocol 2 sends NGX into a single private FP16 scratch texture. A compute pass
+copies reconstructed pixels into the current eye's shared output and substitutes
+bilinear current color where the nearest R8 mask texel is fully marked. The mask
+and color sample the same jittered location. The wire offset describes the
+rendered image shift in input pixels, with positive X right and positive Y down.
+The helper fences NGX and the resolve together before acknowledging the eye.
+Both eyes reuse scratch after retirement and keep distinct shared outputs. A
+failed completion check requires independent retirement proof or observed
+device removal for orderly NGX teardown.
 
 `runtime/temporal_reconstruction` provides unjittered row-vector reprojection and
 history admission/reset policy. `temporal_guides` privately generates paired

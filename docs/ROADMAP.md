@@ -64,8 +64,8 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — image quality and rendering stability | Qualify the reduced temporal source mode at native 2804×2860 and isolate translucent flicker under capture pressure. | Full-color storage exceeded the fixed budget. The preview-only path now has native-size GPU coverage. Match color/depth optics and preserve uncertain current pixels before inference delivery. Correlate accepted and rejected native passes, shadow history and desktop output at the same frame. |
-| 2 — real reload contact | Correlate the host-tested Winchester/Remington input preview with the restored rendered mouth and cartridge tip. | Establish opening clearance and indexed port correspondence before enabling a measured proximity/approach target. Preserve native transfers and miss/close/regrip recovery. |
+| 1 — image quality and rendering stability | Qualify the reduced temporal source mode at native 2804×2860 and isolate translucent flicker under capture pressure. | The preview-only path has native-size GPU coverage and the isolated helper preserves fully marked current pixels. Qualify dynamic masks, game jitter and full-size cost. Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
+| 2 — real reload contact | Collect live input and restored-pair geometry for the Winchester/Remington comparison analyzer. | Establish opening clearance and indexed port correspondence before enabling a measured proximity/approach target. Preserve native transfers and miss/close/regrip recovery. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
 | 5 — scoped shot agreement | Correlate native fired trajectory/impact with optical ray and qualify head-yaw/Focus isolation. | Reticle/actual impact remains rejected; no guessed reticle offset or native spread change. Controller-only rendering and body-yaw freeze are host-tested, not a physical solution. |
@@ -88,8 +88,9 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   native action/trajectory ownership. A binding or observer alone is insufficient.
 - Visible holstered meshes and physical-walk/turn leg policy/write restoration
   remain incomplete despite offline model/animation coverage.
-- Runtime native Manual Reload On/Off still needs installed-capability/preference
-  separation and safe cancellation of held rounds and native reload ownership.
+- The native Manual Reload selector still needs UI integration. Its verified
+  install capability, stored preference and disable release barriers have host
+  coverage.
 
 Exact mechanical findings belong in [reload research](research/COJ_RELOAD_OWNERSHIP.md)
 and [arm/weapon research](research/COJ_ARM_SKINNING_AND_AIM.md). Neural/DirectNR
@@ -138,8 +139,8 @@ mechanical playback and physical recovery remain separate gates.
 | Body | Event-free offline ANM sampling and hash-bound Ray/Billy eight-leg recomposition are implemented and interpreted-tested. Runtime physical-motion policy and retained native write/restore transaction remain pending. Native root/SetFrame advances events/footsteps. |
 | Holsters | Four original model profiles and 12 Ray/Billy mount recompositions have interpreted coverage and C++ geometry host tests. Live attachment/identity/contact and attached meshes remain pending. Accepted ergonomic zones/guides remain usable. |
 | HUD / hints | Complete graphical capture and device/binding-aware visual qualification; current text and host-tested coaching retain native visibility/priority. |
-| Horse comfort | The corrected peripheral effect has scoped visual acceptance. Mounted steering remains difficult and seems more responsive with R1, which also increases speed. Bounded native gait/request/velocity/turn observation is host-tested; correlate live gallop/reins before a behavior change. Rider-camera ownership and reduced nausea remain open. |
-| Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. Included in the .7 package; wider interactive Windows/DPI confirmation remains pending. Native Options > Game Manual Reload selector still requires capability/preference separation and safe runtime deactivation. |
+| Horse comfort | Corrected steering, default Walk and optional R1 acceleration have scoped operator acceptance. Wider terrain, deliberate reverse, rider-camera ownership and sustained comfort retain separate physical gates. |
+| Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. The runtime now separates installed manual reload capability from the persisted choice. Native Options > Game still needs the visible Manual Reload selector and live UI/cleanup validation. Wider interactive Windows/DPI confirmation remains pending. |
 | Compatibility | The Quest 3 tester confirmed pause via right stick up + click in the reported setup. Correlate the free left hand tilt with its controller grip and authored hand socket. The newer reading panel still needs Quest confirmation for the holster hint. Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage remain open. |
 | Deferred | DLC adaptation and bHaptics provider/game-event producers by operator priority; existing neutral haptic QA policy is host-tested only. |
 
@@ -187,9 +188,10 @@ source continuity. The completed-eye observer now supplies matched final-color
 and depth optics in collected consecutive stereo previews. Offline NGX replay
 exercises six genuine transitions with camera reprojection and independent
 per-eye history. A measured depth-disagreement bias mask reached NGX and
-returned identical pixels to the full-current mask in this replay. Keep
-current native pixels at uncertain surfaces through an explicit preservation
-or fallback policy. Next qualify scoped jitter and dynamic motion, connect
+returned identical pixels to the full-current mask in that replay. Protocol 2
+now preserves fully marked current pixels explicitly after inference, with GPU
+and recorded-source replay coverage. Next qualify mask semantics, scoped game
+jitter and dynamic motion, connect
 continuous reconstruction scheduling, then atomically present reconstructed
 pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native
