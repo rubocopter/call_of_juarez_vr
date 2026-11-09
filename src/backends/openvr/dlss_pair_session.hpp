@@ -17,9 +17,21 @@ struct PairEyeSource {
     GuideSource guides{};
     runtime::TemporalMatrix unjittered_view_projection=runtime::TemporalIdentity();
 };
+struct DepthMaskPolicy {
+    bool enabled=false;
+    float relative_tolerance=0;
+    unsigned erosion_radius=0;
+    std::array<bool,2> infinite_far{};
+    bool operator==(const DepthMaskPolicy&) const = default;
+};
+[[nodiscard]] inline bool ValidDepthMaskPolicy(const DepthMaskPolicy& policy) noexcept {
+    return std::isfinite(policy.relative_tolerance)&&policy.relative_tolerance>=0&&
+        policy.relative_tolerance<=1&&policy.erosion_radius<=2;
+}
 struct PairFrame {
     PairIdentity identity{};
     std::array<PairEyeSource,2> eyes{};
+    DepthMaskPolicy depth_mask{}; // Explicit experiment, supplied mask remains default.
 };
 
 // GPU/IPC dependency boundary. The default implementation uses Client and
@@ -35,6 +47,13 @@ public:
     virtual bool Generate(ID3D11Device*,ID3D11DeviceContext*,const std::array<GuideSource,2>&,
                           std::array<Inputs,2>&) noexcept=0;
     virtual bool Evaluate(ID3D11DeviceContext*,unsigned eye,const Inputs&) noexcept=0;
+    // Prepare may replace bias planes. Derived history/clip transforms in frame
+    // are session-owned. Opted-in executors must implement both phases; commit
+    // is called only after both eyes complete, before pair publication.
+    virtual bool PrepareHistoryMask(ID3D11Device*,ID3D11DeviceContext*,const PairFrame& frame,
+                                    std::array<Inputs,2>&) noexcept {return !frame.depth_mask.enabled;}
+    virtual bool CommitHistoryMask(ID3D11DeviceContext*) noexcept {return false;}
+    virtual void InvalidateHistoryMask() noexcept {}
     [[nodiscard]] virtual ID3D11Texture2D* Output(unsigned eye) const noexcept=0;
     [[nodiscard]] virtual std::string_view last_error() const noexcept=0;
     virtual void Stop() noexcept=0;

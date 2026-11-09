@@ -25,6 +25,7 @@ struct SceneWorkerRequest {
     unsigned output_width=0,output_height=0;
     Quality quality=Quality::quality;
     std::array<SceneWorkerGuides,2> guides;
+    DepthMaskPolicy depth_mask{}; // Explicit opt-in; audit/native game route leaves disabled.
 };
 struct SceneWorkerOptions {
     std::filesystem::path helper; // Empty: copy-audit only; no inference helper.

@@ -99,11 +99,14 @@ struct SceneDepthWorker::Impl {
         if(!w||!h)return false;
         const auto pixels=std::uint64_t{w}*h;
         if(pixels*32>d3d9::D3D9SampledDepthCapture::max_payload_bytes)return false;
-        if(!r.reconstruct)return true;
+        if(!ValidDepthMaskPolicy(r.depth_mask))return false;
+        if(!r.reconstruct)return !r.depth_mask.enabled;
         if(options.helper.empty())return false;
         dlss::Request extent;extent.width=w;extent.height=h;extent.out_width=r.output_width;
         extent.out_height=r.output_height;extent.quality=r.quality;
-        if(!ValidExtent(extent)||pixels*34+std::uint64_t{r.output_width}*r.output_height*16>
+        // Existing guide/output allowance plus two private R32 history planes,
+        // two all-current R8 planes and four R8 comparison/halo planes.
+        if(!ValidExtent(extent)||pixels*(34+(r.depth_mask.enabled?14:0))+std::uint64_t{r.output_width}*r.output_height*16>
             d3d9::D3D9SampledDepthCapture::max_payload_bytes)return false;
         for(const auto& eye:r.guides){
             runtime::TemporalMatrix inverse{};
@@ -181,6 +184,7 @@ struct SceneDepthWorker::Impl {
             if(history_version!=j.version||!CurrentDomain(history_source,j.work.stamp))
                 session->Invalidate();
             PairFrame pair;
+            pair.depth_mask=j.request.depth_mask;
             pair.identity={{reinterpret_cast<std::uintptr_t>(device),j.work.stamp.epoch,j.work.stamp.frame,
                 j.work.stamp.pose,j.work.stamp.owner,w,h,j.request.output_width,j.request.output_height,
                 static_cast<unsigned>(j.request.quality),true,true},j.request.authority.settings_revision,

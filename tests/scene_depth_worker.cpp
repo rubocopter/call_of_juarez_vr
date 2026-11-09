@@ -57,13 +57,19 @@ struct Producer {
     s::SceneDepthStamp Stamp(std::uint64_t frame)const{
         return {reinterpret_cast<std::uintptr_t>(device.Get()),1,frame,frame,42,integrity,1};
     }
-    std::array<s::SceneDepthEye,2> Produce(std::uint64_t frame){
+    std::array<s::SceneDepthEye,2> Produce(std::uint64_t frame,bool expose_background=false){
         capture_time=Clock::now();
         std::array<s::SceneDepthEye,2> pair;
         for(unsigned eye=0;eye<2;++eye){
             Check(device->BeginScene(),"begin source scene");
+            const D3DCOLOR base_color=eye?0xff2244cc:0xffcc4422;
+            const D3DCOLOR color_now=expose_background&&frame%2==0?(eye?0xff22cc44:0xff44cc22):base_color;
             Check(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,
-                eye?0xff2244cc:0xffcc4422,eye?.75F:.25F,0),"native color/depth scene");
+                color_now,eye?.75F:.25F,0),"native color/depth scene");
+            if(expose_background&&frame==1){
+                const D3DRECT rect{LONG(size/2)-24,LONG(height/2)-24,LONG(size/2)+24,LONG(height/2)+24};
+                Check(device->Clear(1,&rect,D3DCLEAR_ZBUFFER,0,.125F,0),"previous native occluder");
+            }
             pair[eye].stamp=Stamp(frame);pair[eye].eye=eye;
             pair[eye].capture_time=capture_time;
             Check(capture.Snapshot(++sequence,1,pair[eye].snapshot),"immutable source capture");
@@ -160,6 +166,10 @@ void ControlledWorker(){
     Require(!worker.Submit(eyes,std::move(unqualified)),"unqualified guide source reached inference");
     auto missing=Request(producer,authority);missing.guides[0].current_color_mask.clear();
     Require(!worker.Submit(eyes,std::move(missing)),"worker invented a missing motion mask");
+    auto invalid_mask=Request(producer,authority);invalid_mask.depth_mask.enabled=true;invalid_mask.depth_mask.erosion_radius=3;
+    Require(!worker.Submit(eyes,std::move(invalid_mask)),"invalid GPU mask policy reached worker");
+    auto audit_mask=Request(producer,authority,false);audit_mask.depth_mask.enabled=true;
+    Require(!worker.Submit(eyes,std::move(audit_mask)),"copy-only audit admitted reconstruction mask policy");
     auto future=Request(producer,authority);future.capture_time+=std::chrono::seconds(10);
     Require(!worker.Submit(eyes,std::move(future)),"future capture timestamp admitted");
     auto obsolete=Request(producer,authority);++obsolete.authority.input_context;
@@ -229,8 +239,11 @@ void RealWorker(const std::filesystem::path& helper){
         if(frame==3)++producer.integrity;
         if(frame==4)++authority.history_epoch;
         Require(worker.SetAuthority(authority),"real worker authority");
-        auto eyes=producer.Produce(frame);auto request=Request(producer,authority);
+        auto eyes=producer.Produce(frame,true);auto request=Request(producer,authority);
         request.output_width=request.output_height=384;request.quality=s::Quality::quality;
+        request.depth_mask.enabled=true;request.depth_mask.relative_tolerance=.05F;request.depth_mask.erosion_radius=1;
+        std::array<d::D3D9SampledDepthPoint,2> expected;
+        for(unsigned eye=0;eye<2;++eye)Check(eyes[eye].snapshot.ReadDiagnosticPoint(expected[eye]),"native masked source point");
         for(unsigned eye=0;eye<2;++eye){
             auto& guide=request.guides[eye];
             guide.view_projection[12]=float(frame)*(eye?.03125F:.0625F);
@@ -243,12 +256,14 @@ void RealWorker(const std::filesystem::path& helper){
         Require(report.history_reused==(frame==2),"history did not follow adjacent source and authority boundaries");
         Require(report.width==384&&report.height==384&&report.center_rgba16f[0]!=report.center_rgba16f[1],
             "real worker output extent/eyes");
+        for(unsigned eye=0;eye<2;++eye)Require(report.center_rgba16f[eye]==expected[eye].color,
+            "first/reset or newly exposed current color changed in integrated mask history");
         for(const auto& eye:report.center_rgba16f)for(unsigned c=0;c<3;++c)
             Require(std::isfinite(Half(eye[c])),"nonfinite real worker result");
         if(!owner)owner=report.worker_thread;Require(owner==report.worker_thread,"real worker thread changed");
     }
     Require(worker.Stop(),"real worker stop failed");
-    std::cout<<"Persistent worker: 4 real NGX Quality stereo pairs at 384x384, camera motion, adjacent history and integrity/authority resets.\n";
+    std::cout<<"Persistent worker: 4 real NGX Quality stereo pairs at 384x384, transactional GPU masks, camera motion, adjacent history and integrity/authority resets.\n";
 }
 void NativeAuditCoordinator(unsigned width=64,unsigned height=0){
     Producer producer(width,height);cojvr::games::call_of_juarez::CoJSampledWorkerAudit audit;

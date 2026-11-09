@@ -1,4 +1,5 @@
 #include "backends/openvr/dlss_pair_session.hpp"
+#include "backends/openvr/depth_mask_history.hpp"
 #include <cmath>
 #include <utility>
 
@@ -14,7 +15,7 @@ bool SameIdentity(const PairIdentity& a,const PairIdentity& b) noexcept {
         a.history_epoch==b.history_epoch&&a.input_context==b.input_context;
 }
 bool SameSnapshot(const PairFrame& a,const PairFrame& b) noexcept {
-    if(!SameIdentity(a.identity,b.identity))return false;
+    if(!SameIdentity(a.identity,b.identity)||a.depth_mask!=b.depth_mask)return false;
     for(unsigned eye=0;eye<2;++eye) {
         const auto& x=a.eyes[eye];const auto& y=b.eyes[eye];const auto& s=x.guides;const auto& t=y.guides;
         if(!SameIdentity(x.identity,y.identity)||x.input_token!=y.input_token||x.eye!=y.eye||
@@ -37,17 +38,19 @@ bool Complete(const Inputs& input) noexcept {
 class ClientExecutor final:public PairExecutor {
     Client client_;
     TemporalGuides guides_;
+    DepthMaskHistory mask_history_;
+    const char* mask_error_=nullptr;
     bool guide_error_=false;
 public:
     bool Start(ID3D11Device* device,const std::filesystem::path& helper) noexcept override {
-        guide_error_=false;return client_.Start(device,helper);
+        guide_error_=false;mask_error_=nullptr;return client_.Start(device,helper);
     }
     bool Build(unsigned eye,const runtime::TemporalFrameIdentity& f) noexcept override {
-        guide_error_=false;return client_.Build(eye,f.width,f.height,f.output_width,f.output_height,static_cast<Quality>(f.quality));
+        guide_error_=false;mask_error_=nullptr;return client_.Build(eye,f.width,f.height,f.output_width,f.output_height,static_cast<Quality>(f.quality));
     }
     bool Generate(ID3D11Device* device,ID3D11DeviceContext* context,const std::array<GuideSource,2>& sources,
                   std::array<Inputs,2>& result) noexcept override {
-        result={};guide_error_=true;
+        result={};guide_error_=true;mask_error_=nullptr;
         // TemporalGuides checks equal source sizes; also require the declared
         // feature extent before any helper input copy or first-eye evaluation.
         if(!guides_.Generate(device,context,sources))return false;
@@ -57,11 +60,28 @@ public:
     bool Evaluate(ID3D11DeviceContext* context,unsigned eye,const Inputs& input) noexcept override {
         guide_error_=false;return client_.Evaluate(context,eye,input);
     }
+    bool PrepareHistoryMask(ID3D11Device* device,ID3D11DeviceContext* context,const PairFrame& frame,
+                            std::array<Inputs,2>& inputs) noexcept override {
+        mask_error_=nullptr;
+        if(!frame.depth_mask.enabled){mask_history_.Reset();return true;}
+        std::array<ID3D11Texture2D*,2> masks;
+        if(!mask_history_.Prepare(device,context,frame,inputs,masks)){
+            mask_error_="DLSS depth mask history preparation failed";return false;
+        }
+        for(unsigned eye=0;eye<2;++eye)inputs[eye].bias=masks[eye];
+        return true;
+    }
+    bool CommitHistoryMask(ID3D11DeviceContext* context) noexcept override {
+        if(mask_history_.Commit(context))return true;
+        mask_error_="DLSS depth mask history commit failed";return false;
+    }
+    void InvalidateHistoryMask() noexcept override {mask_history_.Reset();}
     ID3D11Texture2D* Output(unsigned eye) const noexcept override {return client_.Output(eye);}
     std::string_view last_error() const noexcept override {
+        if(mask_error_)return mask_error_;
         return guide_error_?"DLSS temporal guide generation failed":client_.last_error();
     }
-    void Stop() noexcept override {client_.Stop();guides_.Reset();}
+    void Stop() noexcept override {client_.Stop();guides_.Reset();mask_history_.Reset();mask_error_=nullptr;}
 };
 }
 struct PairSession::Impl {
@@ -69,6 +89,7 @@ struct PairSession::Impl {
     ID3D11Device* device=nullptr; // executor retains actual COM ownership
     std::array<runtime::TemporalHistory,2> history;
     PairIdentity previous{},last_attempt{};
+    DepthMaskPolicy previous_mask{};
     std::array<runtime::TemporalMatrix,2> matrices{};
     runtime::TemporalFrameIdentity feature{};
     PairFrame published{};
@@ -79,6 +100,7 @@ struct PairSession::Impl {
     void Invalidate() noexcept {
         outputs={};published={};have_previous=false;
         for(auto& eye:history)eye.Invalidate();
+        if(executor)executor->InvalidateHistoryMask();
         ++invalidation;
     }
     bool Fail(const char* reason,bool from_executor=false) noexcept {
@@ -107,10 +129,10 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
     // Remove prior publication before any operation that can overwrite one eye.
     p.outputs={};p.published={};p.error="";p.executor_error=false;
     if(!p.started||!context)return p.Fail("DLSS pair missing running session/context");
-    const PairFrame frame=input;
+    PairFrame frame=input;
     const auto& identity=frame.identity;const auto& f=identity.frame;
     if(f.device!=static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(p.device))||
-       !identity.settings_revision||!identity.history_epoch||!identity.input_context)
+       !identity.settings_revision||!identity.history_epoch||!identity.input_context||!ValidDepthMaskPolicy(frame.depth_mask))
         return p.Fail("DLSS pair missing or foreign identity");
     Request extent;extent.width=f.width;extent.height=f.height;extent.out_width=f.output_width;
     extent.out_height=f.output_height;extent.quality=static_cast<Quality>(f.quality);
@@ -128,7 +150,8 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
            !std::isfinite(s.near_metres)||!std::isfinite(s.far_metres)||s.near_metres<=0||s.far_metres<=s.near_metres||
            !std::isfinite(s.jitter_x)||!std::isfinite(s.jitter_y)||std::abs(s.jitter_x)>.5F||std::abs(s.jitter_y)>.5F||
            (s.depth_encoding!=DepthEncoding::axial_metres&&s.depth_encoding!=DepthEncoding::standard_device_z&&
-            s.depth_encoding!=DepthEncoding::packed_device_z_rgb24))
+            s.depth_encoding!=DepthEncoding::packed_device_z_rgb24)||
+           (frame.depth_mask.enabled&&frame.depth_mask.infinite_far[eye]&&s.depth_encoding==DepthEncoding::axial_metres))
             return p.Fail("DLSS pair unqualified/incomplete guide source or mismatched eye identity");
         // Validate even the first/reset matrix: a reset cannot admit singular or
         // nonfinite geometry merely because this frame does not use old pixels.
@@ -136,10 +159,11 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
         if(!runtime::TemporalReprojection(source.unjittered_view_projection,runtime::TemporalIdentity(),inverse_check)||
            !p.history[eye].Admit(f,reset[eye]))return p.Fail("DLSS pair invalid matrix/history identity");
         reset[eye]=reset[eye]||!p.have_previous||identity.settings_revision!=p.previous.settings_revision||
-            identity.history_epoch!=p.previous.history_epoch||identity.input_context!=p.previous.input_context;
+            identity.history_epoch!=p.previous.history_epoch||identity.input_context!=p.previous.input_context||frame.depth_mask!=p.previous_mask;
         sources[eye]=s;sources[eye].history=!reset[eye];sources[eye].clip_to_previous=runtime::TemporalIdentity();
         if(!reset[eye]&&!runtime::TemporalReprojection(source.unjittered_view_projection,p.matrices[eye],sources[eye].clip_to_previous))
             return p.Fail("DLSS pair reprojection rejected");
+        frame.eyes[eye].guides=sources[eye];
     }
     // A failed/cancelled attempt consumes its ordering identity as well. It may
     // never be retried with changed inputs or regress to a prior generation.
@@ -147,6 +171,12 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
     p.busy=true;
     struct Exit {bool& busy;~Exit(){busy=false;}} exit{p.busy};
     const auto invalidation=p.invalidation;
+    // Retire the old optional cache BEFORE new feature/guide allocations. Its
+    // old extent must not remain resident outside the next workload's budget.
+    if(reset[0]||reset[1]) {
+        p.executor->InvalidateHistoryMask();
+        if(p.invalidation!=invalidation)return p.Fail("DLSS pair cancelled during mask retirement");
+    }
     if(!p.built||!SameFeature(p.feature,f)) {
         p.built=false;
         if(!p.executor->Build(0,f)||!p.executor->Build(1,f))return p.Fail("DLSS pair feature build failed",true);
@@ -157,6 +187,9 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
     if(!p.executor->Generate(p.device,context,sources,guides))return p.Fail("DLSS pair guide generation failed",true);
     if(!Complete(guides[0])||!Complete(guides[1]))return p.Fail("DLSS pair incomplete generated guides");
     if(p.invalidation!=invalidation)return p.Fail("DLSS pair cancelled during guide generation");
+    if(!p.executor->PrepareHistoryMask(p.device,context,frame,guides))return p.Fail("DLSS pair history mask failed",true);
+    if(p.invalidation!=invalidation)return p.Fail("DLSS pair cancelled during history mask generation");
+    if(!Complete(guides[0])||!Complete(guides[1]))return p.Fail("DLSS pair incomplete masked guides");
     for(unsigned eye=0;eye<2;++eye) {
         // Policy owns these values; an executor cannot silently reuse history
         // after a reset or evaluate a different sampling offset.
@@ -166,12 +199,14 @@ bool PairSession::Reconstruct(ID3D11DeviceContext* context,const PairFrame& inpu
     }
     const std::array<ID3D11Texture2D*,2> outputs{p.executor->Output(0),p.executor->Output(1)};
     if(!outputs[0]||!outputs[1]||outputs[0]==outputs[1])return p.Fail("DLSS pair missing or aliased output");
+    if(frame.depth_mask.enabled&&!p.executor->CommitHistoryMask(context))return p.Fail("DLSS pair history mask commit failed",true);
+    if(p.invalidation!=invalidation)return p.Fail("DLSS pair cancelled during history mask commit");
     // No fallible work after the transaction commits. Each eye's matrix and
     // feature history advance only here, after the complete pair is available.
     for(unsigned eye=0;eye<2;++eye) {
         p.history[eye].Commit(f);p.matrices[eye]=frame.eyes[eye].unjittered_view_projection;
     }
-    p.previous=identity;p.have_previous=true;p.published=frame;p.outputs=outputs;
+    p.previous=identity;p.previous_mask=frame.depth_mask;p.have_previous=true;p.published=frame;p.outputs=outputs;
     if(history_reused)*history_reused=!reset[0]&&!reset[1];
     return true;
 }

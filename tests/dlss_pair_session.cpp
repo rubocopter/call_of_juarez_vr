@@ -17,7 +17,9 @@ ID3D11DeviceContext* const context=Token<ID3D11DeviceContext>(0x2000);
 struct Executor final:PairExecutor {
     bool start_ok=true,generate_ok=true;
     int build_failure=-1,evaluate_failure=-1,missing_output=-1,incomplete_eye=-1;
-    unsigned builds=0,generates=0,evaluations=0;
+    unsigned builds=0,generates=0,evaluations=0,mask_prepares=0,mask_commits=0,mask_invalidations=0;
+    unsigned invalidations_at_build=0,invalidations_at_generate=0;
+    bool mask_ok=true,commit_ok=true,cancel_commit=false,cancel_prepare=false,mask_supported=true;
     std::array<GuideSource,2> generated{};
     std::array<Inputs,2> evaluated{};
     std::array<ID3D11Texture2D*,2> outputs{};
@@ -26,11 +28,11 @@ struct Executor final:PairExecutor {
     PairFrame inspecting{};
     bool Start(ID3D11Device*,const std::filesystem::path&) noexcept override {return start_ok;}
     bool Build(unsigned eye,const cojvr::runtime::TemporalFrameIdentity&) noexcept override {
-        ++builds;outputs[eye]=nullptr;return int(eye)!=build_failure;
+        ++builds;invalidations_at_build=mask_invalidations;outputs[eye]=nullptr;return int(eye)!=build_failure;
     }
     bool Generate(ID3D11Device*,ID3D11DeviceContext*,const std::array<GuideSource,2>& sources,
                   std::array<Inputs,2>& result) noexcept override {
-        ++generates;generated=sources;
+        ++generates;invalidations_at_generate=mask_invalidations;generated=sources;
         for(unsigned e=0;e<2;++e) {
             const auto offset=0x3000+e*0x100;
             result[e]={Token<ID3D11Texture2D>(offset),Token<ID3D11Texture2D>(offset+1),
@@ -52,6 +54,15 @@ struct Executor final:PairExecutor {
         return true;
     }
     ID3D11Texture2D* Output(unsigned eye) const noexcept override {return outputs[eye];}
+    bool PrepareHistoryMask(ID3D11Device* d,ID3D11DeviceContext* c,const PairFrame& frame,std::array<Inputs,2>& inputs) noexcept override {
+        if(!mask_supported)return PairExecutor::PrepareHistoryMask(d,c,frame,inputs);
+        if(frame.depth_mask.enabled)++mask_prepares;
+        if(session&&cancel_prepare)session->Invalidate();return mask_ok;
+    }
+    bool CommitHistoryMask(ID3D11DeviceContext*) noexcept override {
+        ++mask_commits;if(session&&cancel_commit)session->Invalidate();return commit_ok;
+    }
+    void InvalidateHistoryMask() noexcept override {++mask_invalidations;}
     std::string_view last_error() const noexcept override {return "fixture failure";}
     void Stop() noexcept override {outputs={};}
 };
@@ -121,7 +132,7 @@ void AtomicFailureRecovery() {
 void RejectInvalidSourcesBeforeWork() {
     // Each omission/mismatch must reject before Build/Generate/Evaluate. This
     // catches validation accidentally delegated to a forgiving test executor.
-    for(unsigned fault=0;fault<27;++fault) {
+    for(unsigned fault=0;fault<31;++fault) {
         Fixture f;auto input=Frame();
         switch(fault) {
         case 0:input.eyes[1].guides.source_qualified=false;break;
@@ -151,6 +162,10 @@ void RejectInvalidSourcesBeforeWork() {
         case 24:input.identity.frame.width=16;Stamp(input);break;
         case 25:input.identity.frame.quality=4;Stamp(input);break;
         case 26:input.identity.frame.output_width=96;Stamp(input);break; // Invalid DLAA extent.
+        case 27:input.depth_mask.relative_tolerance=std::numeric_limits<float>::quiet_NaN();break;
+        case 28:input.depth_mask.erosion_radius=3;break;
+        case 29:input.depth_mask.relative_tolerance=1.1F;break;
+        case 30:input.depth_mask.enabled=true;input.depth_mask.infinite_far[1]=true;break;
         }
         Check(!f.session.Reconstruct(context,input),"invalid source/identity accepted");
         f.Empty(input,"invalid source exposed output");
@@ -158,7 +173,7 @@ void RejectInvalidSourcesBeforeWork() {
     }
 }
 void SnapshotAndOrderingFences() {
-    for(unsigned change=0;change<18;++change) {
+    for(unsigned change=0;change<22;++change) {
         Fixture f;auto input=Frame();Check(f.session.Reconstruct(context,input),"snapshot setup failed");auto current=input;
         switch(change) {
         case 0:current.identity.frame.frame++;break;
@@ -179,6 +194,10 @@ void SnapshotAndOrderingFences() {
         case 15:current.eyes[1].identity.settings_revision++;break;
         case 16:current.eyes[1].eye=0;break;
         case 17:current.eyes[1].guides.depth_encoding=DepthEncoding::standard_device_z;break;
+        case 18:current.depth_mask.enabled=true;break;
+        case 19:current.depth_mask.relative_tolerance=.05F;break;
+        case 20:current.depth_mask.erosion_radius=1;break;
+        case 21:current.depth_mask.infinite_far[0]=true;break;
         }
         f.Empty(current,"changed current snapshot exposed stale pair");
         f.Empty(input,"retired output resurrected through old snapshot");
@@ -190,7 +209,7 @@ void SnapshotAndOrderingFences() {
     Check(!f.session.Reconstruct(context,Frame(99)),"retired generation reclaimed session");
 }
 void ContextChangesResetBothEyes() {
-    for(unsigned change=0;change<9;++change) {
+    for(unsigned change=0;change<12;++change) {
         Fixture f;auto first=Frame();Check(f.session.Reconstruct(context,first),"context setup failed");auto next=Frame(2);
         switch(change) {
         case 0:next.identity.settings_revision++;break;
@@ -202,6 +221,9 @@ void ContextChangesResetBothEyes() {
         case 6:next.identity.frame.frame=4;break;
         case 7:next.identity.frame.quality=1;next.identity.frame.output_width=96;break;
         case 8:f.session.Invalidate();break;
+        case 9:next.depth_mask.enabled=true;next.depth_mask.relative_tolerance=.05F;break;
+        case 10:next.depth_mask.relative_tolerance=.05F;break;
+        case 11:next.depth_mask.erosion_radius=1;break;
         }
         Stamp(next);Check(f.session.Reconstruct(context,next),"changed context could not start fresh history");
         Check(f.executor->evaluated[0].reset&&f.executor->evaluated[1].reset,"context change reused old history");
@@ -212,8 +234,48 @@ void ContextChangesResetBothEyes() {
     f.session.Stop();f.Empty(input,"stop retained old output");Check(!f.session.Reconstruct(context,Frame(2)),"stopped session evaluated");
     Check(f.session.Start(device,L"C:/explicit-laboratory-helper.exe")&&f.session.Reconstruct(context,Frame()),"explicit restart failed");
 }
+void MaskHistoryCommitsOnlyCompletePairs() {
+    for(unsigned fault=0;fault<6;++fault) {
+        Fixture f;auto first=Frame();first.depth_mask.enabled=true;first.depth_mask.relative_tolerance=.05F;
+        Check(f.session.Reconstruct(context,first)&&f.executor->mask_prepares==1&&f.executor->mask_commits==1,
+            "enabled mask history did not prepare and commit after a completed stereo pair");
+        auto second=Frame(2);second.depth_mask=first.depth_mask;
+        if(fault==0)f.executor->evaluate_failure=1;
+        if(fault==1)f.executor->mask_ok=false;
+        if(fault==2)f.executor->commit_ok=false;
+        if(fault==3){f.executor->session=&f.session;f.executor->cancel=true;}
+        if(fault==4){f.executor->session=&f.session;f.executor->cancel_commit=true;}
+        if(fault==5){f.executor->session=&f.session;f.executor->cancel_prepare=true;}
+        const auto invalidations=f.executor->mask_invalidations;
+        Check(!f.session.Reconstruct(context,second),"failed mask transaction published output");
+        Check(f.executor->mask_invalidations>invalidations,"failed pair retained mask history eligibility");
+        Check(f.executor->mask_commits==(fault==2||fault==4?2U:1U),"mask history committed before both eyes succeeded");
+        f.Empty(second,"mask failure exposed stereo output");
+        f.executor->evaluate_failure=-1;f.executor->mask_ok=f.executor->commit_ok=true;
+        f.executor->cancel=f.executor->cancel_commit=f.executor->cancel_prepare=false;
+        auto next=Frame(3);next.depth_mask=first.depth_mask;
+        Check(f.session.Reconstruct(context,next)&&f.executor->evaluated[0].reset&&f.executor->evaluated[1].reset,
+            "failed mask transaction survived as reusable history");
+    }
+    Fixture unsupported;unsupported.executor->mask_supported=false;auto frame=Frame();frame.depth_mask.enabled=true;
+    Check(!unsupported.session.Reconstruct(context,frame)&&unsupported.executor->evaluations==0&&unsupported.executor->mask_commits==0,
+        "executor without mask capability silently bypassed enabled mask policy");
+}
+void RetireMaskStorageBeforeNewWorkload() {
+    for(bool resize:{false,true}) {
+        Fixture f;auto on=Frame();on.depth_mask.enabled=true;
+        Check(f.session.Reconstruct(context,on),"mask storage setup failed");
+        const auto before=f.executor->mask_invalidations;auto off=Frame(2);
+        if(resize){off.identity.frame.width=off.identity.frame.height=off.identity.frame.output_width=off.identity.frame.output_height=96;Stamp(off);}
+        Check(f.session.Reconstruct(context,off),"disabled/new-size workload rejected");
+        Check(f.executor->invalidations_at_generate>before&&(!resize||f.executor->invalidations_at_build>before),
+            "old GPU mask storage survived into unmasked workload allocation");
+    }
+}
 }
 int main()try {
     PairPublicationAndHistory();AtomicFailureRecovery();RejectInvalidSourcesBeforeWork();SnapshotAndOrderingFences();ContextChangesResetBothEyes();
+    MaskHistoryCommitsOnlyCompletePairs();
+    RetireMaskStorageBeforeNewWorkload();
     std::cout<<"DLSS paired session CPU policy: atomic publication, independent histories, source qualification, identity/snapshot fences and fault recovery passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
