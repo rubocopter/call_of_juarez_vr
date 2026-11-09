@@ -21,6 +21,99 @@ void Hr(HRESULT hr, const char* message) {
 }
 bool Near(double a, double b) { return std::abs(a - b) < 0.01; }
 
+void CheckOutputRoute() {
+    FrameLumaOutputWitness witness;
+    using Result = FrameLumaOutputResult;
+    const FrameLumaOutputContext context{123, 4, 7};
+    const auto left = [&](std::uint64_t frame) {
+        witness.Begin(context, frame + 100);
+        witness.Eye(context.thread, frame, 0, true, false);
+        witness.Eye(context.thread, frame, 0, false, true);
+    };
+
+    left(1);
+    witness.Capture(7, 1, 0, Result::accepted);
+    witness.Eye(7, 1, 1, true, false);
+    witness.Eye(7, 1, 1, false, true);
+    witness.Capture(7, 1, 1, Result::accepted);
+    witness.Submit(7, 1, Result::accepted);
+    auto row = witness.Present(context);
+    Check(row.frame == 1 && row.pose == 101 && row.context == context &&
+          row.eyes[0].wrapper_complete && row.eyes[1].wrapper_complete &&
+          row.submit == Result::accepted && !row.natural_complete, "accepted output route");
+
+    left(2);
+    witness.Capture(7, 2, 0, Result::rejected);
+    witness.Natural(7, true);
+    row = witness.Present(context);
+    Check(row.frame == 2 && row.eyes[0].capture == Result::rejected &&
+          !row.eyes[1].wrapper_seen && row.submit == Result::unobserved &&
+          row.natural_complete, "left capture rejection with observed natural completion");
+    Check(!witness.Present(context).frame, "attempt must be consumed by the first Present");
+
+    left(3);
+    witness.Capture(7, 3, 0, Result::rejected);
+    row = witness.Present(context);
+    Check(row.frame == 3 && !row.natural_complete, "left capture rejection without natural completion");
+
+    left(4);
+    witness.Capture(7, 4, 0, Result::accepted);
+    witness.Eye(7, 4, 1, true, false);
+    witness.Eye(7, 4, 1, false, false);
+    row = witness.Present(context);
+    Check(row.frame == 4 && row.eyes[1].wrapper_seen && !row.eyes[1].wrapper_complete,
+          "incomplete right wrapper must be visible");
+
+    left(5);
+    witness.Natural(7, false);
+    witness.Natural(7, true);
+    Check(!witness.Present(context).frame, "intervening natural entry or fault must break association");
+    left(6);
+    Check(!witness.Present({123, 4, 8}).frame && !witness.Present(context).frame,
+          "foreign Present thread must consume the association");
+    left(7);
+    Check(!witness.Present({123, 5, 7}).frame, "generation change must reject association");
+    left(8);
+    Check(!witness.Present({321, 4, 7}).frame, "device change must reject association");
+    left(9);
+    witness.Discard();
+    Check(!witness.Present(context).frame, "reset or unsupported Present must clear association");
+    left(10);
+    witness.Eye(7, 10, 1, true, false);
+    Check(!witness.Present(context).frame, "Present during wrapper cannot close a route");
+    witness.Eye(7, 10, 1, false, true);
+    Check(!witness.Present(context).frame, "wrapper return cannot revive consumed route");
+
+    for (unsigned i = 0; i < FrameLumaOutputWitness::limit_per_outcome - 2; ++i) {
+        left(11 + i);
+        witness.Capture(7, 11 + i, 0, Result::rejected);
+        Check(witness.Present(context).frame != 0, "rejected budget exhausted early");
+    }
+    left(100);
+    witness.Capture(7, 100, 0, Result::rejected);
+    Check(!witness.Present(context).frame, "rejected budget exceeded");
+    left(101);
+    witness.Capture(7, 101, 0, Result::bypassed);
+    Check(witness.Present(context).frame == 101, "rejections exhausted the unresolved budget");
+    witness.Discard();
+    left(102);
+    witness.Capture(7, 102, 0, Result::rejected);
+    Check(!witness.Present(context).frame, "reset replenished the process budget");
+
+    FrameLumaOutputWitness fresh;
+    fresh.Begin(context, 300);
+    fresh.Eye(7, 200, 0, true, false);
+    fresh.Eye(7, 200, 0, false, true);
+    fresh.Capture(7, 200, 0, Result::accepted);
+    fresh.Eye(7, 200, 1, true, false);
+    fresh.Eye(7, 200, 1, false, true);
+    fresh.Capture(7, 200, 1, Result::accepted);
+    fresh.Submit(7, 200, Result::rejected);
+    row = fresh.Present(context);
+    Check(row.frame == 200 && row.eyes[1].capture == Result::accepted &&
+          row.submit == Result::rejected, "two copies do not imply pair queue acceptance");
+}
+
 ComPtr<IDirect3DSurface9> Target(IDirect3DDevice9* device, UINT width = 64,
                                D3DFORMAT format = D3DFMT_A8R8G8B8) {
     ComPtr<IDirect3DSurface9> result;
@@ -76,6 +169,7 @@ void Identity(const FrameLumaSample& sample, IDirect3DDevice9* device,
 } // namespace
 
 int main(int argc, char** argv) {
+    CheckOutputRoute();
     const bool use_ex = argc > 1 && std::strcmp(argv[1], "--ex") == 0;
     const HWND window = CreateWindowExW(0, L"STATIC", L"frame luma GPU test",
         WS_OVERLAPPEDWINDOW, 0, 0, 128, 96, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);

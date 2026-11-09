@@ -15,7 +15,44 @@ def sample(stream, sequence, mean, white):
             f'pose_sequence={sequence+50};time_ns={sequence*10000000};mean={mean};'
             f'white_fraction={white};queue_ms=0.01;readback_ms=0.03\n')
 
+
+def rejected_route():
+    return ('native_stereo_luma_probe: status=output_route;present_kind=device_present;sequence=3;'
+            'pose_sequence=53;present_sequence=7;generation=2;device=123;thread_id=91;'
+            'left_wrapper=complete;right_wrapper=unobserved;natural_complete=1;'
+            'left_capture=rejected;right_capture=unobserved;submit_callback=unobserved;'
+            'primary_backbuffer=456;present_hr=0x0;coverage=observed_wrapper_and_present_callbacks\n')
+
 class LumaAnalysis(unittest.TestCase):
+    def test_rejected_eye_route_joins_eye_and_desktop_on_distinct_sequences(self):
+        desktop = sample('desktop',7,50,.1).replace('pose_sequence=57','pose_sequence=53')
+        result = luma.analyze(START + sample('left',3,42,0) + rejected_route() + desktop + END)
+        route, = result['outputRoutes']
+        self.assertEqual(route['outcome'], 'rejected')
+        self.assertEqual(route['leftWrapper'], 'complete')
+        self.assertEqual(route['rightWrapper'], 'unobserved')
+        self.assertTrue(route['naturalComplete'])
+        self.assertEqual({k: v['mean'] for k, v in route['samples'].items()}, {'left': 42, 'desktop': 50})
+        self.assertIsNone(result['cause'])
+
+    def test_output_route_does_not_pair_foreign_pose_backbuffer_or_reset(self):
+        desktop = sample('desktop',7,50,.1).replace('pose_sequence=57','pose_sequence=53')
+        for incompatible in (desktop.replace('pose_sequence=53','pose_sequence=54'),
+                             desktop.replace('source=456','source=457'),
+                             'native_stereo_luma_probe: status=reset\n'+desktop):
+            with self.subTest(incompatible=incompatible):
+                result = luma.analyze(START + rejected_route() + incompatible + END)
+                route, = result['outputRoutes']
+                self.assertEqual(route['samples'], {})
+                self.assertFalse(result['flashAbsenceProven'])
+
+    def test_invalid_and_repeated_present_route_reject(self):
+        for route in (rejected_route() + rejected_route(),
+                      rejected_route().replace('left_wrapper=complete','left_wrapper=unobserved'),
+                      rejected_route().rstrip()+';status=disabled\n'):
+            with self.subTest(route=route):
+                self.assertEqual(luma.analyze(START+route+END)['status'],'rejected')
+
     def test_white_jump_bound_to_stream_and_generation(self):
         text = START + sample('left',1,40,0) + sample('right',1,40,0)
         text += sample('left',2,250,.98) + sample('right',2,250,.98) + END

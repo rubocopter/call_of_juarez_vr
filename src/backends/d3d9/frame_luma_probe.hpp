@@ -7,6 +7,110 @@
 
 namespace cojvr::backends::d3d9 {
 
+enum class FrameLumaOutputResult { unobserved, accepted, rejected, bypassed };
+
+struct FrameLumaOutputContext {
+    std::uintptr_t device = 0;
+    std::uint64_t generation = 0;
+    std::uint32_t thread = 0;
+    bool operator==(const FrameLumaOutputContext&) const = default;
+};
+
+struct FrameLumaOutputRoute {
+    struct Eye {
+        bool wrapper_seen = false, wrapper_complete = false;
+        FrameLumaOutputResult capture = FrameLumaOutputResult::unobserved;
+    };
+    FrameLumaOutputContext context{};
+    std::uint64_t frame = 0, pose = 0;
+    std::array<Eye, 2> eyes{};
+    FrameLumaOutputResult submit = FrameLumaOutputResult::unobserved;
+    bool natural_complete = false;
+};
+
+// Caller serializes these value-only observations. A Present consumes the
+// candidate even when continuity fails. No association survives Reset.
+class FrameLumaOutputWitness {
+public:
+    static constexpr unsigned limit_per_outcome = 32;
+
+    void Discard() noexcept { pending_ = {}; open_eye_ = -1; }
+
+    void Begin(FrameLumaOutputContext context, std::uint64_t pose) noexcept {
+        Discard();
+        if (context.device && context.generation && context.thread && pose) {
+            pending_.context = context;
+            pending_.pose = pose;
+        }
+    }
+
+    void Eye(std::uint32_t thread, std::uint64_t frame, unsigned eye,
+             bool begin, bool complete) noexcept {
+        if (!pending_.pose) return;
+        if (thread != pending_.context.thread || !frame || eye >= pending_.eyes.size()) {
+            Discard();
+            return;
+        }
+        auto& pass = pending_.eyes[eye];
+        if (begin) {
+            if (open_eye_ >= 0 || pass.wrapper_seen || pending_.natural_complete ||
+                (eye == 0 ? pending_.frame != 0 : pending_.frame != frame)) {
+                Discard();
+                return;
+            }
+            pending_.frame = frame;
+            pass.wrapper_seen = true;
+            open_eye_ = static_cast<int>(eye);
+        } else if (open_eye_ == static_cast<int>(eye) && pending_.frame == frame) {
+            pass.wrapper_complete = complete;
+            open_eye_ = -1;
+        } else {
+            Discard();
+        }
+    }
+
+    void Capture(std::uint32_t thread, std::uint64_t frame, unsigned eye,
+                 FrameLumaOutputResult result) noexcept {
+        if (Matches(thread, frame) && eye < pending_.eyes.size() &&
+            pending_.eyes[eye].wrapper_complete)
+            pending_.eyes[eye].capture = result;
+    }
+
+    void Submit(std::uint32_t thread, std::uint64_t frame, FrameLumaOutputResult result) noexcept {
+        if (Matches(thread, frame)) pending_.submit = result;
+    }
+
+    void Natural(std::uint32_t thread, bool complete) noexcept {
+        // The callback's false also marks an intervening view entry. Treat
+        // either entry or incomplete natural work as a continuity break.
+        if (!complete || thread != pending_.context.thread || open_eye_ >= 0) Discard();
+        else if (pending_.frame) pending_.natural_complete = true;
+    }
+
+    [[nodiscard]] FrameLumaOutputRoute Present(FrameLumaOutputContext context) noexcept {
+        const auto row = pending_;
+        const bool match = open_eye_ < 0 && row.frame && row.context == context;
+        Discard();
+        if (!match) return {};
+        using Result = FrameLumaOutputResult;
+        const bool rejected = row.submit == Result::rejected ||
+            row.eyes[0].capture == Result::rejected || row.eyes[1].capture == Result::rejected;
+        const auto outcome = row.submit == Result::accepted ? 0U : rejected ? 1U : 2U;
+        if (logged_[outcome] == limit_per_outcome) return {};
+        ++logged_[outcome];
+        return row;
+    }
+
+private:
+    bool Matches(std::uint32_t thread, std::uint64_t frame) const noexcept {
+        return open_eye_ < 0 && !pending_.natural_complete && frame &&
+            pending_.frame == frame && pending_.context.thread == thread;
+    }
+    FrameLumaOutputRoute pending_{};
+    int open_eye_ = -1;
+    std::array<unsigned, 3> logged_{};
+};
+
 struct FrameLumaSample {
     std::uint64_t sequence = 0, generation = 0, pose_sequence = 0, timestamp_ns = 0;
     std::uintptr_t source = 0, device = 0;

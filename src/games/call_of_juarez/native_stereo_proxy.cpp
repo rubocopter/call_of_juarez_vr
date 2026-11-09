@@ -91,6 +91,8 @@ struct NativeStereoState {
     bool luma_enabled = false; // Startup-only diagnostic; never a visual writer.
     std::mutex luma_mutex;
     std::array<LumaChannel, 3> luma_channels;
+    cojvr::backends::d3d9::FrameLumaOutputWitness luma_output;
+    std::uint64_t luma_reset_epoch = 0; // Under luma_mutex.
     std::mutex hdr_alpha_mutex;
     std::recursive_mutex sampled_depth_mutex;
     cojvr::games::call_of_juarez::SampledSceneDepth sampled_depth;
@@ -310,6 +312,8 @@ void ReportRenderWork() noexcept {
 void ResetFrameLumaProbes() noexcept {
     {std::lock_guard lock(g_stereo.hdr_alpha_mutex);g_stereo.hdr_alpha_probe.Reset();}
     std::lock_guard lock(g_stereo.luma_mutex);
+    ++g_stereo.luma_reset_epoch;
+    g_stereo.luma_output.Discard();
     for (auto& channel : g_stereo.luma_channels) {
         channel.probe.Reset();
         channel.have_previous = false;
@@ -1258,6 +1262,11 @@ void ObserveRenderPass(void* context, cojvr::runtime::Eye eye, std::uint64_t fra
     if (!begin) ObserveRenderWork(eye, frame, owner, false, complete, route_name);
     ObserveDiagnosticRenderPass(context, eye, frame, owner, begin, complete, route_name);
     if (begin) ObserveRenderWork(eye, frame, owner, true, complete, route_name);
+    if (g_stereo.luma_enabled && !g_stereo.fixed_outputs.enabled) {
+        std::lock_guard lock(g_stereo.luma_mutex);
+        g_stereo.luma_output.Eye(GetCurrentThreadId(), frame,
+            eye == cojvr::runtime::Eye::left ? 0U : 1U, begin, complete);
+    }
     SetLastError(error);
 }
 
@@ -2028,6 +2037,12 @@ void ObserveNaturalFrame(void* context,bool complete) noexcept {
     state.natural_frame_ready.store(observed,std::memory_order_release);
 }
 
+void ObserveLumaNaturalFrame(void* context, bool complete) noexcept {
+    auto& state = *static_cast<NativeStereoState*>(context);
+    std::lock_guard lock(state.luma_mutex);
+    state.luma_output.Natural(GetCurrentThreadId(), complete);
+}
+
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (g_sampled_depth_enabled) PollSampledDepth();
     AbortHudBatch(hud::unterminated); DrainHudBatch();
@@ -2338,12 +2353,66 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
 thread_local std::uint32_t g_device_present_depth = 0;
 thread_local std::uint64_t g_device_present_sequence = 0;
 thread_local std::uint32_t g_swapchain_present_depth = 0;
+thread_local cojvr::backends::d3d9::FrameLumaOutputRoute g_luma_present_route{};
+thread_local std::uintptr_t g_luma_present_backbuffer = 0;
+thread_local std::uint64_t g_luma_present_reset_epoch = 0;
+
+using LumaOutputResult = cojvr::backends::d3d9::FrameLumaOutputResult;
+
+const char* LumaOutputResultName(LumaOutputResult result) noexcept {
+    switch (result) {
+    case LumaOutputResult::accepted: return "accepted";
+    case LumaOutputResult::rejected: return "rejected";
+    case LumaOutputResult::bypassed: return "bypassed";
+    default: return "unobserved";
+    }
+}
+
+void LogLumaOutputRoute(const HRESULT result) noexcept {
+    const auto row = g_luma_present_route;
+    g_luma_present_route = {};
+    if (!row.frame) return;
+    try {
+        {
+            std::lock_guard lock(g_stereo.luma_mutex);
+            if (g_luma_present_reset_epoch != g_stereo.luma_reset_epoch ||
+                row.context.generation != g_stereo.device_generation.load()) return;
+        }
+        const auto wrapper = [](const auto& eye) {
+            return eye.wrapper_complete ? "complete" : eye.wrapper_seen ? "incomplete" : "unobserved";
+        };
+        std::ostringstream line;
+        line << "native_stereo_luma_probe: status=output_route;present_kind=device_present"
+             << ";sequence=" << row.frame << ";pose_sequence=" << row.pose
+             << ";present_sequence=" << g_device_present_sequence
+             << ";generation=" << row.context.generation << ";device=" << row.context.device
+             << ";thread_id=" << row.context.thread
+             << ";left_wrapper=" << wrapper(row.eyes[0])
+             << ";right_wrapper=" << wrapper(row.eyes[1])
+             << ";natural_complete=" << row.natural_complete
+             << ";left_capture=" << LumaOutputResultName(row.eyes[0].capture)
+             << ";right_capture=" << LumaOutputResultName(row.eyes[1].capture)
+             << ";submit_callback=" << LumaOutputResultName(row.submit)
+             << ";primary_backbuffer=" << g_luma_present_backbuffer
+             << ";present_hr=0x" << std::hex << static_cast<unsigned long>(result)
+             << ";coverage=observed_wrapper_and_present_callbacks";
+        LogLine(line.str());
+    } catch (...) {}
+}
 
 void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
     ++g_device_present_depth;
     if (g_device_present_depth == 1 && g_swapchain_present_depth == 0) {
         g_device_present_sequence =
             g_stereo.present_telemetry_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        if (g_stereo.luma_enabled && !g_stereo.fixed_outputs.enabled) {
+            std::lock_guard lock(g_stereo.luma_mutex);
+            g_luma_present_route = g_stereo.luma_output.Present({
+                reinterpret_cast<std::uintptr_t>(device), g_stereo.device_generation.load(),
+                GetCurrentThreadId()});
+            g_luma_present_backbuffer = 0;
+            g_luma_present_reset_epoch = g_stereo.luma_reset_epoch;
+        }
         if (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0) {
             try {
                 std::ostringstream line;
@@ -2362,13 +2431,19 @@ void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled) {
             Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
-            if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer)))
+            if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer))) {
+                if (g_luma_present_route.frame &&
+                    g_luma_present_route.context.generation == g_stereo.device_generation.load())
+                    g_luma_present_backbuffer = reinterpret_cast<std::uintptr_t>(backbuffer.Get());
                 QueueFrameLumaProbe(device, backbuffer.Get(), 2, g_device_present_sequence);
+            }
         }
     }
 }
 
 void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept {
+    if (g_device_present_depth == 1 && g_swapchain_present_depth == 0 && g_luma_present_route.frame)
+        LogLumaOutputRoute(result);
     if (g_device_present_depth == 1 &&
         (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0)) {
         try {
@@ -2458,6 +2533,12 @@ void AfterDeviceReset(
 void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
     ++g_swapchain_present_depth;
     if (g_device_present_depth == 0 && g_swapchain_present_depth == 1) {
+        if (g_stereo.luma_enabled && !g_stereo.fixed_outputs.enabled) {
+            std::lock_guard lock(g_stereo.luma_mutex);
+            // This callback has only a device, so it cannot identify the
+            // presenting chain. Never carry a candidate past its Present.
+            g_stereo.luma_output.Discard();
+        }
         BeforePresentBoundary(device, "swapchain_present");
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled && device) {
@@ -2919,6 +3000,11 @@ bool BeginStereoFrame(
         LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");
     }
     sample.eyes = state->eyes;
+    if (state->luma_enabled && !state->fixed_outputs.enabled) {
+        std::lock_guard lock(state->luma_mutex);
+        state->luma_output.Begin({sample.render_device_identity, sample.render_device_generation,
+            GetCurrentThreadId()}, sample.hmd_pose.sequence);
+    }
     return true;
 }
 
@@ -3280,6 +3366,31 @@ bool SubmitStereoFrame(
     return accepted;
 }
 
+bool CaptureStereoEyeWithLumaOutput(void* context, cojvr::runtime::Eye eye,
+    std::uint64_t frame, std::uint64_t* content_hash) noexcept {
+    auto& state = *static_cast<NativeStereoState*>(context);
+    const bool enabled = state.capture_readback_enabled.load(std::memory_order_acquire);
+    const bool captured = CaptureStereoEye(context, eye, frame, content_hash);
+    std::lock_guard lock(state.luma_mutex);
+    state.luma_output.Capture(GetCurrentThreadId(), frame, eye == cojvr::runtime::Eye::left ? 0U : 1U,
+        !enabled ? LumaOutputResult::bypassed :
+        captured ? LumaOutputResult::accepted : LumaOutputResult::rejected);
+    return captured;
+}
+
+bool SubmitStereoFrameWithLumaOutput(void* context, std::uint64_t frame,
+    const cojvr::runtime::PoseSample& pose,
+    const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& reticle,
+    const cojvr::runtime::StereoHudTextOverlay& hud_text) noexcept {
+    auto& state = *static_cast<NativeStereoState*>(context);
+    const bool enabled = state.capture_readback_enabled.load(std::memory_order_acquire);
+    const bool submitted = SubmitStereoFrame(context, frame, pose, reticle, hud_text);
+    std::lock_guard lock(state.luma_mutex);
+    state.luma_output.Submit(GetCurrentThreadId(), frame, !enabled ? LumaOutputResult::bypassed :
+        submitted ? LumaOutputResult::accepted : LumaOutputResult::rejected);
+    return submitted;
+}
+
 void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return;
@@ -3603,6 +3714,10 @@ void EnsureStarted() noexcept {
                 LogLine(std::string("native_stereo_luma_probe_config: startup_enabled=") +
                     (g_stereo.luma_enabled ? "true" : "false") +
                     ";grid=16x16;ring_slots_per_stream=3;query_poll=no_flush;effects_unchanged=true;coverage=native_source_points");
+                if (g_stereo.luma_enabled && !g_stereo.fixed_outputs.enabled) {
+                    LogLine("native_stereo_output_route_config: present_kind=device_present;max_rows_per_outcome=" +
+                        std::to_string(cojvr::backends::d3d9::FrameLumaOutputWitness::limit_per_outcome));
+                }
                 if(g_sampled_depth_enabled)
                     LogLine(std::string("native_sampled_depth_config: mode=")+
                         (g_sampled_temporal_sequence_enabled?"temporal_sequence":"copy_audit")+
@@ -3647,6 +3762,10 @@ void EnsureStarted() noexcept {
                     stereo_callbacks.mirror_eye_pair = &MirrorIndependentEyePair;
                     stereo_callbacks.eye_render_restoration_pending = &IndependentEyeRestorationPending;
                     stereo_callbacks.observe_natural_render = &ObserveNaturalFrame;
+                } else if (g_stereo.luma_enabled) {
+                    stereo_callbacks.capture_eye = &CaptureStereoEyeWithLumaOutput;
+                    stereo_callbacks.submit_frame = &SubmitStereoFrameWithLumaOutput;
+                    stereo_callbacks.observe_natural_render = &ObserveLumaNaturalFrame;
                 }
                 // HUD boundary hooks exist only for resource diagnostics. In a
                 // normal release session do not install their sampled D3D reads
