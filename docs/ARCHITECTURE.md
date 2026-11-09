@@ -605,19 +605,19 @@ rendered image alignment or frame-pacing improvement.
 ## Shared preferences and native settings
 
 `runtime/vr_settings` owns one synchronized preference store for cinematic mode,
-smooth/snap turning and optional weapon guides. The native Options > Game editor
+smooth/snap turning, optional weapon guides and manual reload intent. The native Options > Game editor
 reads versioned snapshots and submits values through that owner. An older
 editor cannot overwrite a newer edit. Runtime reads use atomic publication;
 native references remain on the game thread. Version 1 retains its cinematic
 choice and supplies smooth turning; version 1/2 files default guides off.
-Accepted saves write version 3.
+Accepted saves write version 4; versions 1 through 3 retain install-default manual reload.
 Missing/invalid files use theater/smooth/guides off;
 unrecognized or unreadable startup files are preserved, with session-only changes
 and explicit save-failure feedback. Atomic replacement preserves the previous
 file when persistence fails. The held-Options presenter editor is retired.
 
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
-`OptionsGame.scr`, shared by main/pause Options, with three comfort and ten graphics
+`OptionsGame.scr`, shared by main/pause Options, with four comfort and ten graphics
 selectors plus save and Neural status labels. Graphics exposes enable, sharpness, contrast,
 saturation, gamma, spatial edge smoothing, a requested reconstruction mode,
 startup render scale, mounted peripheral comfort and a separate Neural request in English/Spanish. Native,
@@ -640,10 +640,13 @@ the editor. Modal replacement and focus/input loss cancel its owner; reacquisiti
 clears an old request before synchronization. Ordinary native menu input stays
 active; the presenter's neutral-input fence is separate from editor ownership.
 Existing pause/gameplay release barriers still apply.
-The three visible comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`
-with the runtime manual reload preference. Version 4 adds `manual_reload` with
+The four visible comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`.
+Version 4 adds `manual_reload` with
 `install_default`, `off` and `on`. Versions 1 through 3 retain the install
-default. Cinematic-only and native menu edits preserve the other choices. Native labels
+default. The manual selector exposes Install default/Off/On and resets to Install
+default under Defaults without publishing before OK. On is stored intent and
+cannot bypass verified installed capability. Cinematic-only edits preserve the
+other choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
 separate VR language selector.
 `runtime/graphics_settings` owns the ten graphics values in its separate strict
@@ -1153,8 +1156,9 @@ until repeated same-player reads show a cleared probe, absent probe weapon and
 machine, and native reload inactive. A request that never entered the native
 probe can retire from status zero only with the explicit pending-request token
 and the same repeated empty/inactive proof. An admitted wait cannot use that
-exception. The native menu
-preserves the stored choice. A visible selector remains a separate UI change.
+exception. The native menu edits this stored choice through the same revision,
+save-retry and owner protocol as the other preferences. Live menu disablement
+and the expanded layout remain pending physical checks.
 Current source includes sixteen exact manual firearm profiles; archived
 prealpha.5 retains its earlier admission. Winchester and scoped Winchester restart the authored body21 cycle
 after one verified native unit; Volcanic uses the same policy with pistol reserve.
@@ -1734,10 +1738,10 @@ Files provider reparse tags; junctions, symlinks and unknown tags still reject,
 including ancestors of missing destinations and journaled recovery targets.
 Game/package/backup paths retain the strict rule. This is host-tested path
 compatibility, not physical OneDrive synchronization acceptance.
-Manual reload is presently an installed capability with an On/Off installation
-choice, not a live Options > Game preference. A future native selector needs
-separate capability and persisted runtime preference state, plus safe cancellation
-of active cartridge/weapon ownership when it changes. This is not yet implemented.
+Manual reload retains its On/Off installation capability and a separate persisted
+Options > Game intent. The runtime selector and safe active-ownership cancellation
+have host coverage; live switching, recovery and native widget readability remain
+separate physical gates.
 Theater stays the cinematic default; the rejected
 independent eye RT prototype and investigation probes remain off. Community
 reports use a bounded text

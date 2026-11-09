@@ -54,7 +54,7 @@ no demonstrated open-ended page-registration API. A new page must qualify
 registry/capacity changes and every affected consumer; never reuse an apparently
 empty index without checking its other owners.
 
-The implemented route adds cinematic, smooth/snap, weapon-guide and nine graphics selectors to the existing
+The implemented route adds cinematic, smooth/snap, weapon-guide, manual-reload and ten graphics selectors to the existing
 `MenuOptionsGame`, shared by both Options variants. This avoids a new UI registry
 slot and retains original OK/Cancel/Defaults and return behavior. The recognized
 class SHA-256 is `2FE3AA28003AA2C3F9539071EEFA040E4FAEDBDD6868FBD8C179AB0230BA6DD8`;
@@ -64,9 +64,9 @@ The transformation clones the original selector resource at installation time,
 retaining `MenuSmall`/scale, original options and buttons. Native
 `UIOptionsControlSelect` supplies label, option data, selection, focus and tips.
 The graphics extension compacts the whole native selector rectangles, including
-their inherited label/option/arrow click extents: sixteen `.465 x .038` rows at
-screen y `.15 + index*.041`, ending at `.803`. The noninteractive status occupies
-`.805..855`; the enlarged decorative list ends at `.86166667`, before the original
+their inherited label/option/arrow click extents: eighteen `.465 x .032` rows at
+screen y `.15 + index*.035`, ending at `.777`. The noninteractive Neural status occupies
+`.778..813` and save/reconstruction feedback `.815..855`; the enlarged decorative list ends at `.86166667`, before the original
 `.87166667` separator. Original callback routes and font patterns remain native.
 Host geometry checks do not qualify glyph fit or physical readability. No
 original resource/class is redistributed.
@@ -76,7 +76,7 @@ the reconstruction request; explicit experimental tips and pending/native-active
 status distinguish that request from an available game rendering mode. The
 standalone NGX backend is not connected to current CoJ presentation.
 
-`runtime/vr_settings` owns the three comfort preferences, configuration and atomic
+`runtime/vr_settings` owns the four comfort preferences, configuration and atomic
 publication through one versioned store. Post-.5 source removes the presenter
 quick editor; the native bridge snapshots the authoritative values once per Show.
 Native highlighting remains local; OK queues request 1, consumed as token 2
@@ -92,23 +92,27 @@ The shared owner preserves these application and persistence contracts:
   native editor lifetime. Missing/invalid input defaults to theater/smooth/guides off.
   Version 1 retains its cinematic choice and supplies smooth turning; version 2
   retains both choices. Both default guides off. The next accepted save writes
-  strict version 3 with all values. Cinematic-only edits preserve other choices.
+  strict version 4 with all values. Versions 1 through 3 retain install-default
+  manual reload. Cinematic-only edits preserve other choices.
   Duplicate/unknown keys and
   unknown versions reject. Invalid/unreadable startup files remain protected
   for the session; an edit can publish but cannot overwrite them.
-- Native synchronization uses `cojvrSyncSettings(IIII)V` for cinematic mode,
-  turning, guides and language; `cojvrHolsterGuidesValue()I` reads the local choice.
+- Native synchronization uses `cojvrSyncSettings(IIIII)V` for cinematic mode,
+  turning, guides, manual reload and language. Manual reload uses validated
+  install-default/off/on values 0/1/2 through `cojvrManualReloadValue()I`;
+  On remains stored intent and cannot grant installed capability. Defaults stages
+  install-default locally. Other comfort selections and locale use 0/1.
   The comfort label and Off/On choices follow the game's startup `Game.ini`
   locale (English/Spanish, English fallback), using original widget fonts.
-- Graphics uses a separate `cojvrSyncGraphics(IIIIIIIIII)V` and ready flag. Its
+- Graphics uses a separate `cojvrSyncGraphics(IIIIIIIIIII)V` and ready flag. Its
   arguments are enabled, sharpness percentage, contrast percentage, saturation
   percentage, gamma percentage, edge smoothing, reconstruction request, startup
-  resolution scale, horse comfort and locale. Four numeric choices
+  resolution scale, horse comfort, Neural request and locale. Four numeric choices
   use bounded five-percentage-point steps; booleans/locale use 0/1. Both readiness
-  flags and all twelve preference getters must qualify before a VR request is queued
+  flags and all fourteen preference getters must qualify before a VR request is queued
   or original OK is completed. Missing/wrong widgets retain native fallback.
-- `runtime/graphics_settings` owns strict version-4 `graphics.ini` (complete versions
-  1/2 migrate with missing choices defaulted; v3 scales 0..3 retain meaning and
+- `runtime/graphics_settings` owns strict version-5 `graphics.ini` (complete versions
+  1 through 4 migrate with missing choices defaulted; v3 scales 0..3 retain meaning and
   removed Manual4 becomes Auto). Native scale options are Auto/75/100/125/150/200%
   pixel counts relative to a fresh HMD recommendation at next preparation. It owns per-store
   revisions and atomic replacement. Both owners' revisions are checked before

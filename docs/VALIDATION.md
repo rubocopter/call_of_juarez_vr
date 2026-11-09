@@ -588,8 +588,8 @@ compiled producer behavior and graphical/physical qualification.
 ## VR settings and cinematic choice
 
 Post-.5 source retires the held-Options quick editor and its renderer resources.
-Native Options > Game owns cinematic/turning/weapon-guide edits and retains the
-existing saved version-3 preferences. Options acts on a fresh press, with no hold
+Native Options > Game owns cinematic/turning/weapon-guide/manual-reload edits and migrates the
+existing saved version-3 preferences to version 4. Options acts on a fresh press, with no hold
 activation or release replay. Startup/focus/owner release barriers remain separate
 from editing. The retired overlay's earlier scoped acceptance is historical; it
 does not require retesting or establish acceptance of the changed press timing.
@@ -684,7 +684,12 @@ Unreported visual comfort, persistence and recovery remain separate gates. Label
 follow
 the game's startup locale, with English/Spanish host coverage and English fallback.
 The shared preference store preserves version-1 cinematics, defaults turning to
-smooth, reads version-2 choices with guides off, and writes strict version 3.
+smooth, reads version-2 choices with guides off, and writes strict version 4.
+Version 1 through 3 files retain install-default manual reload. The added Manual
+Reload selector has localized Install default/Off/On choices and host coverage for
+local edits, Cancel/defaults/reopen, invalid values, revision conflicts and failed
+save/retry. Its expanded whole-control layout and live session transitions remain
+physically unqualified; earlier native selector acceptance does not cover this row.
 Cinematic-only changes preserve other choices. Invalid/unreadable startup files
 remain preserved; edits can apply for the session with visible save failure.
 Host fixtures cover editor conflicts, native OK request consumption/completion,
@@ -899,7 +904,11 @@ missing or mismatched archive provenance, lookup of all manual endpoints on
 the loaded player class, preservation by native menu edits, and per-channel
 release after disablement and positive native retirement. Silent incomplete
 cancellation keeps ownership and the control barrier until readback recovers.
-The visible native menu selector and live interruption checks remain pending.
+The visible native menu selector is implemented and host-tested, including the
+production archive composition and shipped-JVM verification. Live interruption,
+disablement during loading, fresh-release recovery and native layout/readability
+checks remain pending. On remains intent and never substitutes for verified
+archive and loaded-class capability.
 Direct native completion without an observed closing sample now discards pending
 continuation tokens. Failed start/fresh preparation also clear them; a new
 session requires its own initial waist pickup. Host regressions reproduce and

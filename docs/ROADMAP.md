@@ -88,9 +88,10 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   native action/trajectory ownership. A binding or observer alone is insufficient.
 - Visible holstered meshes and physical-walk/turn leg policy/write restoration
   remain incomplete despite offline model/animation coverage.
-- The native Manual Reload selector still needs UI integration. Its verified
-  install capability, stored preference and disable release barriers have host
-  coverage.
+- The native Manual Reload selector, verified install capability, stored
+  preference and disable release barriers have host coverage. Live switching
+  during loading, fresh-release recovery and the expanded native layout remain
+  physical gates.
 
 Exact mechanical findings belong in [reload research](research/COJ_RELOAD_OWNERSHIP.md)
 and [arm/weapon research](research/COJ_ARM_SKINNING_AND_AIM.md). Neural/DirectNR
@@ -140,7 +141,7 @@ mechanical playback and physical recovery remain separate gates.
 | Holsters | Four original model profiles and 12 Ray/Billy mount recompositions have interpreted coverage and C++ geometry host tests. Live attachment/identity/contact and attached meshes remain pending. Accepted ergonomic zones/guides remain usable. |
 | HUD / hints | Complete graphical capture and device/binding-aware visual qualification; current text and host-tested coaching retain native visibility/priority. |
 | Horse comfort | Corrected steering, default Walk and optional R1 acceleration have scoped operator acceptance. Wider terrain, deliberate reverse, rider-camera ownership and sustained comfort retain separate physical gates. |
-| Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. The runtime now separates installed manual reload capability from the persisted choice. Native Options > Game still needs the visible Manual Reload selector and live UI/cleanup validation. Wider interactive Windows/DPI confirmation remains pending. |
+| Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. The runtime separates installed manual reload capability from the persisted choice. Native Options > Game includes the host-tested Install default/Off/On selector; live UI/cleanup validation and wider interactive Windows/DPI confirmation remain pending. |
 | Compatibility | The Quest 3 tester confirmed pause via right stick up + click in the reported setup. Correlate the free left hand tilt with its controller grip and authored hand socket. The newer reading panel still needs Quest confirmation for the holster hint. Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage remain open. |
 | Deferred | DLC adaptation and bHaptics provider/game-event producers by operator priority; existing neutral haptic QA policy is host-tested only. |
 
@@ -293,7 +294,8 @@ Windows 10/11 x64 packaging retains the x86 game/runtime and PowerShell 5.1
 transaction engine. The .7 package includes the graphical front end, with
 verified local packaging and isolated exact-game integration; broader interactive
 operator acceptance remains separate. Manual reload should
-become a runtime native Options > Game preference once installed capability,
-persistence and safe session transitions are verified. No automatic updater is
+retain separate installed capability and runtime native Options > Game intent;
+the selector, persistence and safe transitions have host coverage and await live
+qualification. No automatic updater is
 planned. Release notes own package history;
 publication cannot promote hardware, campaign, rendering or recovery acceptance.

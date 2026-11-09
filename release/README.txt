@@ -254,8 +254,16 @@ the session. Changing the dropdown alone does not change the installation.
 Tracked head/body, independent hands and physical melee remain enabled.
 Ordinary updates preserve the installed choice, and Prepare session respects it
 without repatching the archives. Start SteamVR first for Auto/percentage profiles.
-An in-game Options > Game toggle is not currently implemented. Safe runtime
-enable/disable and cancellation of held cartridges require separate validation.
+Current source adds Options > Game > VR manual reload with Install default,
+Off and On (Spanish: Según instalación, No, Sí). Install default follows the
+installed choice. Off requests conventional native reload; On requires verified
+manual reload files already installed. Select OK to apply and save, or Cancel
+to discard the edit. Defaults stages Install default. This runtime preference
+persists independently of archive installation. A reported save failure applies
+only for the session until an explicit successful retry.
+The selector and safe cancellation/release barriers have host coverage. Live
+switching during a reload and readability of the expanded menu still require
+in-game/headset validation; published older ZIPs retain their own behavior.
 
 With an admitted firearm, missing rounds, matching reserve and an empty free hand:
 press Reload (Sense: Square) to open; press/hold the free-hand trigger at your
