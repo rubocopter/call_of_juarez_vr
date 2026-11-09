@@ -64,7 +64,7 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — image quality and rendering stability | Qualify the reduced temporal source mode at native 2804×2860 and isolate translucent flicker under capture pressure. | The preview-only path has native-size GPU coverage and the isolated helper preserves fully marked current pixels. Qualify dynamic masks, game jitter and full-size cost. Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
+| 1 — image quality and rendering stability | Qualify the reduced temporal source mode at native 2804×2860 and isolate translucent flicker under capture pressure. | The preview-only path has native-size GPU coverage and the isolated helper preserves fully marked current pixels. GPU depth-disagreement/halo masking has host and reduced recorded-source coverage; qualify native dynamic/material exclusions, game jitter and full-size cost. Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 2 — real reload contact | Collect live input and restored-pair geometry for the Winchester/Remington comparison analyzer. | Establish opening clearance and indexed port correspondence before enabling a measured proximity/approach target. Preserve native transfers and miss/close/regrip recovery. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
@@ -149,7 +149,7 @@ mechanical playback and physical recovery remain separate gates.
 
 Optional spatial image processing is implemented and host-tested: original
 adaptive sharpening, diagonal-edge smoothing and contrast/saturation/gamma on
-fresh D3D11 native eye images before VR overlays. Nine native Options > Game
+fresh D3D11 native eye images before VR overlays. Ten native Options > Game
 selectors edit the dedicated versioned graphics preferences and publish changes
 at fresh captures without per-frame file reads. Color/comfort changes are live;
 resolution selection applies at the next preparation. Defaults remain off;
@@ -191,8 +191,11 @@ exercises six genuine transitions with camera reprojection and independent
 per-eye history. A measured depth-disagreement bias mask reached NGX and
 returned identical pixels to the full-current mask in that replay. Protocol 2
 now preserves fully marked current pixels explicitly after inference, with GPU
-and recorded-source replay coverage. Next qualify mask semantics, scoped game
-jitter and dynamic motion, connect
+and recorded-source replay coverage. An isolated GPU depth-disagreement pass
+also covers moving-occluder/exposed-background fixtures, both sampling jitters
+and explicit native exclusions, with recorded reduced-source NGX replay. It
+neither commits history nor changes active game scheduling. Next qualify native
+dynamic/material exclusions, scoped game jitter and dynamic motion, connect
 continuous reconstruction scheduling, then atomically present reconstructed
 pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native

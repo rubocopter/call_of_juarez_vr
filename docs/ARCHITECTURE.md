@@ -1830,7 +1830,7 @@ and alpha remain unchanged. WARP pixel tests cover asymmetric/canted eye rays,
 both strengths, invalid pairs, non-square/actual eye extents and fresh exit.
 The previous equal-UV circles had a demonstrated binocular geometry mismatch;
 these host checks do not qualify the revised mask's physical appearance.
-Comfort and physical visibility of the compact sixteen-row native editor remain unqualified.
+Comfort and physical visibility of the expanded native editor remain unqualified.
 
 The renderer validates both same-device, distinct, equal-size private BGRA/BGRX
 UNORM outputs before writing. Shared/misc-flagged endpoints are rejected because
@@ -1870,6 +1870,23 @@ The helper fences NGX and the resolve together before acknowledging the eye.
 Both eyes reuse scratch after retirement and keep distinct shared outputs. A
 failed completion check requires independent retirement proof or observed
 device removal for orderly NGX teardown.
+
+The separate experimental `DepthHistoryMask` pass compares current R32 device Z
+with the reprojected previous eye depth entirely on D3D11. It requires adjacent
+frame/pose identities, the same device/generation/owner/extent and unchanged
+settings, history epoch and input context, plus distinct nonzero capture tokens.
+Current and previous jitter map through the unjittered camera transform with
+opposite sampling offsets. Explicit previous finite/infinite optics convert
+depth to axial metres; a caller-supplied relative tolerance determines agreement.
+A bounded zero-to-two-pixel max filter expands current-color exclusions and
+rejects out-of-image neighborhoods. Native partial exclusions remain partial.
+Both eyes validate before writes; failure withdraws both published masks and
+caller pipeline state is restored. Inputs remain immutable through retirement;
+the pass does not retain or commit history. Its private R8 storage is four input
+pixel planes. It is not wired into the active presenter or worker reconstruction
+policy. Depth agreement cannot identify same-depth or transparent motion, so
+native dynamic/material exclusions remain an independent requirement. Explicit
+tolerance/halo experiments are not a qualified game preset.
 
 `runtime/temporal_reconstruction` provides unjittered row-vector reprojection and
 history admission/reset policy. `temporal_guides` privately generates paired

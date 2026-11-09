@@ -1061,6 +1061,18 @@ idle interval, fixed IPC bounds and GPU completion
 before output admission. This does not validate temporal image quality or speed.
 Math/history and WARP guide fixtures cover projection, depth conversion,
 camera reprojection, masks, reset/discontinuity policy and source rejection.
+The isolated GPU depth-history mask also has WARP coverage for moving occluders,
+newly exposed background, camera reprojection, both image jitters, finite/infinite
+previous optics, explicit exclusions and conservative halo borders. Rejected
+source/authority pairs withdraw both masks without changing the first output.
+Real NGX fixtures preserve newly exposed current color with the GPU mask in
+both DLAA and Quality. Inventoried reduced CoJ sequences also evaluate offline
+with these GPU masks and preserve their protected output pixels exactly against
+the full-current reference. Floating-point sampling/depth boundaries can differ
+from the earlier double-precision CPU classification; mask equality and dynamic
+material qualification are not claimed. This pass remains separate from active
+game scheduling, native exclusions and presentation. Native-size sustained cost
+and headset quality remain unqualified.
 The opt-in native HDR-alpha diagnostic has D3D9Ex GPU coverage for copied FP16
 values, bounded queue, source mutation after capture, provenance and preserved
 target/viewport. Inventoried game evidence now delivers complete paired post-copy
