@@ -1,4 +1,5 @@
 #include "backends/openvr/scene_depth_worker.hpp"
+#include "backends/openvr/scene_depth_scratch.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/d3d11_sync.hpp"
 #include <dxgi1_2.h>
@@ -37,23 +38,7 @@ HRESULT DeviceForLuid(LUID luid,ComPtr<ID3D11Device>& device,ComPtr<ID3D11Device
             D3D11_SDK_VERSION,&device,nullptr,&context);
     }
 }
-struct Scratch {
-    std::array<ComPtr<ID3D11Texture2D>,4> planes;
-    std::array<ComPtr<ID3D11Texture2D>,2> masks;
-    unsigned width=0,height=0;
-    bool Prepare(ID3D11Device* device,unsigned w,unsigned h) noexcept {
-        if(width==w&&height==h&&planes[3])return true;
-        // Retire the old extent before allocating the next one. At native VR
-        // sizes, keeping four old FP16 planes resident while allocating four
-        // replacements can exceed the bounded worker's source allowance.
-        planes={};masks={};width=height=0;
-        D3D11_TEXTURE2D_DESC desc{};desc.Width=w;desc.Height=h;
-        desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
-        desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-        for(auto& plane:planes)if(FAILED(device->CreateTexture2D(&desc,nullptr,&plane))){planes={};return false;}
-        width=w;height=h;return true;
-    }
-};
+
 }
 struct SceneDepthWorker::Impl {
     struct Job {SceneDepthWork work;SceneWorkerRequest request;std::uint64_t version=0;};
@@ -158,7 +143,7 @@ struct SceneDepthWorker::Impl {
         report.center_rgba16f=values;return true;
     }
     SceneWorkerReport Process(Job& j,ID3D11Device* device,ID3D11DeviceContext* context,
-        Scratch& scratch,D3D9SharedTextureBridge& color,D3D9SharedTextureBridge& depth,PairSession* session,
+        SceneDepthScratch& scratch,D3D9SharedTextureBridge& color,D3D9SharedTextureBridge& depth,PairSession* session,
         std::uint64_t& history_version,SceneDepthStamp& history_source,bool& fatal){
         SceneWorkerReport report;report.source=j.work.stamp;report.authority=j.request.authority;
         const auto process_begin=Clock::now();
@@ -248,7 +233,7 @@ struct SceneDepthWorker::Impl {
                     std::lock_guard lock(mutex);state.phase=SceneWorkerPhase::faulted;Error(state.error,session->last_error());return;
                 }
             }
-            Scratch scratch;D3D9SharedTextureBridge color,depth;std::uint64_t history_version=0;
+            SceneDepthScratch scratch;D3D9SharedTextureBridge color,depth;std::uint64_t history_version=0;
             SceneDepthStamp history_source{};
             {
                 std::lock_guard lock(mutex);state.worker_thread=GetCurrentThreadId();
