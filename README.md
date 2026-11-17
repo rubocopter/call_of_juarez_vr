@@ -77,7 +77,6 @@ For manual reload, **Square** opens/prepares an admitted weapon; grab ammunition
 
 ## Limitations
 
-- **Campaign stability and recovery:** some save/chest, cinematic and tracking transitions remain unverified or have reported failures. Save regularly.
 - **Physical interaction precision:** exact cartridge mouths/occlusion, finger fit during reloading, scoped shot/reticle alignment and mounted steering/comfort remain open.
 - **Coverage:** many weapon variants, missions and other PCVR headsets/controllers have not been physically qualified. A Quest 3 tester has reported some working features, but this is not full compatibility validation.
 - **Image quality:** native stereo is the usable path. Optional graphics filters and DLAA/DLSS integration need further headset or engineering work; no reconstruction performance gain is claimed.
