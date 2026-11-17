@@ -304,6 +304,22 @@ do not establish fragment coverage, axial depth, all MRT paths or temporal
 admission. GPU and fault fixtures test bounded copied provenance and state
 preservation; tests alone do not establish delivery of those witnesses.
 
+Static inspection of the pinned engine distinguishes the private, non-lockable
+HDR producer surface from the private, non-dynamic `DEFAULT` render-target
+texture backing `1B_16`. The engine attempts `ColorFill` on level zero during
+`1B_16` creation, before the native producer resolve. Neither allocation passes
+a shared-handle pointer. These creation arguments and the initialization
+result still need correlation with the objects in a live scope.
+The opt-in allocation and write observer correlates surface interfaces through
+`IUnknown` while the native caller holds them. An unidentifiable write withdraws
+copy readiness. The fill receipt is bounded by the first observed consumer,
+which leaves the exact first binding time open.
+The installed x86 D3DX9_29 implementation used one observed `UpdateSurface`
+into the exact destination in host tests of full and partial memory uploads.
+Those tests used both HDR allocation classes, with BGRA8 conversion and FP16
+copy, and verified the affected pixels. The result bounds the tested upload
+routes and driver. Live material coverage remains open.
+
 The writer-witness run subsequently delivered fifty-one grids in seventeen
 complete eye scopes, with twenty-one matched consumer/pose pairs and no lost
 queued readbacks. Three selected frames have no right diagnostic scope, leaving

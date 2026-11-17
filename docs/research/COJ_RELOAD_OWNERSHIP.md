@@ -863,6 +863,33 @@ and both-eye restoration require native observation before enabling physical
 gate manipulation. Offline ring and animation measurements do not accept those
 boundaries or establish occupied-chamber/ejection semantics.
 
+### Base Schofield chamber presentation and unloading
+
+The original Steam `Data0.pak` member
+`Data/Player/Equipment/Schofield/schofield.MSH` (SHA-256
+`3ef4c3a576e4c0937c6fad2985717cbb1ff3fcce940c360263637e4290475423`)
+contains `GunDrum` (element 4) and `GunReleaser` (element 5), both parented
+to `GunBarrel` (element 2). Quantized positions on the negative-Z face yield
+six disjoint XY rings, each with ten witnesses. Fitted radii are 0.5455–0.5458
+cm and rear-ring centers lie near Z = −1.88 cm in drum space. Use the displayed
+open barrel/drum transform and clearance to qualify placement. The bind mesh
+does not identify the native indexing phase or which chamber contains a case.
+
+The native weapon exposes one loaded count for all six chambers. The ammo skin
+switches between zero and positive load. Per-chamber spent brass needs an
+observed starting state and confirmed shot-to-drum correspondence, with history
+cleared when ownership or accounting becomes uncertain. A falling spent case
+can be cosmetic. Floor persistence needs qualified contact and depth ordering.
+
+The original `PawnInventory.AddAmmo(Weapon, boolean)` previews availability
+with `true`. Its write branch caps removal by reserve headroom, subtracts from
+the weapon and credits the matching reserve as two separate writes. The normal
+`Weapon.InvokeAddAmmo` pickup route rejects owned weapons. An explicit unload
+for a held Schofield therefore needs its own retained-owner transaction, with
+authoritative before/after readback of both counts. A promise to empty the drum
+requires enough reserve headroom for the complete transfer. Ambiguous results
+must withhold replay and refund. This is an offline native candidate boundary.
+
 The displayed-frame observer resolves the drum and gate by native element name,
 checks readback against the current controller-mapped child transaction and
 rechecks JNI weapon identity after the reads. Six local mouth observations are

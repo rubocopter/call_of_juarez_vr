@@ -1,6 +1,8 @@
 # Validation
 
-## Current state — 8 November 2026
+<a id="current-state--12-november-2026"></a>
+
+## Current state
 
 Validation states remain distinct:
 `planned → implemented → host-tested → live-tested → headset-validated → supported`.
@@ -16,25 +18,20 @@ Publication and a staged manifest do not establish headset or campaign support.
 | Movie presentation and skip | The operator reports an exterior view of Billy in Hunt01's opening immersive scene. The correlated movie sample carries almost a metre of displacement from the older gameplay tracking reference into the authored camera. Current source acquires a movie-local positional reference and host-tests entry and owner/recenter transitions. That correction awaits headset validation. Native skip and remaining theater transitions retain separate gates. |
 | Reload contact and guides | The operator reports improved loading with the 18 cm zone and confirms manual reload in the latest PS VR2 session. The collected Schofield clip transfer added three loaded rounds and debited three from reserve. The exercised Winchester retains its earlier functional acceptance. Deferred Square presses during the base Schofield shot tail have bounded live evidence through manual opening and transfer. Precise cartridge-to-mouth contact and broader interruption recovery remain pending. |
 | Left hand and grip | The operator reports aligned hands in the latest PS VR2 session. Earlier intermittent free-left index posture and grip intersections remain separate from that scoped verdict. Native-completion cleanup recovery is host-tested for a verified idle rifle. The Quest free-left tilt remains a separate open observation. |
-| Monitor output and flicker | The old blackout transaction remains retired. The latest operator reports translucent dark silhouettes on the monitor and rapid light flicker in the visor, while their recording appeared clean. Capture-pressure failures skip the right-eye replay and can invoke a natural-camera fallback, giving desktop world output a different viewpoint from accepted pairs. Submitted stereo pairs retain complete-eye admission. This identifies a native pass discontinuity and leaves the reported headset flicker unattributed. |
+| Monitor output and flicker | The operator reported no flicker during ordinary play in the 10 November 2026 native 2804×2860 diagnostic session. The bounded eye and desktop pixel samples met no bright-jump threshold. Sampled rejected submission callbacks still occurred after both eye captures completed. The earlier report of desktop silhouettes and visor flicker remains unattributed. Earlier capture-pressure failures could skip right-eye replay and invoke a natural-camera fallback. The old blackout transaction remains retired. |
 | New exact reload profiles | Sixteen exact firearm profiles are runtime-integrated and host-tested. Henry is a pinned right-owned 12-round Winchester alias. Latest correlated transfers include Winchester and base Schofield; neither establishes all models, contact, playback or interruption recovery. |
 | Duel and bow instruction | The operator confirms the bow and guide work on foot and confirms mounted shooting with the exact native alternate-fire route. The collected run records mounted ready-state shot requests. Mounted movement interruptions and broader weapon, guide and duel-coach coverage remain unqualified. |
 | Horse and scoped aiming | The operator confirms substantially improved mounted control after the shallow-reverse correction. Default Walk and optional R1 acceleration retain scoped comfort acceptance. Wider terrain, deliberate reverse and scoped reticle-versus-impact retain their separate limits. |
-| Vegetation clarity and visibility | The operator reports markedly less aliasing and attributes the main clarity gain to native 2804×2860. Most tree popping during turns improved in the combined candidate with full camera restoration. Distant shadows and some far trees still pop. The Hunt01 material parse warning disappeared with the local `Grass08` override. The texture pack and spatial filter were present in the same run, so their individual visual effects remain unisolated. |
+| Vegetation clarity and visibility | The operator reports markedly less aliasing and attributes the main clarity gain to native 2804×2860. Most tree popping during turns improved in the combined candidate with full camera restoration. The later paired-shader session confirms some far trees still appear and disappear with head turns. The sampled draws do not identify the affected instances. Distant shadow transitions remain open. The Hunt01 material parse warning disappeared with the local `Grass08` override. The texture pack and spatial filter were present in the same run, so their individual visual effects remain unisolated. |
+| Mountain rock appearance | The operator reported unusual rock textures while climbing in the paired-shader session. The sampled HDR draws carry no affected material or asset identity. The symptom and its cause remain unisolated. |
 | Community Quest 3 report | The tester identifies package `v0.1.0-prealpha.7` with Virtual Desktop and a VDXR selection. They report working roomscale, tracked weapons and manual reload and confirm pause with right stick up + click. Follow-up screenshots show upward tilt on the free left hand with the right pistol aligned, and a holster tutorial near the view edge. The active runtime bridge and behavior of the newer reading panel on Quest remain unconfirmed. |
 | Pause after zoom and reading panels | The operator again confirms responsive pause after zoom on PS VR2. The collected log confirms native Escape dispatch from stereo gameplay. Earlier stable/readable menus and notices retain their scoped headset acceptance. Reading panels retain a captured world anchor and fit both eyes, and main-menu reference changes acquire an anchor at committed upload. Broader save/back/recovery paths and the separate Quest reading report remain open. |
 | Persistent reconstruction worker | At 2560×1440, matching live source bursts support offline NGX history reuse. The 2804×2860 temporal run rejected initialization because two full-size color/depth slots exceeded the capture budget. The corrected preview-only temporal mode now has GPU coverage at that native extent under the same budget. Fresh game-source capture, continuous reconstruction and compositor delivery remain unqualified. |
+| Native HDR producer ownership | Earlier 2804×2860 captures provide bounded live draw/copy and consumer observations. New producer/`1B_16` allocation, initialization `ColorFill`, device-write and stereo-identity receipts are implemented and host-tested. A fresh diagnostic candidate is prepared for a short ordinary gameplay capture; its allocation/write correlation has no live verdict yet. Standalone GPU mask/transport results do not qualify native material coverage, source admission or headset reconstruction. |
 | Head audio and render work | Collected transport passed and bounded per-eye wrapper timing has live samples for gameplay, settings and movies. The prior audio candidate recorded zero listener updates. Offline inspection found a native spatial consumer of the derived camera fields before listener collection. The candidate is retired and its startup switch is rejected. Listener-only interception remains a research gate. Render timing measures CPU wall time. GPU cost and culling savings remain unmeasured. |
+| Player package on a separate Windows PC | The package's recorded proxy identity matches the installation and run records. Retained telemetry shows native stereo at 2804×2860, normal shutdown and occasional capture-ring saturation. The report retains the final 4 MiB of the log, so canonical verification requires the full run interval. Reload gestures, image quality and sustained pacing remain unqualified by this report. |
 
 ## Current host-tested changes awaiting physical checks
-
-- **Native vertex-program diagnostic:** the opt-in resource census retains up to
-  four exact programs from the first 64 draws per scene producer, with each
-  program's first observed float constants. Host fixtures cover bound program
-  readback, immutable snapshots, getter/budget failures and the complete JSON
-  evidence route. Native skinning/wind/animated-material association, fragment
-  coverage and diagnostic overhead await a fresh game/headset run. No current-
-  color mask, object velocity or DLSS presentation is admitted by this witness.
 
 - **Skip refusal:** retained camera-only stereo requires a positively unchanged
   admissible Movie/sequence epoch. A native key call, including a throwing call,
@@ -68,6 +65,16 @@ The [pending checklist](#pending-headset-checks) owns the next physical checks;
 [Roadmap](ROADMAP.md#development-backlog) owns remaining implementation.
 
 ## Detailed acceptance boundaries
+
+The opt-in vertex-program diagnostic has bounded live delivery at 2804×2860.
+Both eyes delivered complete selected program and constant readbacks tied to
+the native FP16 scene copy. Captured bytecode and registers identify skinning,
+wind deformation and animated sky UVs within the observed draws. The first
+four distinct programs and first 64 draws per producer leave most draws outside
+the witness. Actor and fragment ownership, dynamic masks, previous poses and
+sustained diagnostic cost remain open. The operator's no-flicker observation
+applies to ordinary play during this session. That session's legacy full
+profile lacked the arm recovery witness after a recorded Create recenter.
 
 Earlier dated observations below retain their original scope. The current
 snapshot above and pending checklist distinguish later failures and untested
@@ -442,11 +449,14 @@ No whole-campaign or other-headset support is established. Community projection/
 <a id="current-physical-gate"></a>
 ## Pending headset checks
 
-Use one fresh canonical `prepare`/`finish` session when eligible scenes are
-available. Start/close the game and SteamVR manually. Unavailable scenes remain
-unobserved; no separate session is requested per row. Local run identity and the
-candidate-specific short checklist stay under ignored `work/`. Implementation
-prerequisites belong in [Development backlog](ROADMAP.md#development-backlog).
+For a new candidate, use one fresh canonical `prepare`/`finish` session when
+eligible scenes are available. For an already prepared candidate, preserve its
+existing run and staging until the operator has started and closed the game
+manually; then use `finish` to collect evidence and restore originals. Do not
+run `prepare` again while that candidate awaits the operator. Unavailable scenes
+remain unobserved; no separate session is requested per row. Local run identity
+and candidate-specific short checklists stay under ignored `work/`.
+Implementation prerequisites belong in [Development backlog](ROADMAP.md#development-backlog).
 
 The explicitly prepared sampled-source worker audit now has scoped live transport
 evidence; do not request another identical session solely for that gate. A future
@@ -466,11 +476,12 @@ or change hand-pose acceptance.
 
 | Priority / opportunity | What remains to validate |
 | --- | --- |
+| Prepared HDR ownership diagnostic — next short ordinary gameplay run | Exercise normal native stereo for approximately 30 seconds in any available scene. Collect bounded producer and `1B_16` allocation identities, initialization `ColorFill`, writes, eye copies and consumer continuity through the existing staged run. After normal game exit, `finish` and the inventoried HDR ownership analyzer determine whether one same-device, same-generation stereo pair is correlated. Inconclusive/missing observations remain unavailable. No special input gestures or repeated accepted interaction checks are requested. This is a live diagnostic gate, not a headset quality or DLSS acceptance test. |
 | Next ordinary session — monitor output | If taking a screenshot during normal VR play, verify that native desktop pixels show the scene and yield a usable capture, without earlier black flicker. Check this within an existing session. |
 | Prepared temporal-source diagnostic | When the opt-in consecutive mode is staged, collect two bounded four-attempt bursts, requiring an actual adjacent stereo pair with matching owner, pose, optics and native source identity. Gaps are inconclusive; do not claim live reconstruction or force a dedicated session solely for this probe. |
-| Current candidate — previously failing animation | One fresh skip request should either reach the permitted native consumer or leave unchanged immersive stereo stable after refusal. Record scene/button, skip versus native rejection, and any flash or theater transition. No requirement to force-skip an unskippable scene. |
-| Current candidate — Schofield/Winchester guide | With Weapon Guides enabled and ammunition carried, require one marker at the actual provisional acceptance target, green only when policy is ready. Check native transfer once, no debit on a miss, and disappearance on release/close/cancel/owner loss/Off. This does not test a new mechanical mouth: grip-centred insertion remains rejected. |
-| Current candidate — LEFT fingers after completion | Close reload, release triggers and inspect the idle rifle support hand, then detach/regrip once. Distinguish waiting, carrying, closing and returned-to-idle failures. The terminal cleanup correction does not promise a fixed active-loading pose or grip fit. |
+| Later focused session — previously failing animation | One fresh skip request should either reach the permitted native consumer or leave unchanged immersive stereo stable after refusal. Record scene/button, skip versus native rejection, and any flash or theater transition. No requirement to force-skip an unskippable scene. |
+| Later focused session — Schofield/Winchester guide | With Weapon Guides enabled and ammunition carried, require one marker at the actual provisional acceptance target, green only when policy is ready. Check native transfer once, no debit on a miss, and disappearance on release/close/cancel/owner loss/Off. This does not test a new mechanical mouth: grip-centred insertion remains rejected. |
+| Later focused session — LEFT fingers after completion | Close reload, release triggers and inspect the idle rifle support hand, then detach/regrip once. Distinguish waiting, carrying, closing and returned-to-idle failures. The terminal cleanup correction does not promise a fixed active-loading pose or grip fit. |
 | Another immersive movie or sequence | Check the naturally encountered end-of-chapter movie in Immersive and note its chapter and transition if theater appears. At the next chapter opening, check binocular fusion and line clearing. Match the report to source, pose, generation and per-eye subtitle projection records. |
 | Another duel | Assess optional EN/ES contextual coaching, current action labels and native-text priority during lower/center/wait/draw/physical raise/stick raise/aim/fire. The paused overview is adapted only for the qualified EN resource. Test early timing/retry/recenter only where naturally available; correct posture itself needs no dedicated replay. |
 | Bow with Weapon Guides | Check the implemented small native-nock marker's position/depth/readability and disappearance on release/cancel/Off. Functional one-arrow firing is already accepted. String/hand animation, reticle agreement, haptics and concentration-expiry recovery remain separate. |
@@ -1100,6 +1111,40 @@ effective blend state for the first alpha-blended draw. Observed RGB-only draws
 and differing alpha blend operations prevent promoting that channel to qualified
 depth from finite samples alone. Scene/hand/sky/transparent coverage remains
 unqualified; shader source identifies a candidate, not full coverage.
+The paired draw witness has bounded live delivery of exact vertex/pixel bytecode,
+alpha/blend/color/depth state and secondary-target binding, frozen at the native
+FP16 copy. It samples the first eight draws and every sixteenth through 1024.
+Both eyes contain exact paired programs for skinning, wind, cloud UVs and
+vegetation cutout. A standalone GPU fixture preserves RT0 bytes while writing
+a secondary marker with those captured pixel programs and representative
+RGB-only additive and source-alpha programs. A8R8G8B8 clamps overlapping
+additive marks to one in the fixture. FP16 can accumulate values above one.
+Multiplicative blending can change RT0 without writing the marker. A separate
+standalone D3D9Ex owner verifies a leading full clear, opaque overwrite and
+depth rejection, copy identity and bounded fence retirement. Both tested
+blend modes preserve native bytes when mixed with opaque writes in that owner.
+Unknown writes, incoming producer blits and secondary producer bindings
+reject the mask. The read-only witness is host-tested for clear rectangle
+mode, viewport, scissor state, incoming `StretchRect`, secondary target
+bindings, `ColorFill`, `UpdateSurface`, `UpdateTexture` and patch draw ingress.
+A device write into the current copy withdraws its currency until a later full
+copy. The diagnostic also observes the producer and `1B_16` allocation
+arguments and return identities, and the engine's initialization fill result.
+The analyzer joins these receipts to inventoried same-device, same-generation
+stereo scopes and post-copy consumers. Live allocation and write ownership,
+complete draw coverage and object or texture ownership are pending.
+
+A standalone D3D9Ex/D3D11 GPU fixture delivers two FP16 colors and two BGRA8
+masks behind a common producer fence. It verifies full-size byte identity,
+consumer retirement before reuse, pair rejection, revocation and quarantine on
+fence failure. Inputs and faults are controlled. A separate packing test
+preserves the eight-bit mask channel across the two APIs at native extent. A
+single-slot fixture packs that channel during the real producer pass, skips
+frames when either fence or the private reader owns storage, and resumes with
+byte-exact stereo output. Shared and private image banks each require about
+138 MiB at native extent, before sources, depth and allocation overhead.
+Runtime integration, sustained cadence, memory budget, device loss and native
+ingress remain open.
 Actual CoJ depth transport, material/moving-object coverage, scoped camera jitter,
 atomic eye-pair presentation and history, native raster reduction, menu activation,
 reset/device loss, sustained memory/cost and headset quality remain unimplemented
@@ -1302,6 +1347,17 @@ marked `staged` is not evidence of an active deployment; inspect canonical statu
 and the current journal. Host recovery tests do not establish headset acceptance.
 
 Evidence collection, verifier success and operator acceptance are separate facts.
+New routine full runs check exact deployment, ordinary native stereo and
+tracking, active hand/body ownership, observed faults, and complete
+restoration. Use `-InteractionRegression` with `prepare -BodyIkAtStart` for
+directed checks of menu rays and input routes (including Circle to Back),
+loading continuation, Create recenter and arm recovery, deliberate physical
+motion/crouch, Options pause, fire ordering and tracking disable. The
+run manifest records the choice. New directed fire checks require a native
+press dispatch for a hand with a verified muzzle. Sampled idle success
+rows and native firing outcomes remain separate. Earlier manifests retain
+their recorded scope. The pending physical checklist still owns feature-specific
+acceptance.
 `analysis/validation-result.json` now persists the canonical verifier's telemetry
 outcome and rejection reason, source/build/run identity, profile, requirements and
 input hashes. `evidence-manifest.json` inventories that result and the build
@@ -1325,8 +1381,8 @@ complete collected run and successful original restoration still retain/report
 the failed verifier. A fault after proxy removal retains the journal; a
 restoration-only `finish` retry preserves the original verdict and ZIP hashes.
 Result-publication failure also cannot prevent original restoration. Missing
-required gestures remain canonical rejection, even
-if the operator separately records them as unavailable. Optional run-local
+gestures required by the selected regression scope remain canonical rejection,
+even if the operator separately records them as unavailable. Optional run-local
 `operator-observations.json` is separately inventoried and cannot change telemetry
 outcome. `headsetAcceptance=not_evaluated` is mandatory: neither `incomplete=false`,
 matching hashes nor a dashboard-cycle summary accepts recovery or a visual gate.

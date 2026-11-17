@@ -19,10 +19,11 @@ owns acceptance state and unresolved physical gates; [ROADMAP.md](ROADMAP.md)
 owns development priorities. [Documentation index](README.md) maps the
 exact-game research and release boundaries.
 
-[Reference-project findings](research/COJ_VR_REFERENCE_PROJECTS.md) map external
-grip, reload, UI and rendering patterns to these boundaries. They guide hypotheses
-and priorities; they introduce no runtime dependency, native contract or headset
-acceptance. Source/deployment audit history and per-run checklists stay in `work/`.
+Comparative source reviews of external VR projects are consolidated in the
+ignored local `work/research/VR_REFERENCE_RESEARCH.md`. They guide agent
+hypotheses, but introduce no runtime dependency, native contract or headset
+acceptance. The [documentation index](README.md) explains this local-only scope;
+source/deployment audit history and per-run checklists also stay in `work/`.
 
 ## Layering
 
@@ -1971,8 +1972,8 @@ The official SDK/runtime is an ignored, pinned external dependency prepared by
 normal game staging/releases. Local host experiments do not qualify distribution.
 Shared sun shadows also
 need independently demonstrated Chrome light/cascade/caster and atlas lifetime
-equivalence. Neither technique is enabled by this spatial processor; see
-[reference findings](research/COJ_VR_REFERENCE_PROJECTS.md#farcry2vr-rendering-findings-and-limits).
+equivalence. Neither technique is enabled by this spatial processor. The external
+FarCry2VR comparison is retained in ignored local `work/research/VR_REFERENCE_RESEARCH.md`.
 Native video options already expose anisotropic trilinear filtering; its native
 mode is not evidence of a forced 16x factor. No sampler override is introduced.
 

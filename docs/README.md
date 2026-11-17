@@ -4,7 +4,7 @@ Use this index to locate the single owner of each fact. The repository's
 [README](../README.md) presents the public mod and latest *published* package;
 the source checkout may have more features than that release.
 
-For current state, start with [Validation's snapshot](VALIDATION.md#current-state--8-november-2026).
+For current state, start with [Validation's snapshot](VALIDATION.md#current-state).
 Use [pending headset checks](VALIDATION.md#pending-headset-checks) for implemented
 changes awaiting physical evidence, and [development backlog](ROADMAP.md#development-backlog)
 for work still to implement. Withdrawn locators and deferred experiments are
@@ -41,8 +41,18 @@ for debugging and can only be reactivated after the stated gates are met.
 | Pause/level screenshot crash path | [Save/thumbnail path](research/COJ_SAVE_THUMBNAIL_PATH.md) |
 | Native shutdown and callback ownership | [Shutdown boundary](research/COJ_SHUTDOWN_BOUNDARY.md) |
 | Fire-emitter definitions and LAA pointer handling | [World-fire definitions](research/COJ_WORLD_FIRE_DEFINITIONS.md) |
-| External VR implementations, reuse limits and DLSS comparisons | [Reference projects](research/COJ_VR_REFERENCE_PROJECTS.md) |
 | Human/head ownership and scoped Neural crop boundaries | [Human-focused Neural](research/COJ_NEURAL_HUMAN_TARGETING.md) |
+
+## External reference investigations (local only)
+
+Cross-project source reviews, DLSS/Neural comparisons, gameplay/immersion ideas
+and agent follow-ups share one ignored local research entry point:
+`work/research/VR_REFERENCE_RESEARCH.md` (from the repository root). It is
+available in the developer's workspace, but **absent from clean Git clones**.
+These hypotheses do not own Chrome Engine contracts, task priority or headset
+acceptance; use the three sources of truth above for those decisions. Individual
+run evidence and earlier research journals remain under ignored `work/` for
+provenance.
 
 ## Evidence versus history
 

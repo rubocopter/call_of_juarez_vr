@@ -8,11 +8,11 @@ acceptance or supported hardware.
 
 ## Current gate
 
-As of **8 November 2026**, the active target remains the original Steam CoJ
-(2006), Windows x86, native D3D9 stereo through OpenVR/SteamVR. The exact tested
+The active target is the original Steam CoJ (2006), Windows x86, native D3D9
+stereo through OpenVR/SteamVR. The exact tested
 GOG build has experimental functional acceptance; it is not a second fully
 supported target. Physical acceptance remains scoped to exercised PS VR2 Sense
-contexts. [Validation](VALIDATION.md#current-state--8-november-2026) owns verdicts;
+contexts. [Validation](VALIDATION.md#current-state) owns verdicts;
 the [pending checklist](VALIDATION.md#pending-headset-checks) owns physical tests.
 
 Current source already implements and host-tests these changes:
@@ -80,6 +80,18 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
 - Independent right-stick-back hammer cocking: hammer meshes/fire tracks do not
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
+- Physical whole-bundle reload starts with the exact base Schofield. Qualify
+  button opening with a full or partly loaded weapon, a deliberate downward
+  gesture to unload, one support-hand bundle insertion, and a lateral gesture
+  that requests native close. Opening preserves the loaded count. Qualify
+  native ammunition accounting on unload and insertion, and require native
+  close confirmation before admitting fresh fire input. The current automatic
+  close after insertion remains the baseline for comparison.
+  First verify the six rear mouths in the displayed open drum. Show spent
+  cases only with known chamber history. Use a short cosmetic fall before
+  qualifying ground contact or persistence. Prefer returning still-loaded
+  rounds to the pistol reserve once the native two-counter transfer has been
+  verified for the held weapon, including a full reserve and interrupted calls.
 - Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
   per-calibre loose ammunition are not implemented by the manual transfer routes.
 - Explicit LeMat mode/port selection, dual-wield manual reload and legacy `_Old`
@@ -197,12 +209,25 @@ and explicit native exclusions, with recorded reduced-source NGX replay. An
 opt-in paired-session/worker owner now commits private depth only after complete
 stereo inference, seeds reset pairs with current color and retires old mask
 storage before new workloads. The active game adapter leaves this disabled.
-Static original-material review identifies skinning, wind deformation and
-time-animated water/clouds as distinct temporal exclusion candidates. The
-source investigation now has host-tested bounded vertex-program/current-constant
-witnesses frozen at the native scene copy. Collect those witnesses in the game,
-then associate deformation families with qualified eye/frame and measured coverage;
-camera/depth reprojection or blend state alone does not qualify these surfaces.
+The bounded native scene-copy witness now has live program and constant
+observations for skinning, wind deformation and animated sky. The opt-in
+paired draw witness has bounded live coverage of exact vertex/pixel programs
+and render state, including draws outside the original first-program budget
+and vegetation cutout. Captured pixel programs preserve primary color with a
+secondary marker in the standalone GPU fixture, including representative
+RGB-only additive and source-alpha draws. A separate host fixture verifies
+one leading full clear, opaque occlusion, both blend modes in the same
+producer scope, and bounded sidecar retirement at the native-copy boundary.
+The read-only witness records incoming typed blits, device writes and secondary
+bindings at the HDR copy boundary. A standalone D3D9Ex/D3D11 fixture verifies a
+common lease for both eye colors and masks through consumer retirement. One
+native-size slot with lossless mask packing skips busy frames and reuses the
+same allocations after both fences and private reader retirement. A duplicate
+color pool still makes the shared and private storage exceed the sampled-depth
+capture budget. Next correlate the native allocation, initialization and
+write receipts in a live stereo scope and integrate with existing color
+ownership. Water and other transparency remain separate cases.
+Camera/depth reprojection and blend state do not establish that coverage.
 Next qualify native
 dynamic/material exclusions, scoped game jitter and dynamic motion, connect
 continuous reconstruction scheduling, then atomically present reconstructed
@@ -236,8 +261,8 @@ do not allocate the next core-VR candidate to this experiment.
 Reopening requires a renewed development decision, useful representative quality
 and fresh native delivery with exact result/source identity. Stale-result blending
 and longer frame holds do not satisfy that boundary. Retained technical findings
-belong to [human targeting](research/COJ_NEURAL_HUMAN_TARGETING.md) and the
-[DirectNR comparison](research/COJ_VR_REFERENCE_PROJECTS.md#penumbra-directnr-comparison);
+belong to [human targeting](research/COJ_NEURAL_HUMAN_TARGETING.md); the external
+Penumbra/DirectNR comparison is in ignored local `work/research/VR_REFERENCE_RESEARCH.md`.
 [Validation](VALIDATION.md#standalone-neural-laboratory) owns the rejected verdict.
 
 The operator has renewed autonomous offline DLSS/Neural research. One/two-pass

@@ -43,7 +43,7 @@ The playable core is already in place. In exercised PS VR2 scenes it includes:
 - **Interactions and presentation:** controller-driven menus, equipment wheel, HUD and subtitles, environmental interactions, native story sequences, and VR-specific options.
 - **Manual firearm loading:** physical ammunition gestures with native ammo accounting. Individual revolver, base Schofield clip and Winchester operations have **limited, scene-specific** positive feedback; the wider weapon roster remains experimental.
 
-The **development source** is ahead of the latest published player ZIP: it contains 16 exact manual firearm profiles, provisional insertion guides, more refined movie/hand recovery, native desktop output restoration and experimental color/depth/optics capture for future reconstruction. The DLAA/DLSS backend works in isolated tests and offline game samples; **gameplay still renders natively**. None of these newer changes implies headset acceptance or a newer public release.
+The **development source** adds 16 exact manual firearm profiles, provisional insertion guides, movie and hand recovery, restored desktop output, and diagnostics for per-eye color, depth and optics. NVIDIA NGX runs DLAA and DLSS Quality on recorded game inputs in the lab. **The game presents native stereo.** Current physical checks and their results are in [Validation](docs/VALIDATION.md#current-state).
 
 ## Install
 
@@ -57,6 +57,8 @@ Requires Windows 10/11 x64, the original supported game build, a PCVR headset, S
 4. Launch the game manually in **D3D9**. For subsequent sessions use **Prepare play session** in the launcher.
 
 The installer provides optional startup resolution profiles, a manual-reload switch under **Advanced**, diagnostics and recovery. **Virtual Desktop users must use its SteamVR route**; VDXR does not enable OpenXR in this mod. Read the [player guide](release/README.txt) included in *your downloaded package* for exact controls, installation and uninstall instructions.
+
+The VR installer requires the original supported executable and game archives. Kuzja80 distributes the optional **Call of Juarez HD** texture pack separately. Its download page also describes an alternate executable, which is outside the VR installer's supported build list. [Original texture pack and permissions](https://www.nexusmods.com/callofjuarez/mods/1)
 
 ### PS VR2 Sense controls
 
