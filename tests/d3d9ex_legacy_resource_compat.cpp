@@ -20,6 +20,8 @@ std::atomic_uint32_t g_translated_results{0};
 std::atomic_uint32_t g_destroy_events{0};
 std::atomic_uint32_t g_failed_results{0};
 HRESULT g_last_failure = S_OK;
+std::uintptr_t g_created_2d_texture=0;
+bool g_created_2d_shared_argument=false;
 
 void ObserveDestroy(void*, std::uintptr_t resource,
                     cojvr::games::call_of_juarez::LegacyTextureKind,
@@ -37,6 +39,10 @@ void ObserveEvent(
         g_enter_events.fetch_add(1, std::memory_order_relaxed);
     } else {
         g_result_events.fetch_add(1, std::memory_order_relaxed);
+        if(event.kind==cojvr::games::call_of_juarez::LegacyTextureKind::texture_2d&&SUCCEEDED(event.result)) {
+            g_created_2d_texture=event.object;
+            g_created_2d_shared_argument=event.shared_argument;
+        }
         if(FAILED(event.result)){
             g_failed_results.fetch_add(1,std::memory_order_relaxed);
             g_last_failure=event.result;
@@ -109,6 +115,8 @@ int main(int argc,char** argv) {
     hr = device->CreateTexture(
         32, 32, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texture, nullptr);
     if (FAILED(hr) || !texture) return Fail("MANAGED 2D texture compatibility failed", hr);
+    if(trace&&(g_created_2d_texture!=reinterpret_cast<std::uintptr_t>(texture.Get())||g_created_2d_shared_argument))
+        return Fail("2D texture diagnostic lost the identity or private allocation argument");
     D3DLOCKED_RECT locked{};
     hr = texture->LockRect(0, &locked, nullptr, 0);
     if (FAILED(hr)) return Fail("translated 2D texture was not lockable", hr);
@@ -209,6 +217,13 @@ int main(int argc,char** argv) {
     if (!cojvr::games::call_of_juarez::ReacquireD3D9ExLegacyTextureCompatibility(device.Get())) {
         return Fail("legacy texture compatibility hook did not remain reacquirable");
     }
+    HANDLE shared=nullptr;
+    ComPtr<IDirect3DTexture9> shared_texture;
+    hr=device->CreateTexture(32,32,1,D3DUSAGE_RENDERTARGET,D3DFMT_A8R8G8B8,
+        D3DPOOL_DEFAULT,&shared_texture,&shared);
+    if(FAILED(hr)||!shared_texture||!shared) return Fail("shared 2D texture creation failed",hr);
+    if(trace&&(g_created_2d_texture!=reinterpret_cast<std::uintptr_t>(shared_texture.Get())||!g_created_2d_shared_argument))
+        return Fail("2D texture diagnostic treated creation with a null input handle as private");
     if (!cojvr::games::call_of_juarez::RestoreD3D9ExLegacyTextureCompatibility()) {
         return Fail("legacy texture compatibility hook did not restore cleanly");
     }

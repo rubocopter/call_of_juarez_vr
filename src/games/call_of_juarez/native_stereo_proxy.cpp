@@ -202,8 +202,12 @@ std::filesystem::path GameDirectory() noexcept {
 }
 
 std::filesystem::path LogPath() noexcept {
-    const auto directory = GameDirectory();
-    return directory.empty() ? std::filesystem::path{} : directory / L"cojvr.log";
+    try {
+        const auto directory = GameDirectory();
+        return directory.empty() ? std::filesystem::path{} : directory / L"cojvr.log";
+    } catch (...) {
+        return {};
+    }
 }
 
 void LogLine(const std::string_view line) noexcept {
@@ -354,9 +358,22 @@ void AppendHdrCopyWitness(std::ostream& out,std::uint64_t calls,std::uintptr_t s
 }
 void AppendHdrProducerWitness(std::ostream& out,const cojvr::backends::d3d9::HdrProducerWrites& p,bool complete) {
     const auto& b=p.first_alpha_blend;
+    const auto& clear=p.first_color_clear;
     out<<",\"sourceCopyProducer\":{\"surface\":"<<p.surface<<",\"drawCalls\":"<<p.draw_calls
        <<",\"alphaDrawCalls\":"<<p.alpha_draw_calls<<",\"alphaBlendDrawCalls\":"<<p.alpha_blend_draw_calls
-       <<",\"clearCalls\":"<<p.clear_calls<<",\"firstAlphaShader\":"<<p.first_alpha_shader
+       <<",\"clearCalls\":"<<p.clear_calls<<",\"firstColorClear\":{\"rectangles\":"<<unsigned(clear.rectangles)
+       <<",\"drawsBefore\":"<<clear.draws_before<<",\"stateComplete\":"<<(clear.state_complete?"true":"false")
+       <<",\"fullViewport\":"<<(clear.full_viewport?"true":"false")
+       <<",\"scissorEnabled\":"<<(clear.scissor_enabled?"true":"false")
+       <<",\"leadingFullViewport\":"<<(complete&&p.HasLeadingFullClear()?"true":"false")<<'}'
+       <<",\"firstAlphaShader\":"<<p.first_alpha_shader
+       <<",\"incomingStretchRect\":{\"surface\":"<<p.ingress_surface<<",\"calls\":"<<p.incoming_copies
+       <<",\"complete\":"<<(p.incoming_copy_observation_complete?"true":"false")<<'}'
+       <<",\"directDeviceWrites\":{\"surface\":"<<p.ingress_surface<<",\"calls\":"<<p.direct_writes
+       <<",\"complete\":"<<(p.direct_write_observation_complete?"true":"false")<<'}'
+       <<",\"secondaryTargetBinding\":{\"surface\":"<<p.ingress_surface
+       <<",\"bound\":"<<(p.was_secondary_target?"true":"false")
+       <<",\"complete\":"<<(p.secondary_target_observation_complete?"true":"false")<<'}'
        <<",\"lastAlphaShader\":"<<p.last_alpha_shader<<",\"firstAlphaBlend\":{\"observed\":"<<(b.observed?"true":"false")
        <<",\"shader\":"<<b.shader<<",\"stateComplete\":"<<(b.state_complete?"true":"false")
        <<",\"separateAlpha\":"<<(b.separate_alpha?"true":"false")<<",\"sourceBlend\":"<<b.source_blend
@@ -385,7 +402,7 @@ void PollFrameLumaProbes() noexcept {
                 <<",\"sourceAlphaWriteCalls\":"<<sample.source_alpha_write_calls
                 <<",\"sourceLastWriterShader\":"<<sample.source_last_writer_shader
                 <<",\"sourceWriteObservationComplete\":"<<(sample.source_write_observation_complete?"true":"false")
-                <<",\"sourceWriteCoverage\":\"rt0_and_typed_native_copy_destinations\"";
+                <<",\"sourceWriteCoverage\":\"rt0_typed_device_writes_and_secondary_target_intents\"";
             AppendHdrCopyWitness(line,sample.source_copy_calls,sample.source_copy_source,
                 sample.source_copy_source_rect,sample.source_copy_destination_rect,sample.source_copy_rectangles_observed,
                 sample.source_copy_source_format,sample.source_copy_write_call,
@@ -619,25 +636,32 @@ void BeginHdrSource(ResourceProbeThread& trace,std::uint64_t frame,std::uintptr_
         trace.alpha_candidate=snapshot.buffers[n].texture.texture_2d;
         trace.alpha_width=snapshot.buffers[n].texture.width;trace.alpha_height=snapshot.buffers[n].texture.height;
     }
+    if(trace.alpha_candidate)
+        cojvr::backends::d3d9::ObserveHdrInitialSecondaryTargets(device,trace.alpha_writes);
 }
 void EndHdrSource(ResourceProbeThread& trace,bool complete) noexcept {
     if(!trace.alpha_active)return;
     trace.alpha_active=false;
     try {std::ostringstream out;out<<"native_hdr_source_scope: {\"scope\":"<<trace.alpha_scope
         <<",\"frame\":"<<trace.alpha_frame<<",\"owner\":"<<trace.alpha_owner<<",\"generation\":"<<trace.alpha_generation
+        <<",\"device\":"<<reinterpret_cast<std::uintptr_t>(trace.device)<<",\"thread\":"<<GetCurrentThreadId()
+        <<",\"continuity\":"<<trace.alpha_epoch<<",\"hookEpoch\":"<<trace.integrity_epoch
+        <<",\"sourceTexture\":"<<trace.alpha_candidate<<",\"sourceSurface\":"<<trace.alpha_writes.source_surface
         <<",\"eye\":"<<trace.alpha_eye<<",\"complete\":"<<(complete?"true":"false")
         <<",\"attemptedConsumers\":"<<trace.alpha_count
         <<",\"sourceWriteCalls\":"<<trace.alpha_writes.calls
         <<",\"sourceAlphaWriteCalls\":"<<trace.alpha_writes.alpha_calls
         <<",\"sourceLastWriterShader\":"<<trace.alpha_writes.last_shader
         <<",\"sourceWriteObservationComplete\":"<<(trace.alpha_writes.complete?"true":"false")
-        <<",\"sourceWriteCoverage\":\"rt0_and_typed_native_copy_destinations\"";
+        <<",\"sourceWriteCoverage\":\"rt0_typed_device_writes_and_secondary_target_intents\"";
         AppendHdrCopyWitness(out,trace.alpha_writes.copy_calls,trace.alpha_writes.copy_source,
             trace.alpha_writes.copy_source_rect,trace.alpha_writes.copy_destination_rect,trace.alpha_writes.copy_rectangles_observed,
             trace.alpha_writes.copy_source_format,trace.alpha_writes.copy_write_call,
             trace.alpha_writes.copy_source_width,trace.alpha_writes.copy_source_height,
             cojvr::backends::d3d9::HasCurrentEyeHdrCopy(trace.alpha_writes,trace.alpha_width,trace.alpha_height));
         AppendHdrProducerWitness(out,trace.alpha_writes.copy_producer,trace.alpha_writes.copy_producer_complete);
+        out<<",\"sourceCopyDrawPairs\":";
+        cojvr::backends::d3d9::AppendHdrDrawPairs(out,trace.alpha_writes.copy_producer.draw_pairs);
         out<<",\"temporalAdmitted\":false}";LogLine(out.str());}catch(...){}
 }
 namespace hud = cojvr::backends::d3d9::hud;
@@ -885,6 +909,19 @@ void ResourceProbeCopy(IDirect3DDevice9* device,IDirect3DSurface9* source,const 
        trace.alpha_epoch==g_stereo.device_generation.load()+g_resource_probe_resets.load())
         cojvr::backends::d3d9::ObserveHdrSourceCopy(device,trace.alpha_candidate,trace.alpha_width,trace.alpha_height,
             source,source_rect,destination,destination_rect,result,trace.alpha_writes);
+}
+void ResourceProbeWrite(IDirect3DDevice9* device,cojvr::backends::d3d9::ResourceWriteKind kind,
+    IDirect3DSurface9* surface,IDirect3DBaseTexture9* texture,HRESULT result) noexcept {
+    if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
+    auto& trace=g_resource_probe_thread;
+    if(trace.alpha_active&&trace.device==device&&trace.alpha_candidate&&!trace.alpha_copying&&
+       trace.alpha_epoch==g_stereo.device_generation.load()+g_resource_probe_resets.load()){
+        using namespace cojvr::backends::d3d9;
+        if(kind==ResourceWriteKind::patch_draw)
+            ObserveHdrPatchWrite(device,result,trace.alpha_width,trace.alpha_height,trace.alpha_writes);
+        else
+            ObserveHdrDeviceWrite(kind,surface,texture,result,trace.alpha_width,trace.alpha_height,trace.alpha_writes);
+    }
 }
 void ResourceProbeEvent(IDirect3DDevice9* device,
     const cojvr::backends::d3d9::RenderResourceEvent& event) noexcept {
@@ -1182,6 +1219,10 @@ void ObserveSampledDepth(cojvr::runtime::Eye eye, std::uint64_t frame, std::uint
 void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
     std::uintptr_t owner,bool begin,bool complete,const char* route_name) noexcept {
     const DWORD error = GetLastError();
+    struct RestoreLastError {
+        DWORD value;
+        ~RestoreLastError() { SetLastError(value); }
+    } restore_error{error};
     if (g_sampled_depth_enabled) {
         ObserveSampledDepth(eye, frame, owner, begin, complete, std::string_view(route_name) == "gameplay");
         SetLastError(error);
@@ -1191,7 +1232,7 @@ void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t fra
     const unsigned route=std::string_view(route_name)=="movie"?2:
         std::string_view(route_name)=="settings"?1:0;
     if(!begin) {
-        if(!trace.active&&!trace.alpha_active){SetLastError(error);return;}
+        if(!trace.active&&!trace.alpha_active)return;
         const auto integrity=CurrentProbeContinuity(trace.device);
         const auto current_generation=g_stereo.device_generation.load(std::memory_order_acquire)+
             g_resource_probe_resets.load(std::memory_order_acquire);
@@ -1205,13 +1246,18 @@ void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t fra
             trace.alpha_eye==(eye==cojvr::runtime::Eye::left?0u:1u)&&trace.alpha_epoch==current_generation&&
             integrity.intact&&integrity.epoch==trace.integrity_epoch&&calls_complete);
         trace.active=false;
-        SetLastError(error);return;
+        return;
     }
     try {
         if(trace.active||trace.alpha_active)CancelResourceProbe();
-        IDirect3DDevice9* device=nullptr;
-        {std::lock_guard lock(g_stereo.device_mutex);device=g_stereo.device;}
-        const auto device_generation=g_stereo.device_generation.load(std::memory_order_acquire);
+        Microsoft::WRL::ComPtr<IDirect3DDevice9> retained_device;
+        std::uint64_t device_generation=0;
+        {
+            std::lock_guard lock(g_stereo.device_mutex);
+            retained_device=g_stereo.device;
+            device_generation=g_stereo.device_generation.load(std::memory_order_acquire);
+        }
+        auto* const device=retained_device.Get();
         const auto generation=device_generation+
             g_resource_probe_resets.load(std::memory_order_acquire);
         if(eye==cojvr::runtime::Eye::left) {
@@ -1231,7 +1277,7 @@ void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t fra
             trace.generation==generation&&trace.route==route) {
             const auto integrity=CurrentProbeContinuity(device);
             if(!integrity.intact||!g_resource_call_boundary.Begin(device)) {
-                trace.selected=false;SetLastError(error);return;
+                trace.selected=false;return;
             }
             trace.integrity_epoch=integrity.epoch;
             if(!trace.probe)trace.probe=std::make_unique<ResourceProbe>(&ResourceProbeSink);
@@ -1246,14 +1292,13 @@ void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t fra
         if(route==0&&((trace.alpha_pair&&trace.alpha_pair_frame==frame)||trace.active)) {
             if(!trace.active) {
                 const auto integrity=CurrentProbeContinuity(device);
-                if(!integrity.intact||!g_resource_call_boundary.Begin(device)){SetLastError(error);return;}
+                if(!integrity.intact||!g_resource_call_boundary.Begin(device))return;
                 trace.integrity_epoch=integrity.epoch;trace.device=device;
             }
             BeginHdrSource(trace,frame,owner,eye==cojvr::runtime::Eye::left?0:1,device,device_generation);
             trace.alpha_epoch=generation;
         }
     } catch (...) { CancelResourceProbe(); }
-    SetLastError(error);
 }
 
 void ObserveRenderPass(void* context, cojvr::runtime::Eye eye, std::uint64_t frame,
@@ -1283,6 +1328,60 @@ std::uintptr_t ModuleRva(const std::uintptr_t address) noexcept {
         return 0;
     }
     return address - reinterpret_cast<std::uintptr_t>(module);
+}
+
+// Return addresses in the pinned ChromeEngine3 HDR allocation and fill paths.
+constexpr std::uintptr_t kHdrProducerCaller = 0x210ecb;
+constexpr std::uintptr_t kHdrTextureCaller = 0x23def9;
+constexpr std::uintptr_t kHdrFillCaller = 0x23e96b;
+constexpr unsigned kHdrAllocationLimit = 2048;
+std::atomic_uint g_hdr_allocation_events{0};
+
+bool IsHdrAllocationCaller(std::uintptr_t caller, std::uintptr_t expected_rva) noexcept {
+    const auto engine = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"ChromeEngine3.dll"));
+    return engine && caller == engine + expected_rva;
+}
+
+void LogHdrAllocation(const char* kind, std::uintptr_t device, std::uintptr_t caller_rva,
+    std::uintptr_t object, HRESULT result, auto&& append_fields) noexcept {
+    auto emitted = g_hdr_allocation_events.load(std::memory_order_relaxed);
+    do {
+        if (emitted > kHdrAllocationLimit) return;
+    } while (!g_hdr_allocation_events.compare_exchange_weak(emitted,emitted+1,std::memory_order_relaxed));
+    const bool overflow = emitted == kHdrAllocationLimit;
+    try {
+        const auto generation = g_stereo.device_generation.load(std::memory_order_acquire);
+        const auto continuity = generation + g_resource_probe_resets.load(std::memory_order_acquire);
+        std::ostringstream out;
+        out << "native_hdr_allocation: {\"kind\":\"" << (overflow ? "overflow" : kind)
+            << "\",\"device\":" << device << ",\"generation\":" << generation
+            << ",\"continuity\":" << continuity << ",\"thread\":" << GetCurrentThreadId()
+            << ",\"callerRva\":" << (overflow ? 0 : caller_rva) << ",\"object\":" << (overflow ? 0 : object)
+            << ",\"result\":" << (overflow ? 0 : static_cast<std::uint32_t>(result));
+        if (!overflow) append_fields(out);
+        out << '}';
+        LogLine(out.str());
+    } catch (...) {}
+}
+
+void ResourceProbeTargetResource(IDirect3DDevice9* device,
+    const cojvr::backends::d3d9::RenderTargetResourceEvent& event) noexcept {
+    using Kind = cojvr::backends::d3d9::RenderTargetResourceKind;
+    const auto identity = reinterpret_cast<std::uintptr_t>(device);
+    if (event.kind == Kind::create && IsHdrAllocationCaller(event.caller,kHdrProducerCaller)) {
+        if (SUCCEEDED(event.result) && !event.identity) return;
+        LogHdrAllocation("producer",identity,kHdrProducerCaller,event.identity,event.result,[&](std::ostream& out) {
+            out << ",\"width\":" << event.width << ",\"height\":" << event.height << ",\"format\":" << unsigned(event.format)
+                << ",\"samples\":" << unsigned(event.samples) << ",\"quality\":" << event.quality
+                << ",\"lockable\":" << (event.lockable ? "true" : "false")
+                << ",\"sharedArgument\":" << (event.shared_argument ? "true" : "false");
+        });
+    } else if (event.kind == Kind::color_fill && IsHdrAllocationCaller(event.caller,kHdrFillCaller)) {
+        if (SUCCEEDED(event.result) && !event.identity) return;
+        LogHdrAllocation("fill",identity,kHdrFillCaller,event.identity,event.result,[&](std::ostream& out) {
+            out << ",\"fullRect\":" << (event.full_rect ? "true" : "false") << ",\"color\":" << event.color;
+        });
+    }
 }
 
 const char* LegacyTextureKindName(
@@ -1338,6 +1437,18 @@ void LogAddressSpace(const std::uint64_t sequence, const bool allocation_failed)
 void LegacyTextureEvent(
     void*,
     const cojvr::games::call_of_juarez::LegacyTextureCreateEvent& event) noexcept {
+    using CreatePhase = cojvr::games::call_of_juarez::LegacyTextureCreatePhase;
+    using TextureKind = cojvr::games::call_of_juarez::LegacyTextureKind;
+    if (g_resource_probe_enabled.load(std::memory_order_acquire) && event.phase == CreatePhase::result &&
+        event.kind == TextureKind::texture_2d && event.format == D3DFMT_A16B16G16R16F &&
+        (event.effective_usage & D3DUSAGE_RENDERTARGET) && IsHdrAllocationCaller(event.caller,kHdrTextureCaller)) {
+        LogHdrAllocation("texture",event.device,kHdrTextureCaller,event.object,event.result,[&](std::ostream& out) {
+            out << ",\"width\":" << event.width << ",\"height\":" << event.height << ",\"format\":" << unsigned(event.format)
+                << ",\"usage\":" << event.effective_usage << ",\"pool\":" << unsigned(event.effective_pool)
+                << ",\"levels\":" << event.levels
+                << ",\"sharedArgument\":" << (event.shared_argument ? "true" : "false");
+        });
+    }
     try {
         std::ostringstream line;
         line << "native_stereo_startup_event: event=legacy_texture_create"
@@ -2723,13 +2834,13 @@ void AfterCreateDevice(
             reinterpret_cast<std::uintptr_t>(root), std::memory_order_release);
         replacement->AddRef();
         IDirect3DDevice9* previous = nullptr;
+        std::uint64_t generation = 0;
         {
             std::lock_guard lock(g_stereo.device_mutex);
             previous = g_stereo.device;
             g_stereo.device = replacement;
+            generation = g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
         }
-        const std::uint64_t generation =
-            g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
         const bool is_d3d9ex = returned_ex;
         g_stereo.flat_capture_active.store(false, std::memory_order_release);
         g_stereo.stereo_queue.Invalidate();
@@ -2760,6 +2871,8 @@ void AfterCreateDevice(
                 ? &ResourceProbeEvent : nullptr,
             .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
             .resource_probe_copy = (g_resource_probe_enabled.load() || g_sampled_depth_enabled) ? &ResourceProbeCopy : nullptr,
+            .resource_probe_write = g_resource_probe_enabled.load() ? &ResourceProbeWrite : nullptr,
+            .resource_probe_target_resource = g_resource_probe_enabled.load() ? &ResourceProbeTargetResource : nullptr,
             .hud_batch_draw = g_resource_probe_enabled.load() ? &HudBatchDraw : nullptr,
             .hud_batch_call = g_resource_probe_enabled.load() ? &HudBatchCall : nullptr,
             .allow_reset = &AllowDeviceReset,

@@ -8018,20 +8018,25 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         }
         last_stationary_cannon=stationary_current.cannon;last_stationary_shot=fire_input.fire_left;
         std::string fire_error;
+        CoJFirePresses pressed;
         const bool fire_ok=g_java_player_bridge.TryApplyGameplayInput(
-            fire_input,&fire_error,CoJInputDispatchPhase::fire,0.0F,0,&input_trace);
+            fire_input,&fire_error,CoJInputDispatchPhase::fire,0.0F,0,&input_trace,&pressed);
         stationary_fire_frame.ReachedFireBoundary();
         stationary_aim_frame.ReachedFireBoundary();
         scoped_rifle_fire_frame.ReachedFireBoundary();
         if(!fire_ok)g_scoped_rifle_fire.Interrupt();
         if(!fire_ok){g_stationary_aim.Invalidate();g_stationary_fire.Interrupt();ResetPhysicalBowDraw("fire_dispatch");bow_feedback={};}
-        if (!fire_ok || ShouldObserveBodyFrame(frame_sequence) || gameplay_changed) {
+        if (!fire_ok || pressed.left || pressed.right || ShouldObserveBodyFrame(frame_sequence)) {
+            const bool fire_with_verified_muzzle =
+                (pressed.left && aim_observation.left_muzzle_verified) ||
+                (pressed.right && aim_observation.right_muzzle_verified);
             EmitEvent("controller_fire_dispatch",fire_ok ? "applied" : "unavailable",
                 "frame_sequence="+std::to_string(frame_sequence)+
                 ";phase=after_weapon_pose_attempt;verified_left_muzzle="+
                 (aim_observation.left_muzzle_verified ? "true" : "false")+
                 ";verified_right_muzzle="+(aim_observation.right_muzzle_verified ? "true" : "false")+
-                ";non_fire_actions=false;detail="+fire_error);
+                ";non_fire_actions=false;dispatched_fire_with_verified_muzzle="+
+                (fire_with_verified_muzzle ? "true" : "false")+";detail="+fire_error);
         }
     }else {g_stationary_aim.Invalidate();g_stationary_fire.Interrupt();g_physical_punch.Reset();ResetPhysicalBowDraw("input_disabled");}
     (void)UpdateLocalHeadVisibility(true, frame_sequence);

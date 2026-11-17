@@ -1,4 +1,4 @@
-#include "backends/d3d9/hdr_vertex_programs.hpp"
+#include "backends/d3d9/hdr_draw_pairs.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include <d3dcompiler.h>
@@ -28,7 +28,7 @@ int main(int argc,char** argv)try{
         if(failure==4)shader.fail_read=true;
         if(failure==5)shader.change_size=true;
         HdrVertexProgram program;
-        Check(!ReadHdrVertexProgramCode(&shader,program),"invalid program admitted");
+        Check(!ReadHdrShaderProgramCode(&shader,program),"invalid program admitted");
         if(failure<4)Check(shader.reads==0,"invalid program size triggered bytecode read");
     }
     ComPtr<IDirect3D9Ex> api;ComPtr<IDirect3DDevice9> device;
@@ -64,6 +64,16 @@ int main(int argc,char** argv)try{
     Check(ledger.programs[0]->constants_complete&&ledger.programs[0]->constants[0]==1&&ledger.programs[0]->constants[3]==4,
         "bound native constants not copied");
     const auto frozen=ledger;
+    const DWORD pixel_code[]={0xffff0200,0x02000001,0x800f0800,0xa0e40000,0x0000ffff};
+    ComPtr<IDirect3DPixelShader9> pixel;
+    Check(SUCCEEDED(device->CreatePixelShader(pixel_code,&pixel))&&
+        SUCCEEDED(device->SetPixelShader(pixel.Get())),"bind draw-pair PS");
+    HdrDrawPairs draw_pairs;
+    for(unsigned ordinal=1;ordinal<=1040;++ordinal)
+        ObserveHdrDrawPair(device.Get(),pixel.Get(),ordinal,D3DCOLORWRITEENABLE_RED,draw_pairs);
+    Check(draw_pairs.observed==72&&!draw_pairs.read_failures&&draw_pairs.samples[0]->ordinal==1&&
+        draw_pairs.samples[8]->ordinal==16&&draw_pairs.samples[12]->ordinal==80&&
+        draw_pairs.samples.back()->ordinal==1024,"draw-pair position budget lost or unbounded");
     if(argc==2){
         std::ofstream output(argv[1]);AppendHdrVertexPrograms(output,frozen);Check(bool(output),"write fixture JSON");
         HdrVertexPrograms maximum;maximum.draws=4;
@@ -75,6 +85,8 @@ int main(int argc,char** argv)try{
         }
         std::ofstream large(std::string(argv[1])+".max.json");AppendHdrVertexPrograms(large,maximum);
         Check(bool(large),"write maximum fixture JSON");
+        std::ofstream pairs(std::string(argv[1])+".pairs.json");AppendHdrDrawPairs(pairs,draw_pairs);
+        Check(bool(pairs),"write draw-pair fixture JSON");
     }
     const float changed[]={5,6,7,8};device->SetVertexShaderConstantF(0,changed,1);
     device->SetVertexShader(shaders[0].Get());ObserveHdrVertexPrograms(device.Get(),ledger);

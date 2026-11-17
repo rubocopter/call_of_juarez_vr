@@ -285,18 +285,23 @@ int main() {
     ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::non_fire) &&
         accepted[30]==2, "failed transaction lost the pending F edge");
     const int previous_locks=locks;
+    CoJFirePresses pressed;
     state.fire_right=true;
-    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire) &&
-        locks==previous_locks && accepted[30]==2,
+    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire,0,0,nullptr,&pressed) &&
+        locks==previous_locks && accepted[30]==2 && pressed.right && !pressed.left,
         "separate fire phase redispatched non-fire state");
     ok &= Check(native_hand_attacks[0]==1 && native_hand_attacks[1]==0,
         "right trigger reached native left-hand Attack through PlayerController action conversion");
+    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire,0,0,nullptr,&pressed) &&
+        !pressed.right && !pressed.left && native_hand_attacks[0]==1,
+        "held input manufactured a second fire dispatch receipt");
     state.fire_right=false;
-    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire),
+    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire,0,0,nullptr,&pressed) &&
+        !pressed.right && !pressed.left,
         "right trigger release failed");
     state.fire_left=true;
-    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire) &&
-        native_hand_attacks[0]==1 && native_hand_attacks[1]==1,
+    ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire,0,0,nullptr,&pressed) &&
+        native_hand_attacks[0]==1 && native_hand_attacks[1]==1 && pressed.left && !pressed.right,
         "left trigger did not reach native left-hand Attack");
     bridge.being_=&player;
     bridge.vector_class_=&game_type;

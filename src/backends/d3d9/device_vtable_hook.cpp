@@ -23,11 +23,17 @@ constexpr std::size_t kAddRefIndex = 1;
 constexpr std::size_t kReleaseIndex = 2;
 constexpr std::size_t kTestCooperativeLevelIndex = 3;
 constexpr std::size_t kGetDirect3DIndex = 6;
+constexpr std::size_t kCreateRenderTargetIndex = 28;
+constexpr std::size_t kUpdateSurfaceIndex = 30;
+constexpr std::size_t kUpdateTextureIndex = 31;
+constexpr std::size_t kColorFillIndex = 35;
 constexpr std::size_t kSetRenderTargetIndex = 37;
 constexpr std::size_t kSetDepthStencilSurfaceIndex = 39;
 constexpr std::size_t kClearIndex = 43;
 constexpr std::size_t kCreateStateBlockIndex = 59;
 constexpr std::size_t kSetTextureIndex = 65;
+constexpr std::size_t kDrawRectPatchIndex = 115;
+constexpr std::size_t kDrawTriPatchIndex = 116;
 
 using ResetFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(
@@ -81,6 +87,23 @@ void ProbeEvent(const DeviceHookCallbacks& callbacks, IDirect3DDevice9* device,
     if (!callbacks.resource_probe_event) return;
     const DWORD error = GetLastError();
     callbacks.resource_probe_event(device, event);
+    SetLastError(error);
+}
+
+void ProbeWrite(const DeviceHookCallbacks& callbacks, IDirect3DDevice9* device, ResourceWriteKind kind,
+    IDirect3DSurface9* surface, IDirect3DBaseTexture9* texture, HRESULT result) noexcept {
+    if (!callbacks.resource_probe_write) return;
+    const DWORD error = GetLastError();
+    callbacks.resource_probe_write(device, kind, surface, texture, result);
+    SetLastError(error);
+}
+
+void ProbeTargetResource(const DeviceHookCallbacks& callbacks, IDirect3DDevice9* device,
+    RenderTargetResourceEvent event, IDirect3DSurface9* surface) noexcept {
+    if (!callbacks.resource_probe_target_resource) return;
+    const DWORD error = GetLastError();
+    if (SUCCEEDED(event.result)) event.identity = RenderResourceIdentity(surface);
+    callbacks.resource_probe_target_resource(device, event);
     SetLastError(error);
 }
 
@@ -203,8 +226,8 @@ HRESULT STDMETHODCALLTYPE HookClear(
         SetLastError(error);
     }
     TraceMethod(callbacks, device, "Clear", false, result);
-    ProbeEvent(callbacks, device, {RenderResourceOperation::clear, flags, result,
-        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
+    ProbeEvent(callbacks, device, MakeRenderResourceClearEvent(count, rects, flags, result,
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress())));
     return result;
 }
 
@@ -378,6 +401,78 @@ HRESULT STDMETHODCALLTYPE HookStretchRect(IDirect3DDevice9* device, IDirect3DSur
     return result;
 }
 
+HRESULT STDMETHODCALLTYPE HookCreateRenderTarget(IDirect3DDevice9* device, UINT width, UINT height,
+    D3DFORMAT format, D3DMULTISAMPLE_TYPE samples, DWORD quality, BOOL lockable,
+    IDirect3DSurface9** surface, HANDLE* shared) {
+    const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    auto** vtable = DeviceVtable(device);
+    const auto callbacks = CallbacksFor(vtable);
+    const auto original = reinterpret_cast<decltype(&HookCreateRenderTarget)>(
+        g_registry.OriginalTarget(vtable, kCreateRenderTargetIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+    ProbeCall observation(callbacks, device);
+    const auto result = original(device, width, height, format, samples, quality, lockable, surface, shared);
+    ProbeTargetResource(callbacks, device, {.kind=RenderTargetResourceKind::create, .caller=caller,
+        .object=SUCCEEDED(result)&&surface?reinterpret_cast<std::uintptr_t>(*surface):0,
+        .result=result, .width=width, .height=height, .format=format, .samples=samples, .quality=quality,
+        .lockable=lockable!=FALSE, .shared_argument=shared!=nullptr}, SUCCEEDED(result)&&surface?*surface:nullptr);
+    return result;
+}
+
+HRESULT STDMETHODCALLTYPE HookColorFill(IDirect3DDevice9* device, IDirect3DSurface9* destination,
+    const RECT* rectangle, D3DCOLOR color) {
+    const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    auto** vtable = DeviceVtable(device);
+    const auto callbacks = CallbacksFor(vtable);
+    const auto original = reinterpret_cast<decltype(&HookColorFill)>(g_registry.OriginalTarget(vtable, kColorFillIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+    ProbeCall observation(callbacks, device);
+    const auto result = original(device, destination, rectangle, color);
+    ProbeWrite(callbacks, device, ResourceWriteKind::color_fill, destination, nullptr, result);
+    ProbeTargetResource(callbacks, device, {.kind=RenderTargetResourceKind::color_fill, .caller=caller,
+        .object=reinterpret_cast<std::uintptr_t>(destination), .result=result,
+        .full_rect=rectangle==nullptr, .color=color}, destination);
+    return result;
+}
+
+HRESULT STDMETHODCALLTYPE HookUpdateSurface(IDirect3DDevice9* device, IDirect3DSurface9* source,
+    const RECT* source_rect, IDirect3DSurface9* destination, const POINT* destination_point) {
+    auto** vtable = DeviceVtable(device);
+    const auto callbacks = CallbacksFor(vtable);
+    const auto original = reinterpret_cast<decltype(&HookUpdateSurface)>(g_registry.OriginalTarget(vtable, kUpdateSurfaceIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+    ProbeCall observation(callbacks, device);
+    const auto result = original(device, source, source_rect, destination, destination_point);
+    ProbeWrite(callbacks, device, ResourceWriteKind::update_surface, destination, nullptr, result);
+    return result;
+}
+
+HRESULT STDMETHODCALLTYPE HookUpdateTexture(IDirect3DDevice9* device, IDirect3DBaseTexture9* source,
+    IDirect3DBaseTexture9* destination) {
+    auto** vtable = DeviceVtable(device);
+    const auto callbacks = CallbacksFor(vtable);
+    const auto original = reinterpret_cast<decltype(&HookUpdateTexture)>(g_registry.OriginalTarget(vtable, kUpdateTextureIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+    ProbeCall observation(callbacks, device);
+    const auto result = original(device, source, destination);
+    ProbeWrite(callbacks, device, ResourceWriteKind::update_texture, nullptr, destination, result);
+    return result;
+}
+
+template<std::size_t Index,class PatchInfo>
+HRESULT STDMETHODCALLTYPE HookPatchDraw(IDirect3DDevice9* device, UINT handle, const float* segments,
+    const PatchInfo* patch_info) {
+    auto** vtable = DeviceVtable(device);
+    const auto callbacks = CallbacksFor(vtable);
+    using Original = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*,UINT,const float*,const PatchInfo*);
+    const auto original = reinterpret_cast<Original>(g_registry.OriginalTarget(vtable, Index));
+    if (!original) return D3DERR_INVALIDCALL;
+    ProbeCall observation(callbacks, device);
+    const auto result = original(device, handle, segments, patch_info);
+    ProbeWrite(callbacks, device, ResourceWriteKind::patch_draw, nullptr, nullptr, result);
+    return result;
+}
+
 HRESULT STDMETHODCALLTYPE HookCreateStateBlock(
     IDirect3DDevice9* device, D3DSTATEBLOCKTYPE type, IDirect3DStateBlock9** block) {
     void** vtable = DeviceVtable(device);
@@ -528,6 +623,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
 
     bool probe_ex = false;
     const bool resource_observer = callbacks.resource_probe_event || callbacks.resource_probe_copy ||
+        callbacks.resource_probe_target_resource ||
         callbacks.hud_batch_draw || callbacks.hud_batch_call;
     if (resource_observer || callbacks.allow_reset || callbacks.after_reset_ex) {
         // Query before taking the callback mutex: a repeated installation may
@@ -546,7 +642,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         g_callbacks_by_vtable.insert_or_assign(vtable, callbacks);
         g_probe_extended_by_vtable.insert_or_assign(vtable, probe_ex);
 
-        std::array<HookSlotRequest, 24> requests{};
+        std::array<HookSlotRequest, 28> requests{};
         std::size_t request_count = 0;
         if (callbacks.com_trace) {
             requests[request_count++] = {kQueryInterfaceIndex, reinterpret_cast<void*>(&HookQueryInterface)};
@@ -578,6 +674,18 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
             requests[request_count++] = {84, reinterpret_cast<void*>(&HookDrawIndexedPrimitiveUP)};
             requests[request_count++] = {34, reinterpret_cast<void*>(&HookStretchRect)};
         }
+        if (callbacks.resource_probe_write) {
+            requests[request_count++] = {kUpdateSurfaceIndex, reinterpret_cast<void*>(&HookUpdateSurface)};
+            requests[request_count++] = {kUpdateTextureIndex, reinterpret_cast<void*>(&HookUpdateTexture)};
+            requests[request_count++] = {kDrawRectPatchIndex,
+                reinterpret_cast<void*>(&HookPatchDraw<kDrawRectPatchIndex,D3DRECTPATCH_INFO>)};
+            requests[request_count++] = {kDrawTriPatchIndex,
+                reinterpret_cast<void*>(&HookPatchDraw<kDrawTriPatchIndex,D3DTRIPATCH_INFO>)};
+        }
+        if (callbacks.resource_probe_write || callbacks.resource_probe_target_resource)
+            requests[request_count++] = {kColorFillIndex, reinterpret_cast<void*>(&HookColorFill)};
+        if (callbacks.resource_probe_target_resource)
+            requests[request_count++] = {kCreateRenderTargetIndex, reinterpret_cast<void*>(&HookCreateRenderTarget)};
         if (probe_ex) requests[request_count++] = {132, reinterpret_cast<void*>(&HookResetEx)};
         if (callbacks.before_reset || callbacks.after_reset || callbacks.method_trace || resource_observer || callbacks.allow_reset) {
             requests[request_count++] = HookSlotRequest{
@@ -633,6 +741,19 @@ ResourceProbeHookContinuity InspectResourceProbeHookContinuity(IDirect3DDevice9*
         result.intact=std::all_of(std::begin(required),std::end(required),[&](std::size_t index){
             const auto* slot=FindSlot(slots,index);return slot&&slot->owned;
         })&&std::all_of(slots.begin(),slots.end(),[](const auto& slot){return slot.owned;});
+        const auto callbacks=CallbacksFor(DeviceVtable(device));
+        if(callbacks.resource_probe_write) {
+            for(const auto index:{kUpdateSurfaceIndex,kUpdateTextureIndex,kColorFillIndex,kDrawRectPatchIndex,kDrawTriPatchIndex}) {
+                const auto* slot=FindSlot(slots,index);
+                result.intact=result.intact&&slot&&slot->owned;
+            }
+        }
+        if(callbacks.resource_probe_target_resource) {
+            for(const auto index:{kCreateRenderTargetIndex,kColorFillIndex}) {
+                const auto* slot=FindSlot(slots,index);
+                result.intact=result.intact&&slot&&slot->owned;
+            }
+        }
         result.intact=result.intact&&result.epoch==g_integrity_epoch.load(std::memory_order_acquire);
     }catch(...){result.intact=false;}
     SetLastError(error);return result;

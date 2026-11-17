@@ -135,6 +135,68 @@ class Analysis(unittest.TestCase):
         self.assertTrue(p.get('complete'))
         self.assertFalse(r.get('sourceQualified',True))
         self.assertFalse(r['depthAssessment']['qualified'])
+    def test_first_color_clear_is_bounded_copy_evidence(self):
+        event=self.producer(copies(writes(sample(),2,2,shader=0)))
+        producer=event['sourceCopyProducer']
+        clear=dict(rectangles=1,drawsBefore=0,stateComplete=True,fullViewport=True,scissorEnabled=False,
+                   leadingFullViewport=True)
+        producer['firstColorClear']=clear
+        r=report([event,scope(0)])
+        self.assertEqual(r['status'],'observed')
+        observed=r['rows'][0]['sourceCopyProducerObservation']['firstColorClear']
+        self.assertTrue(observed['leadingFullViewport'])
+        self.assertFalse(r['temporalAdmitted'])
+        for changes in (dict(rectangles=0),dict(drawsBefore=1),dict(scissorEnabled=True),
+                        dict(fullViewport=False),dict(stateComplete=False)):
+            producer['firstColorClear']=dict(clear,**changes)
+            self.assertEqual(report([event])['status'],'rejected',changes)
+        producer['firstColorClear']=dict(clear,drawsBefore=1,leadingFullViewport=False)
+        self.assertEqual(report([event])['status'],'observed')
+        producer['firstColorClear']=clear
+        producer['observationComplete']=False
+        self.assertEqual(report([event])['status'],'rejected')
+        producer['firstColorClear']=dict(clear,leadingFullViewport=False)
+        self.assertEqual(report([event])['status'],'observed')
+        producer['observationComplete']=True
+        producer['firstColorClear']=clear
+        producer['clearCalls']=2
+        self.assertEqual(report([event])['status'],'rejected')
+        producer.pop('firstColorClear')
+        old=report([event])['rows'][0]['sourceCopyProducerObservation']['firstColorClear']
+        self.assertFalse(old['available'])
+    def test_incoming_stretch_rect_does_not_change_rt0_intent_completeness(self):
+        event=self.producer(copies(writes(sample(),2,2,shader=0)))
+        producer=event['sourceCopyProducer']
+        self.assertIsNone(report([event])['rows'][0]['sourceCopyProducerObservation']['incomingStretchRect'])
+        producer['incomingStretchRect']=dict(surface=11,calls=1,complete=True)
+        self.assertIsNone(report([event])['rows'][0]['sourceCopyProducerObservation']['secondaryTargetBinding'])
+        producer['secondaryTargetBinding']=dict(surface=11,bound=True,complete=True)
+        r=report([event])
+        p=r['rows'][0]['sourceCopyProducerObservation']
+        self.assertEqual(p['incomingStretchRect'],dict(surface=11,calls=1,complete=True))
+        self.assertEqual(p['secondaryTargetBinding'],dict(surface=11,bound=True,complete=True))
+        self.assertTrue(p['complete'])
+        self.assertFalse(r['temporalAdmitted'])
+        for bad in (None,dict(surface=11,calls=-1,complete=True),dict(surface=11,calls=0,complete=1),
+                    dict(surface=0,calls=0,complete=True),dict(surface=12,calls=0,complete=True)):
+            producer['incomingStretchRect']=bad
+            self.assertEqual(report([event])['status'],'rejected')
+        producer.pop('incomingStretchRect')
+        producer['secondaryTargetBinding']['bound']=1
+        self.assertEqual(report([event])['status'],'rejected')
+        producer['secondaryTargetBinding']=dict(surface=0,bound=False,complete=True)
+        self.assertEqual(report([event])['status'],'rejected')
+    def test_direct_device_writes_require_typed_copy_source(self):
+        event=self.producer(copies(writes(sample(),2,2,shader=0)))
+        producer=event['sourceCopyProducer']
+        def observed():
+            return report([event])['rows'][0]['sourceCopyProducerObservation']['directDeviceWrites']
+        self.assertIsNone(observed())
+        producer['directDeviceWrites']=dict(surface=11,calls=2,complete=True)
+        self.assertEqual(observed(),dict(surface=11,calls=2,complete=True))
+        for invalid in (dict(surface=0,calls=0,complete=True),dict(surface=12,calls=1,complete=True)):
+            producer['directDeviceWrites']=invalid
+            self.assertEqual(report([event])['status'],'rejected')
     def test_missing_producer_is_unknown_and_incomplete_producer_does_not_grant_depth(self):
         for s in (sample(),self.producer(copies(writes(sample(),2,2,shader=0)),False)):
             p=report([s,scope(0)])['rows'][0].get('sourceCopyProducerObservation',{})

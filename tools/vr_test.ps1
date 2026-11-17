@@ -8,6 +8,7 @@ param(
 
     [switch]$StartupOnly,
     [switch]$TransportOnly,
+    [switch]$InteractionRegression,
 
     [switch]$KeepVideoSettings,
 
@@ -47,6 +48,9 @@ if ($HeadTrackedAudio) {
 }
 if($TransportOnly -and ($Action -ne 'prepare' -or $StartupOnly)) {
     throw 'TransportOnly selects the short prepare validation scope and cannot combine with StartupOnly.'
+}
+if ($InteractionRegression -and ($Action -ne 'prepare' -or -not $BodyIkAtStart -or $StartupOnly -or $TransportOnly)) {
+    throw 'InteractionRegression requires prepare with BodyIkAtStart and the full validation profile.'
 }
 if ($SampledSceneDepth -and $Action -ne 'prepare') {
     throw 'SampledSceneDepth is a startup option for prepare.'
@@ -384,6 +388,7 @@ switch ($Action) {
                 -ProxyPath $ProxyPath `
                 -BuildManifestPath $ManifestPath `
                 -ValidationProfile $ValidationProfile `
+                -InteractionRegression:$InteractionRegression `
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
@@ -468,7 +473,7 @@ switch ($Action) {
         }
         if ($FrameLumaProbe) {
             Write-Host 'White-flash diagnostic: fixed 16x16 samples of each native eye and desktop before Present; no image correction, effect edits or resolution transitions.'
-            Write-Host 'Start manually; observe the main menu and a short gameplay segment until a flash occurs, then close normally and run finish.'
+            Write-Host 'Start manually, play in one gameplay area and note any visible flash. Close normally and run finish.'
             Write-Host 'Pixel sampling/readback perturbs timing; this run diagnoses content, not performance acceptance.'
             break
         }
@@ -477,7 +482,7 @@ switch ($Action) {
             Write-Host 'Only the existing visible global MenuMain receives the aspect-preserving reference rectangle; output allocations remain source-owned.'
             Write-Host 'Start SteamVR/game manually. Check main menu size, ray/hover/L2/R2 selection and mouse priority; enter gameplay; open/close pause; return to main menu.'
             Write-Host 'No campaign segment or naturally unavailable cinematic is required. New menu comfort/navigation remain unvalidated until this check.'
-            Write-Host 'The canonical full-profile verifier retains separate requirements; unexercised gates are not promoted by this focused operator scope.'
+            Write-Host 'Report the exercised menu behavior separately from the routine telemetry verdict.'
             Write-Host 'Close normally, then run: pwsh -File tools/vr_test.ps1 finish'
             break
         }
@@ -506,7 +511,7 @@ switch ($Action) {
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Consolidated remaining headset checks: docs/VALIDATION.md#pending-headset-checks. Development work: docs/ROADMAP.md#development-backlog. Use naturally available scenes; no separate session is requested for each item."
         Write-Host "Preserve scoped operator acceptance of continuous body following, ordinary menus/native options, the correct physical duel gesture, earlier unit reload, cinematic recovery and the established local resolution. New candidates do not make those features untested again."
-        Write-Host "Canonical profile requirements remain separate: an unobserved requirement stays unobserved and may prevent a passing telemetry verdict even when an exercised feature has operator acceptance."
+        Write-Host "Scripted interaction regression checks: $($InteractionRegression.IsPresent). Routine verification covers the exercised runtime and restoration."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Cross jumps, Square reloads, Circle toggles alternate fire, L1 performs Action, R1 kicks on foot / holds gallop mounted, L3 toggles crouch and R3 toggles Focus. The sole default table is docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls."
         if ($ManualReload) {
@@ -529,27 +534,26 @@ switch ($Action) {
             Write-Host "Startup-only run: confirm videos and the main menu appear, then close normally. Native stereo/GPU transport are outside this profile; controller menu usability needs operator observations."
         } elseif ($BodyIkAtStart) {
             Write-Host "Body/full-profile run: follow the pending headset checklist for the available scenes. Ordinary menu pointer/selection and continuous body following already have scoped acceptance."
-            Write-Host "On a natural loading transition, try one fresh Cross/trigger press at the continuation prompt; ordinary menu success does not qualify that route."
-            Write-Host "Batch the remaining pause/dashboard/tracking recovery with held-button suppression and fresh actions. Release controls before resuming; require no delayed shot/click/transfer or haptic replay."
-            Write-Host "Recenter uses an 800 ms Create hold. Pitch/roll, ownership and interrupted-interaction recovery remain separate from the already accepted ordinary Create behavior."
+            if ($InteractionRegression) {
+                Write-Host "Directed checks: use trigger selection, Cross and Circle in menus, skip an intro, use Options and exercise the native loading continuation with trigger release."
+                Write-Host "Hold Create 800 ms to recenter, move and tilt the head, walk, physically crouch and fire with a tracked weapon."
+            }
             Write-Host "Body IK is already enabled, so no Alt+Tab or terminal toggle is required while the game is running."
             Write-Host "Keep the accepted locomotion baseline and Steam recording off; finish retains GPU transport, frame-age, cadence and producer/consumer wait telemetry."
             Write-Host "Independent native hands retain torso/legs at native proportions; no T-pose calibration is needed. Physical crouch, ordinary firing and body following keep their earlier scoped acceptance. Leg animation during physical walking/turning is still planned, not a missing acceptance test."
             if ($ManualReload) {
-            Write-Host "In an admitted manual session, verify both hands/weapon follow the controllers through preparation, waiting and coherent closing, with connected arms still hidden. Exercised loading-port visibility is accepted; precise cartridge contact and broader interruption recovery remain unproven. Unsupported native animations retain their existing presentation."
-            } else {
-                Write-Host "Confirm detached hands/weapon follow the controllers and original arms return only during native animation."
+                Write-Host "In an admitted manual session, verify both hands/weapon follow the controllers through preparation, waiting and coherent closing, with connected arms still hidden. Exercised loading-port visibility is accepted; precise cartridge contact and broader interruption recovery remain unproven. Unsupported native animations retain their existing presentation."
             }
         } else {
-            Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
+            Write-Host "Transport-profile run: load a save and play normally."
             Write-Host "Body IK stays off. Exercise slow head turns in both directions and report any discontinuity in native body/weapon following; continuous on-foot body following already has scoped acceptance."
-            Write-Host "Then reach native-stereo gameplay, confirm depth and stable slow/fast head turns, move/walk/jump and recenter with an 800 ms Create hold. Open/close the SteamVR dashboard once and confirm presentation/input resume."
+            Write-Host "Reach native-stereo gameplay, confirm depth and stable slow/fast head turns, and quit normally."
             Write-Host "Body IK remains disabled. Do not judge tracked avatar arms or weapon alignment from this profile. Finish through a normal game quit."
             Write-Host "The acceptance target is stable tracking/stereo with producer cadence following the configured HMD refresh and zero classic-D3D9 fallback/readback."
             Write-Host "Check configured HMD refresh, producer target, rendered pair rate and presenter submission rate separately; the desktop monitor is not the VR cadence target."
         }
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
-        if ($ValidationProfile -notin @("transport", "startup")) {
+        if ($InteractionRegression) {
             Write-Host "If switching windows is stable, disable before closing to satisfy the live passthrough gate: pwsh -File tools\vr_test.ps1 disable"
             Write-Host "If Alt+Tab stalls/crashes CoJ, do not switch windows just for this command; close normally and finish will preserve the partial evidence and report the missing gate."
         }

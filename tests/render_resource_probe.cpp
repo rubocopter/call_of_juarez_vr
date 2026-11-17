@@ -17,6 +17,27 @@ std::vector<RenderResourceEvent> hook_events;
 unsigned call_enters=0,call_leaves=0;
 unsigned copy_callbacks=0;
 IDirect3DSurface9 *copy_from=nullptr,*copy_to=nullptr;
+unsigned write_callbacks=0;
+ResourceWriteKind last_write{};
+IDirect3DSurface9* last_write_surface=nullptr;
+IDirect3DBaseTexture9* last_write_texture=nullptr;
+HRESULT last_write_result=E_FAIL;
+unsigned target_resource_callbacks=0;
+RenderTargetResourceEvent last_target_resource{};
+void HookTargetResource(IDirect3DDevice9*, const RenderTargetResourceEvent& event) noexcept {
+    ++target_resource_callbacks;
+    last_target_resource=event;
+    SetLastError(0xBAD);
+}
+void HookWrite(IDirect3DDevice9*, ResourceWriteKind kind, IDirect3DSurface9* surface,
+    IDirect3DBaseTexture9* texture, HRESULT result) noexcept {
+    ++write_callbacks;
+    last_write=kind;
+    last_write_surface=surface;
+    last_write_texture=texture;
+    last_write_result=result;
+    SetLastError(0xBAD);
+}
 void HookCopy(IDirect3DDevice9*,IDirect3DSurface9* source,const RECT* source_rect,
     IDirect3DSurface9* destination,const RECT* destination_rect,HRESULT hr) noexcept {
     Check(source==copy_from&&destination==copy_to&&!source_rect&&!destination_rect&&SUCCEEDED(hr),
@@ -172,6 +193,8 @@ int main(int argc,char**){
     const auto invalid=device->SetViewport(&invalid_viewport);const auto native_error=GetLastError();
     DeviceHookCallbacks callbacks{};callbacks.resource_probe_event=&HookEvent;callbacks.resource_probe_call=&HookCall;
     callbacks.resource_probe_copy=&HookCopy;
+    callbacks.resource_probe_write=&HookWrite;
+    callbacks.resource_probe_target_resource=&HookTargetResource;
     ComPtr<IDirect3DSurface9> copy_source,copy_destination;
     Check(SUCCEEDED(device->CreateRenderTarget(32,32,D3DFMT_X8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,&copy_source,nullptr))&&
         SUCCEEDED(device->CreateRenderTarget(32,32,D3DFMT_X8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,&copy_destination,nullptr)),"copy hook fixture allocation failed");
@@ -179,11 +202,43 @@ int main(int argc,char**){
     SetLastError(0x12345);
     const auto copy_result=device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT);
     const auto copy_error=GetLastError();Check(SUCCEEDED(copy_result),"native copy fixture failed");
-    DeviceHookCallbacks copy_only{};copy_only.resource_probe_copy=&HookCopy;
-    Check(InstallDeviceVtableHook(device.Get(),copy_only),"copy-only observer install failed");
+    ComPtr<IDirect3DTexture9> upload_texture,destination_texture;
+    ComPtr<IDirect3DSurface9> upload_surface,destination_surface;
+    Check(SUCCEEDED(device->CreateTexture(32,32,1,0,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&upload_texture,nullptr))&&
+        SUCCEEDED(device->CreateTexture(32,32,1,0,D3DFMT_A8R8G8B8,D3DPOOL_DEFAULT,&destination_texture,nullptr))&&
+        SUCCEEDED(upload_texture->GetSurfaceLevel(0,&upload_surface))&&
+        SUCCEEDED(destination_texture->GetSurfaceLevel(0,&destination_surface)),"write hook fixture allocation failed");
+    const auto sample_call=[](auto&& call){
+        SetLastError(0x12345);
+        const auto hr=call();
+        return std::pair{hr,GetLastError()};
+    };
+    const auto fill=[&]{return device->ColorFill(copy_to,nullptr,0xff445566);};
+    const auto update_surface=[&]{return device->UpdateSurface(upload_surface.Get(),nullptr,destination_surface.Get(),nullptr);};
+    const auto update_texture=[&]{return device->UpdateTexture(upload_texture.Get(),destination_texture.Get());};
+    const auto native_fill=sample_call(fill);
+    const auto native_surface=sample_call(update_surface);
+    const auto native_texture=sample_call(update_texture);
+    const auto create_target=[&](UINT width,IDirect3DSurface9** surface,HANDLE* shared){
+        return sample_call([&]{return device->CreateRenderTarget(width,32,D3DFMT_A8R8G8B8,
+            D3DMULTISAMPLE_NONE,0,FALSE,surface,shared);});
+    };
+    ComPtr<IDirect3DSurface9> extra_target;
+    const auto native_create=create_target(32,extra_target.GetAddressOf(),nullptr);
+    extra_target.Reset();
+    const auto native_create_failure=create_target(0,extra_target.GetAddressOf(),nullptr);
+    Check(SUCCEEDED(native_create.first)&&FAILED(native_create_failure.first)&&!extra_target,
+        "native create fixture did not exercise valid and invalid calls");
+    Check(SUCCEEDED(native_fill.first)&&SUCCEEDED(native_surface.first)&&SUCCEEDED(native_texture.first),
+        "unhooked native write fixture failed");
+    DeviceHookCallbacks destinations_only{};
+    destinations_only.resource_probe_copy=&HookCopy;
+    destinations_only.resource_probe_write=&HookWrite;
+    destinations_only.resource_probe_target_resource=&HookTargetResource;
+    Check(InstallDeviceVtableHook(device.Get(),destinations_only),"typed destination observer install failed");
     SetLastError(0x12345);
     Check(device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT)==copy_result&&
-        GetLastError()==copy_error&&copy_callbacks==1,"copy-only observer was not installed or changed native forwarding");
+        GetLastError()==copy_error&&copy_callbacks==1,"typed destination observer was not installed or changed native forwarding");
     // Update the active callback set; full retirement is tested at shutdown.
     copy_callbacks=0;
     Check(InstallDeviceVtableHook(device.Get(),callbacks),"probe hook install failed");
@@ -196,21 +251,64 @@ int main(int argc,char**){
     SetLastError(0x12345);
     Check(device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT)==copy_result&&
         GetLastError()==copy_error&&copy_callbacks==1,"typed copy callback changed HRESULT/last-error or callback count");
+    Check(sample_call(fill)==native_fill&&write_callbacks==1&&last_write==ResourceWriteKind::color_fill&&
+        last_write_surface==copy_to&&!last_write_texture&&last_write_result==native_fill.first,
+        "ColorFill lost its result, last error, destination or exactly-once callback");
+    Check(target_resource_callbacks==1&&last_target_resource.kind==RenderTargetResourceKind::color_fill&&
+        last_target_resource.result==native_fill.first&&last_target_resource.caller!=0&&
+        last_target_resource.object==reinterpret_cast<std::uintptr_t>(copy_to)&&last_target_resource.full_rect&&
+        last_target_resource.color==0xff445566,"ColorFill initialization receipt lost its actual call arguments");
+    Check(sample_call(update_surface)==native_surface&&write_callbacks==2&&last_write==ResourceWriteKind::update_surface&&
+        last_write_surface==destination_surface.Get()&&!last_write_texture&&last_write_result==native_surface.first,
+        "UpdateSurface lost its result, last error, destination or exactly-once callback");
+    Check(sample_call(update_texture)==native_texture&&write_callbacks==3&&last_write==ResourceWriteKind::update_texture&&
+        !last_write_surface&&last_write_texture==destination_texture.Get()&&last_write_result==native_texture.first,
+        "UpdateTexture lost its result, last error, destination or exactly-once callback");
+    Check(create_target(32,extra_target.GetAddressOf(),nullptr)==native_create&&extra_target&&
+        target_resource_callbacks==2&&last_target_resource.kind==RenderTargetResourceKind::create&&
+        last_target_resource.object==reinterpret_cast<std::uintptr_t>(extra_target.Get())&&last_target_resource.caller!=0&&
+        last_target_resource.width==32&&last_target_resource.height==32&&last_target_resource.format==D3DFMT_A8R8G8B8&&
+        !last_target_resource.lockable&&!last_target_resource.shared_argument&&last_target_resource.result==native_create.first,
+        "producer allocation receipt changed native forwarding or lost its descriptor/identity");
+    extra_target.Reset();
+    HANDLE handle=nullptr;
+    const auto failed_create=create_target(0,extra_target.GetAddressOf(),&handle);
+    Check(FAILED(failed_create.first)&&!extra_target&&target_resource_callbacks==3&&
+        last_target_resource.object==0&&last_target_resource.shared_argument&&last_target_resource.result==failed_create.first,
+        "failed producer creation manufactured an identity or lost a non-null shared argument");
+    destination_surface.Reset();destination_texture.Reset();upload_surface.Reset();upload_texture.Reset();
     copy_source.Reset();copy_destination.Reset();copy_from=copy_to=nullptr;
     Check(SUCCEEDED(device->SetViewport(&viewport)),"hook changed viewport forwarding");
     D3DVIEWPORT9 forwarded{};device->GetViewport(&forwarded);
     Check(forwarded.X==viewport.X&&forwarded.Height==viewport.Height,"hook changed viewport arguments");
+    const auto before_clear=hook_events.size();
+    const D3DRECT clear_rect{2,3,16,20};
+    Check(SUCCEEDED(device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0))&&
+        SUCCEEDED(device->Clear(1,&clear_rect,D3DCLEAR_TARGET,0,1,0)),
+        "hook changed clear forwarding");
+    Check(hook_events.size()==before_clear+2&&
+        hook_events[before_clear].operation==RenderResourceOperation::clear&&
+        hook_events[before_clear].clear_rectangles==RenderClearRectangles::viewport&&
+        hook_events[before_clear+1].operation==RenderResourceOperation::clear&&
+        hook_events[before_clear+1].clear_rectangles==RenderClearRectangles::explicit_list,
+        "native clear observer lost implicit viewport vs explicit rectangle arguments");
     const auto integrity=InspectResourceProbeHookContinuity(device.Get());
     Check(integrity.intact,"probe slots incomplete after installation");
-    for(const auto& slot:InspectAllDeviceVtableHooks())if(slot.index==81) {
-        DWORD protection=0;Check(VirtualProtect(&slot.vtable[81],sizeof(void*),PAGE_READWRITE,&protection)!=FALSE,"cannot reproduce lost draw hook");
-        InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&slot.vtable[81]),slot.original);
-        DWORD ignored=0;Check(VirtualProtect(&slot.vtable[81],sizeof(void*),protection,&ignored)!=FALSE,"cannot restore draw slot protection");
+    for(const auto index:{81u,28u,35u,115u,116u}){
+        bool lost=false;
+        for(const auto& slot:InspectAllDeviceVtableHooks())if(slot.index==index) {
+            DWORD protection=0;
+            Check(VirtualProtect(&slot.vtable[index],sizeof(void*),PAGE_READWRITE,&protection)!=FALSE,"cannot reproduce lost write hook");
+            InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&slot.vtable[index]),slot.original);
+            DWORD ignored=0;
+            Check(VirtualProtect(&slot.vtable[index],sizeof(void*),protection,&ignored)!=FALSE,"cannot restore write slot protection");
+            lost=true;
+        }
+        Check(lost&&!InspectResourceProbeHookContinuity(device.Get()).intact,"lost write hook was declared intact");
+        (void)ReacquireDeviceVtableHookDetailed(device.Get());
+        const auto recovered=InspectResourceProbeHookContinuity(device.Get());
+        Check(recovered.intact&&recovered.epoch>integrity.epoch,"reacquisition did not invalidate active trace epoch");
     }
-    Check(!InspectResourceProbeHookContinuity(device.Get()).intact,"lost draw hook was declared intact");
-    (void)ReacquireDeviceVtableHookDetailed(device.Get());
-    const auto recovered=InspectResourceProbeHookContinuity(device.Get());
-    Check(recovered.intact&&recovered.epoch>integrity.epoch,"reacquisition did not invalidate active trace epoch");
     callbacks.allow_reset=&AllowReset;
     callbacks.after_reset_ex=&AfterResetEx;
     Check(InstallDeviceVtableHook(device.Get(),callbacks),"reset admission hook update failed");

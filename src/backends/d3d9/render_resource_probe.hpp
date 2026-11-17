@@ -8,6 +8,17 @@
 #include <mutex>
 
 namespace cojvr::backends::d3d9 {
+// The caller holds a live interface. Return a value without retaining a COM
+// lease. Zero means the interface could not establish its identity.
+inline std::uintptr_t RenderResourceIdentity(IUnknown* object) noexcept {
+    if (!object) return 0;
+    IUnknown* canonical = nullptr;
+    if (FAILED(object->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&canonical))) || !canonical)
+        return 0;
+    const auto identity = reinterpret_cast<std::uintptr_t>(canonical);
+    canonical->Release();
+    return identity;
+}
 // Serializes observer admission/closure with native-call ingress/retirement.
 // The mutex is never retained while forwarding a D3D9 method.
 class RenderResourceCallBoundary final {
@@ -27,13 +38,34 @@ enum class RenderResourceOperation : std::uint8_t {
     set_target,set_depth,set_texture,set_viewport,set_scissor,clear,
     draw,draw_indexed,draw_up,draw_indexed_up,stretch_rect,reset
 };
+enum class RenderClearRectangles : std::uint8_t { unknown, viewport, explicit_list };
+enum class ResourceWriteKind : std::uint8_t { color_fill, update_surface, update_texture, patch_draw };
+enum class RenderTargetResourceKind : std::uint8_t { create, color_fill };
+struct RenderTargetResourceEvent {
+    RenderTargetResourceKind kind{};
+    std::uintptr_t caller=0,object=0;
+    HRESULT result=S_OK;
+    UINT width=0,height=0;
+    D3DFORMAT format=D3DFMT_UNKNOWN;
+    D3DMULTISAMPLE_TYPE samples=D3DMULTISAMPLE_NONE;
+    DWORD quality=0;
+    bool lockable=false,shared_argument=false,full_rect=false;
+    D3DCOLOR color=0;
+    std::uintptr_t identity=0;
+};
 struct RenderResourceEvent {
     RenderResourceOperation operation{};
     std::uint32_t selector=0;
     HRESULT result=S_OK;
     std::uintptr_t caller=0,source=0,destination=0;
+    RenderClearRectangles clear_rectangles=RenderClearRectangles::unknown;
     bool operator==(const RenderResourceEvent&) const = default;
 };
+inline RenderResourceEvent MakeRenderResourceClearEvent(DWORD count,const D3DRECT* rects,
+    DWORD flags,HRESULT result,std::uintptr_t caller) noexcept {
+    return {RenderResourceOperation::clear,flags,result,caller,0,0,
+        !count&&!rects?RenderClearRectangles::viewport:RenderClearRectangles::explicit_list};
+}
 // Values only: no retained COM ownership and no size/content admission.
 struct D3D9RenderResourceInfo {
     std::uintptr_t object=0,parent=0,surface=0;

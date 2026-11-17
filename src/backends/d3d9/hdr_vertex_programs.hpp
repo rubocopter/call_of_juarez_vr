@@ -9,17 +9,14 @@
 #include <cstdint>
 
 namespace cojvr::backends::d3d9 {
-// Immutable values, never retained native shader pointers. Constants describe
-// only the first observed draw for this exact program, not all actor instances.
-struct HdrVertexProgram {
+// Immutable values, never retained native shader pointers.
+struct HdrShaderProgram {
     std::uintptr_t shader=0;
     UINT shader_bytes=0;
     std::array<DWORD,1024> bytecode{};
-    bool constants_complete=false;
-    std::array<float,1024> constants{};
 };
 template<class Shader>
-bool ReadHdrVertexProgramCode(Shader* shader,HdrVertexProgram& out) noexcept {
+bool ReadHdrShaderProgramCode(Shader* shader,HdrShaderProgram& out) noexcept {
     out={};out.shader=reinterpret_cast<std::uintptr_t>(shader);
     if(!shader)return true; // Explicit fixed-function draw.
     if(FAILED(shader->GetFunction(nullptr,&out.shader_bytes))||!out.shader_bytes||
@@ -27,6 +24,11 @@ bool ReadHdrVertexProgramCode(Shader* shader,HdrVertexProgram& out) noexcept {
     UINT size=out.shader_bytes;
     return SUCCEEDED(shader->GetFunction(out.bytecode.data(),&size))&&size==out.shader_bytes;
 }
+// Constants describe only the first observed draw for this exact program.
+struct HdrVertexProgram : HdrShaderProgram {
+    bool constants_complete=false;
+    std::array<float,1024> constants{};
+};
 struct HdrVertexPrograms {
     static constexpr unsigned draw_budget=64,program_budget=4;
     std::uint64_t draws=0,unobserved_draws=0,read_failures=0;
@@ -38,7 +40,7 @@ inline void ObserveHdrVertexPrograms(IDirect3DDevice9* device,HdrVertexPrograms&
     if(ledger.draws>HdrVertexPrograms::draw_budget){++ledger.unobserved_draws;return;}
     Microsoft::WRL::ComPtr<IDirect3DVertexShader9> shader;
     HdrVertexProgram program;
-    if(!device||FAILED(device->GetVertexShader(&shader))||!ReadHdrVertexProgramCode(shader.Get(),program)){
+    if(!device||FAILED(device->GetVertexShader(&shader))||!ReadHdrShaderProgramCode(shader.Get(),program)){
         ++ledger.read_failures;return;
     }
     unsigned slot=0;

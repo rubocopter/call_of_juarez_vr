@@ -11,6 +11,7 @@ param(
 
     [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full",
+    [switch]$InteractionRegression,
     [switch]$IndependentHands,
     [switch]$LargeAddressAware,
     [switch]$ExperimentalGog,
@@ -27,6 +28,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 if ($TemporalSequence) { $SampledSceneDepth = [switch]$true }
+if ($InteractionRegression -and $ValidationProfile -ne 'full') {
+    throw 'InteractionRegression requires the full validation profile.'
+}
 if ($HeadTrackedAudio) {
     throw 'HeadTrackedAudio is unavailable until a listener-only boundary is verified.'
 }
@@ -241,6 +245,9 @@ $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+if ($InteractionRegression -and -not $IsNativeStereo) {
+    throw 'InteractionRegression requires the native-stereo candidate.'
+}
 if ($null -ne $NeuralCandidate -and -not $IsNativeStereo) {
     throw 'Neural opt-in requires the native-stereo candidate.'
 }
@@ -827,6 +834,7 @@ if ($HadOriginal) {
             frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
             independentEyeResolution = $IndependentEyeResolution
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
+            requireInteractionRegression = $IsNativeStereo -and $InteractionRegression.IsPresent
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo -and $ValidationProfile -ne "startup"
             requireOpenVrFocusCycle = $false
@@ -840,7 +848,7 @@ if ($HadOriginal) {
             requirePerformanceSummary = $IsNativeStereo -and $ValidationProfile -ne "startup"
             requireRepeatedPresentation = $IsNativeStereo -and $ValidationProfile -ne "startup"
             requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
-            requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
+            requireExplicitPassthroughDisable = $IsNativeStereo -and $InteractionRegression.IsPresent
             requireSubtitleState = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
             requireRecenter = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
             requireHmdTracking = $IsNativeStereo -and $ValidationProfile -ne "startup"

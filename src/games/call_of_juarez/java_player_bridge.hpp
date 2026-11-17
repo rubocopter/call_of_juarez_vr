@@ -117,6 +117,9 @@ struct CoJGameplayActionValue {
     int action = -1;
     float value = 0.0F;
 };
+struct CoJFirePresses {
+    bool left=false,right=false;
+};
 
 // Single-player shoulder ownership. IsRidingHorse is an exact-game predicate;
 // unknown observation, player replacement and mount changes require release.
@@ -531,7 +534,8 @@ public:
         CoJInputDispatchPhase phase = CoJInputDispatchPhase::all,
         float head_relative_move_yaw_degrees = 0.0F,
         std::uint64_t monotonic_us = 0,
-        const CoJInputDispatchTraceContext* trace = nullptr) noexcept;
+        const CoJInputDispatchTraceContext* trace = nullptr,
+        CoJFirePresses* fire_presses = nullptr) noexcept;
     [[nodiscard]] runtime::GameplayInputState AppliedGameplayCommands() const noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive

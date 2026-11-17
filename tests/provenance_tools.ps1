@@ -140,8 +140,6 @@ try {
         "vr_test does not select the short transport profile by default."
     Assert-True ($StageSource.Contains('requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
         "Transport validation still requires unrelated flat-theater UI acceptance."
-    Assert-True ($StageSource.Contains('requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
-        "Transport validation still requires an unrelated live tracking-disable step."
     Assert-True ($StageSource.Contains('requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
         "Transport validation still requires camera/stereo geometry acceptance."
     $RequiredStageCheckpoints = @(
@@ -1038,6 +1036,73 @@ try {
     Assert-True ($PersistedFull.outcome -eq 'pass' -and $PersistedFull.validationProfile -eq 'full') `
         'Full-profile canonical result was not persisted (including legacy profile inference).'
 
+    $StereoRunPath = Join-Path $StereoVerifierGame '.cojvr-run.json'
+    $OriginalFullRun = Get-Content -LiteralPath $StereoRunPath -Raw
+    $RoutineRun = $OriginalFullRun | ConvertFrom-Json
+    $RoutineRun.validation | Add-Member -NotePropertyName requireInteractionRegression -NotePropertyValue $false
+    $RoutineRun.validation | Add-Member -NotePropertyName requireExplicitPassthroughDisable -NotePropertyValue $false -Force
+    $RoutineRun.validation | Add-Member -NotePropertyName requireFireAfterMuzzle -NotePropertyValue $true -Force
+    $RoutineRun.validation | Add-Member -NotePropertyName requireOpenVrDashboardCycle -NotePropertyValue $false -Force
+    Write-Utf8Json $StereoRunPath $RoutineRun
+    $RoutineLog = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch 'event=(?:flat_ui_|blocking_ui_|camera_hmd_recenter_requested|body_arm_recovery|body_yaw_tracking|native_stereo_ui_back|controller_fire_dispatch|camera_probe_passthrough)|^flat_ui_pointer:|action=recenter result=pressed|tracking_enabled=false|phase=dashboard_(opened|closed)'
+    } | ForEach-Object {
+        if ($_ -match 'event=gameplay_input result=applied') {
+            $_ -replace ';move=0[.]7,0[.]8;turn=0[.]4,0;fire_left=true;', ';move=0,0;turn=0,0;fire_left=false;' `
+               -replace ';crouch=true;physical_crouch=true;', ';crouch=false;physical_crouch=false;'
+        } else { $_ }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $RoutineLog
+    & (Join-Path $SourceDirectory 'tools/verify_native_stereo_live_test.ps1') -GameDirectory $StereoVerifierGame | Out-Null
+    $PersistedRoutine = Get-Content (Join-Path $StereoVerifierRunDirectory 'analysis/validation-result.json') -Raw | ConvertFrom-Json
+    Assert-True ($PersistedRoutine.outcome -eq 'pass' -and
+        $PersistedRoutine.requirements.requireInteractionRegression -eq $false -and
+        $PersistedRoutine.headsetAcceptance -eq 'not_evaluated') 'Routine full run still depends on scripted gestures or promoted their acceptance.'
+
+    foreach ($ObservedFault in @(
+        @{ event = 'camera_probe_event: event=flat_ui_pointer result=active detail=desktop_injection=true'; reason = '*desktop input*' },
+        @{ event = 'camera_probe_event: event=controller_fire_dispatch result=unavailable'; reason = '*deferred fire*' },
+        @{ event = 'camera_probe_event: event=gameplay_input result=unavailable detail=frame_sequence=3;active=true;route=GameInputController.InputAction.Translate'; reason = '*active gameplay input dispatch*' }
+    )) {
+        $FaultLog = Add-NativeRunEvents $RoutineLog @($ObservedFault.event)
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $FaultLog
+        $FaultReason = $null
+        try { & (Join-Path $SourceDirectory 'tools/verify_native_stereo_live_test.ps1') -GameDirectory $StereoVerifierGame | Out-Null }
+        catch { $FaultReason = $_.Exception.Message }
+        Assert-True ($FaultReason -like $ObservedFault.reason) "Routine run missed observed fault: $($ObservedFault.event). Rejection: $FaultReason"
+    }
+    $InactiveLog = $RoutineLog | ForEach-Object {
+        if ($_ -match 'event=gameplay_input result=applied') { $_ -replace ';active=true;', ';active=false;' }
+        else { $_ }
+    }
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $InactiveLog
+    $FaultReason = $null
+    try { & (Join-Path $SourceDirectory 'tools/verify_native_stereo_live_test.ps1') -GameDirectory $StereoVerifierGame | Out-Null }
+    catch { $FaultReason = $_.Exception.Message }
+    Assert-True ($FaultReason -like '*active gameplay input receipt*') 'An inactive no-op satisfied the routine gameplay input gate.'
+
+    $RoutineRun.validation.requireInteractionRegression = $true
+    Write-Utf8Json $StereoRunPath $RoutineRun
+    $NoCircle = @($StereoVerifierLog | Where-Object { $_ -notmatch 'event=flat_ui_back result=applied detail=source=right_circle;' })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $NoCircle
+    $StrictReason = $null
+    try { & (Join-Path $SourceDirectory 'tools/verify_native_stereo_live_test.ps1') -GameDirectory $StereoVerifierGame | Out-Null }
+    catch { $StrictReason = $_.Exception.Message }
+    Assert-True ($StrictReason -like 'Circle did not reach*') 'Explicit interaction regression did not require the exact Circle route.'
+
+    $Dispatch = 'camera_probe_event: event=controller_fire_dispatch result=applied detail=frame_sequence=2;phase=after_weapon_pose_attempt;verified_left_muzzle=true;verified_right_muzzle=false;non_fire_actions=false;'
+    foreach ($Requested in @('false', 'true')) {
+        $FireLog = Add-NativeRunEvents $StereoVerifierLog @("${Dispatch}dispatched_fire_with_verified_muzzle=$Requested;detail=")
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $FireLog
+        $StrictReason = $null
+        try { & (Join-Path $SourceDirectory 'tools/verify_native_stereo_live_test.ps1') -GameDirectory $StereoVerifierGame | Out-Null }
+        catch { $StrictReason = $_.Exception.Message }
+        Assert-True (($Requested -eq 'false' -and $StrictReason -like 'Fire actions were not delivered*') -or
+            ($Requested -eq 'true' -and $null -eq $StrictReason)) "Unexpected strict fire verdict ($Requested): $StrictReason"
+    }
+    [IO.File]::WriteAllText($StereoRunPath, $OriginalFullRun)
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $StereoVerifierLog
+
     # Gameplay Circle is alternate fire; only Options owns native pause. Keep
     # the native-stereo owner, successful result and exact Escape route required.
     $NativePauseEvent = @($StereoVerifierLog | Where-Object { $_ -match 'event=native_stereo_ui_back ' })[0]
@@ -1212,6 +1277,17 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StartupLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+    $TransportRun.validation | Add-Member -NotePropertyName requireInteractionRegression -NotePropertyValue $true -Force
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    $InvalidStartupProfile = $null
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch { $InvalidStartupProfile = $_.Exception.Message }
+    Assert-True ($InvalidStartupProfile -eq 'Interaction regression requires the full validation profile.') `
+        'The startup verifier accepted startup receipts for a directed interaction run.'
+    $TransportRun.validation.PSObject.Properties.Remove('requireInteractionRegression')
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     $StartupLogWithoutSustainedPresent = @($StartupLog | Where-Object {
         $_ -notmatch "frame_sequence=90"
     })

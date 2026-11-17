@@ -31,6 +31,12 @@ struct DeviceHookCallbacks {
     // forwarding and before the caller can retire them. Never retain them.
     void (*resource_probe_copy)(IDirect3DDevice9*,IDirect3DSurface9*,const RECT*,
         IDirect3DSurface9*,const RECT*,HRESULT) noexcept = nullptr;
+    // The native method has returned. Its destination is borrowed when the
+    // method names one. Patch draws use the current render-target bindings.
+    void (*resource_probe_write)(IDirect3DDevice9*,ResourceWriteKind,IDirect3DSurface9*,
+        IDirect3DBaseTexture9*,HRESULT) noexcept = nullptr;
+    // Value-only creation and initialization receipts, including failures.
+    void (*resource_probe_target_resource)(IDirect3DDevice9*, const RenderTargetResourceEvent&) noexcept = nullptr;
     // Separate bounded HUD diagnostic ingress. Register only with the existing
     // render-resource opt-in AND a qualified natural sprite/flush coordinator.
     // Entry observes actual pre-draw bindings; exit supplies the native result.

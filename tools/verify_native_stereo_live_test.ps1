@@ -25,6 +25,19 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
 $Run = $Provenance.Run
 $Lines = @($ValidationContext.RuntimeLines)
 $LocomotionPolicyPattern = '(?:coj_inputanalog_per_axis_deadzone_0[.]04(?:_then_head_relative)?|head_relative_then_coj_inputanalog_per_axis_deadzone_0[.]04)'
+$HasInteractionScope = $Run.validation.PSObject.Properties.Name -contains 'requireInteractionRegression'
+$RequireInteractionRegression = if ($HasInteractionScope) {
+    if ($Run.validation.requireInteractionRegression -isnot [bool]) {
+        throw 'Invalid interaction regression requirement in the run manifest.'
+    }
+    if ($Run.validation.requireInteractionRegression -and $ValidationContext.Profile -ne 'full') {
+        throw 'Interaction regression requires the full validation profile.'
+    }
+    $Run.validation.requireInteractionRegression
+} else {
+    # Preserve the scope recorded by manifests from the original full verifier.
+    $true
+}
 
 if ([string]$Run.validation.videoProfile.nativeResolution -eq '2804x2860' -or
     [bool]$Run.validation.videoProfile.experimentalResolution) {
@@ -163,7 +176,7 @@ $RequireFlatTheaterUi = if ($null -ne $Run.validation.requireFlatTheaterUi) {
 $RequireExplicitPassthroughDisable = if ($null -ne $Run.validation.requireExplicitPassthroughDisable) {
     [bool]$Run.validation.requireExplicitPassthroughDisable
 } else {
-    $true
+    $RequireInteractionRegression
 }
 $RequireSubtitleState = if ($null -ne $Run.validation.requireSubtitleState) {
     [bool]$Run.validation.requireSubtitleState
@@ -221,18 +234,20 @@ if ($RequireFlatTheaterUi) {
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
         "The run never presented intro/menu content through flat_theater."
-    Assert-LogMatch `
-        "flat_ui_pointer: status=hit;hand=(left|right);activation=automatic;pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
-        "No valid Sense ray produced a flat-theater beam from the projected controller origin."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=game_cursor_mailbox;desktop_injection=false" `
-        "The flat-theater pointer did not publish to the logical game-cursor mailbox."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;owner=game_cursor_only;desktop_injection=false;pixel=[0-9]+,[0-9]+;.*;observed=" `
-        "The projected ray did not reach the sole logical cursor route with readback."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;input_consumer=native_sprite_tree;.*;observed=" `
-        "No projected ray reached the native menu mouse-event consumer; sprite echo alone is insufficient."
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "flat_ui_pointer: status=hit;hand=(left|right);activation=automatic;pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
+            "No valid Sense ray produced a flat-theater beam from the projected controller origin."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=game_cursor_mailbox;desktop_injection=false" `
+            "The flat-theater pointer did not publish to the logical game-cursor mailbox."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;owner=game_cursor_only;desktop_injection=false;pixel=[0-9]+,[0-9]+;.*;observed=" `
+            "The projected ray did not reach the sole logical cursor route with readback."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;input_consumer=native_sprite_tree;.*;observed=" `
+            "No projected ray reached the native menu mouse-event consumer; sprite echo alone is insufficient."
+    }
     Assert-LogNotMatch `
         "camera_probe_event: event=flat_ui_pointer result=active detail=.*;route=win32_cursor_position|desktop_injection=true" `
         "The flat-menu pointer still injected desktop input alongside the logical cursor."
@@ -250,27 +265,29 @@ if ($RequireFlatTheaterUi) {
             throw 'Logical cursor readback differs from the projected ray target.'
         }
     }
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
-        "No Sense trigger press reached an exact CoJ UI/select route."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=(true|false);.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
-        "Cross did not reach an exact CoJ accept/select route."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=(GameWithMenu\.sm_cMenuModule\.GetCurrentUI|LawmanGame\.sm_cActiveGameModule\.cMenu\.GetCurrentUI)\.CallOnInputKeyGlobal\(Escape\)" `
-        "Circle did not reach the active UI's normal Escape press/release route for menu back."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
-        "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter)" `
-        "No Sense trigger press selected the in-game Escape menu through the active MainMenuModule route."
-    Assert-LogMatch `
-        "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey" `
-        "No Sense select press reached GameUILoading.OnInputKey while the loading timer was frozen."
-    Assert-LogMatch `
-        "camera_probe_event: event=blocking_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart" `
-        "The run did not prove that the blocking UI resumed only after trigger release."
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
+            "No Sense trigger press reached an exact CoJ UI/select route."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=(true|false);.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
+            "Cross did not reach an exact CoJ accept/select route."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=(GameWithMenu\.sm_cMenuModule\.GetCurrentUI|LawmanGame\.sm_cActiveGameModule\.cMenu\.GetCurrentUI)\.CallOnInputKeyGlobal\(Escape\)" `
+            "Circle did not reach the active UI's normal Escape press/release route for menu back."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
+            "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
+        Assert-LogMatch `
+            "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter)" `
+            "No Sense trigger press selected the in-game Escape menu through the active MainMenuModule route."
+        Assert-LogMatch `
+            "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey" `
+            "No Sense select press reached GameUILoading.OnInputKey while the loading timer was frozen."
+        Assert-LogMatch `
+            "camera_probe_event: event=blocking_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart" `
+            "The run did not prove that the blocking UI resumed only after trigger release."
+    }
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo" `
         "The run did not transition from flat-theater UI to native stereo gameplay."
@@ -296,6 +313,8 @@ if ($RequireRecenter) {
     Assert-LogMatch `
         "camera_probe_event: event=camera_hmd_recentered result=ok .*stereo=true" `
         "No stereo HMD base orientation/recenter was observed."
+}
+if ($RequireRecenter -and $RequireInteractionRegression) {
     Assert-LogMatch `
         "openvr_input_event: action=recenter result=pressed source=global_action" `
         "No PS VR2 Sense/global-action recenter press was observed."
@@ -310,9 +329,11 @@ if ($RequireBodyIk) {
     Assert-LogMatch `
         "camera_probe_event: event=body_tracking_input result=observed detail=.*controller_pose_source=handgrip;raw_role_fallback=false;.*left_position_valid=true;left_orientation_valid=true;.*right_position_valid=true;right_orientation_valid=true;" `
         "Body IK tracking telemetry did not prove valid left/right handgrip poses without raw-role fallback."
-    Assert-LogMatch `
-        "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_preserved=true" `
-        "Create recenter did not safely preserve the arm target across the recovery boundary."
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_preserved=true" `
+            "Create recenter did not safely preserve the arm target across the recovery boundary."
+    }
 }
 if ($RequireStereoGeometry) {
     Assert-LogMatch `
@@ -520,51 +541,55 @@ if ($RequireStereoGeometry) {
         throw "Stereo telemetry never observed view, asymmetric projection and view-projection changes together."
     }
 
-    $YawSamples = @($OrientationLines | ForEach-Object {
-        if ($_ -match "yaw_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-    })
-    $PitchSamples = @($OrientationLines | ForEach-Object {
-        if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-    })
-    $RollSamples = @($OrientationLines | ForEach-Object {
-        if ($_ -match "roll_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-    })
-    if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
-        throw "Telemetry did not capture a meaningful physical yaw movement."
-    }
-    if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
-        throw "Telemetry did not capture a meaningful physical pitch movement."
-    }
-    if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
-        throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
+    if ($RequireInteractionRegression) {
+        $YawSamples = @($OrientationLines | ForEach-Object {
+            if ($_ -match "yaw_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+        })
+        $PitchSamples = @($OrientationLines | ForEach-Object {
+            if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+        })
+        $RollSamples = @($OrientationLines | ForEach-Object {
+            if ($_ -match "roll_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+        })
+        if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
+            throw "Telemetry did not capture a meaningful physical yaw movement."
+        }
+        if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+            throw "Telemetry did not capture a meaningful physical pitch movement."
+        }
+        if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+            throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
+        }
     }
 }
 if ($RequirePositional6Dof) {
     Assert-LogMatch `
         "camera_probe_event: event=body_player_reconciliation result=camera_only detail=.*actor_write=false;.*mode=camera_only_collision_safe;collision_owner=native_actor" `
         "Room-scale translation did not preserve native actor collision ownership."
-    Assert-LogMatch `
-        "camera_probe_event: event=body_yaw_tracking result=applied detail=.*route=PlayerBeing.RotateHorizontally;commit_after_stereo_restore=true" `
-        "Physical HMD yaw never transferred to the native player body root."
-    $MeaningfulPositionObserved = $false
-    foreach ($Line in $OrientationLines) {
-        $PositionMatch = [regex]::Match(
-            $Line,
-            "relative_head_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
-        if (-not $PositionMatch.Success -or $Line -notmatch "head_position_valid=true") {
-            continue
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "camera_probe_event: event=body_yaw_tracking result=applied detail=.*route=PlayerBeing.RotateHorizontally;commit_after_stereo_restore=true" `
+            "Physical HMD yaw never transferred to the native player body root."
+        $MeaningfulPositionObserved = $false
+        foreach ($Line in $OrientationLines) {
+            $PositionMatch = [regex]::Match(
+                $Line,
+                "relative_head_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+            if (-not $PositionMatch.Success -or $Line -notmatch "head_position_valid=true") {
+                continue
+            }
+            $X = [double]::Parse($PositionMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $Y = [double]::Parse($PositionMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $Z = [double]::Parse($PositionMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $Magnitude = [Math]::Sqrt($X * $X + $Y * $Y + $Z * $Z)
+            if ([double]::IsFinite($Magnitude) -and $Magnitude -ge 0.03) {
+                $MeaningfulPositionObserved = $true
+                break
+            }
         }
-        $X = [double]::Parse($PositionMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-        $Y = [double]::Parse($PositionMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-        $Z = [double]::Parse($PositionMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-        $Magnitude = [Math]::Sqrt($X * $X + $Y * $Y + $Z * $Z)
-        if ([double]::IsFinite($Magnitude) -and $Magnitude -ge 0.03) {
-            $MeaningfulPositionObserved = $true
-            break
+        if (-not $MeaningfulPositionObserved) {
+            throw "Telemetry did not capture at least 3 cm of valid physical HMD translation for the 6DOF gate."
         }
-    }
-    if (-not $MeaningfulPositionObserved) {
-        throw "Telemetry did not capture at least 3 cm of valid physical HMD translation for the 6DOF gate."
     }
 
     $RoomScaleBodyLines = @($Lines | Where-Object {
@@ -819,14 +844,22 @@ if ($RequireBodyIk) {
 if ($RequireGameplayInput) {
     if ($Run.validation.PSObject.Properties.Name -contains "requireFireAfterMuzzle" -and
         $Run.validation.requireFireAfterMuzzle) {
-        Assert-LogMatch "event=controller_fire_dispatch result=applied detail=.*;phase=(?:after_verified_muzzle;|after_weapon_pose_attempt;verified_left_muzzle=(?:true;verified_right_muzzle=(?:true|false)|false;verified_right_muzzle=true);)non_fire_actions=false;" `
-            "Fire actions were not delivered after the current muzzle publication phase."
+        if ($RequireInteractionRegression) {
+            $FireDispatchPattern = if ($HasInteractionScope) {
+                'event=controller_fire_dispatch result=applied detail=.*;phase=after_weapon_pose_attempt;.*;non_fire_actions=false;dispatched_fire_with_verified_muzzle=true;'
+            } else {
+                'event=controller_fire_dispatch result=applied detail=.*;phase=(?:after_verified_muzzle;|after_weapon_pose_attempt;verified_left_muzzle=(?:true;verified_right_muzzle=(?:true|false)|false;verified_right_muzzle=true);)non_fire_actions=false;'
+            }
+            Assert-LogMatch $FireDispatchPattern "Fire actions were not delivered after the current muzzle publication phase."
+        }
         Assert-LogNotMatch "event=controller_fire_dispatch result=unavailable" `
             "A deferred fire action failed to reach the native input route."
     }
-    Assert-LogMatch `
-        "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_options;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
-        "Options did not open the shipped in-game Escape menu from native-stereo gameplay."
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_options;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
+            "Options did not open the shipped in-game Escape menu from native-stereo gameplay."
+    }
     Assert-LogMatch `
         "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=measured_weapon_muzzle_cache;visual_origin_owner=m_avAimFromPoint;.*fire_origin_release=tracking_menu_or_generation_invalidation;native_accuracy_spread=preserved" `
         "Controller tip axes did not reach the exact CoJ aim adapter."
@@ -842,9 +875,11 @@ if ($RequireGameplayInput) {
     Assert-LogNotMatch `
         "camera_probe_event: event=controller_weapon_restore result=failed" `
         "A weapon overlay restoration failed."
-    Assert-LogMatch `
-        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=true;physical_crouch=true;.*;locomotion_policy=$LocomotionPolicyPattern;route=GameInputController.InputAction.Translate" `
-        "Physical crouch did not drive the native crouch action."
+    if ($RequireInteractionRegression) {
+        Assert-LogMatch `
+            "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=true;physical_crouch=true;.*;locomotion_policy=$LocomotionPolicyPattern;route=GameInputController.InputAction.Translate" `
+            "Physical crouch did not drive the native crouch action."
+    }
     Assert-LogNotMatch `
         "renderer=LaserPointer\.PointFromTo" `
         "The run created the old diagnostic LaserPointer during normal gameplay."
@@ -854,6 +889,11 @@ if ($RequireGameplayInput) {
     if ($GameplayLines.Count -lt 1) {
         throw "The gameplay-input gate did not reach the exact-game InputAction.Translate route."
     }
+    if ($HasInteractionScope) {
+        Assert-LogNotMatch 'event=gameplay_input result=unavailable detail=.*;active=true;' `
+            'An active gameplay input dispatch failed.'
+    }
+    $ActiveGameplayObserved = $false
     $MeaningfulGameplayInput = $false
     foreach ($Line in $GameplayLines) {
         if ($Line -notmatch ";active=true;" -or
@@ -861,6 +901,7 @@ if ($RequireGameplayInput) {
             $Line -notmatch ";route=GameInputController.InputAction.Translate") {
             continue
         }
+        $ActiveGameplayObserved = $true
         $MoveMatch = [regex]::Match($Line, ";move=([-+0-9.eE]+),([-+0-9.eE]+)")
         $TurnMatch = [regex]::Match($Line, ";turn=([-+0-9.eE]+),([-+0-9.eE]+)")
         $DigitalPressed = $Line -match ";(fire_left|fire_right|jump|reload|run|crouch|interact|weapon_next|weapon_previous|kick)=true;"
@@ -880,7 +921,10 @@ if ($RequireGameplayInput) {
             break
         }
     }
-    if (-not $MeaningfulGameplayInput) {
+    if ($HasInteractionScope -and -not $ActiveGameplayObserved) {
+        throw 'The run did not record an active gameplay input receipt with the native route and locomotion policy.'
+    }
+    if ($RequireInteractionRegression -and -not $MeaningfulGameplayInput) {
         throw "The gameplay-input gate did not observe any non-neutral Sense gameplay action."
     }
 }
@@ -1005,23 +1049,34 @@ if (-not $ValidationContext.RuntimeStarted -or -not $ValidationContext.RuntimeEn
     throw 'The verifier requires a complete correlated runtime start/end, not a substring in another record.'
 }
 Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
-if ($RequireRecenter) {
+if ($RequireRecenter -and $RequireInteractionRegression) {
     Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
+} elseif ($RequireRecenter) {
+    Write-Host "PASS - native stereo acquired an HMD base orientation."
 }
 Write-Host "PASS - ChromeEngine eye passes were queued through the deferred D3D9 ring and distinct frames reached the presenter."
 if ($RequireStereoGeometry) {
     Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
 }
 if ($RequirePositional6Dof) {
-    Write-Host "PASS - valid recentered HMD translation and at least 3 cm of physical 6DOF movement verified."
+    Write-Host "PASS - room-scale collision ownership and sampled body offsets verified."
+    if ($RequireInteractionRegression) {
+        Write-Host "PASS - native body yaw and at least 3 cm of physical 6DOF movement verified."
+    }
 }
 if ($RequireBodyIk) {
-    Write-Host "PASS - both tracked Sense poses drove measured two-bone arm IK through the exact native element-basis writer."
+    Write-Host "PASS - both tracked Sense poses reached the configured native hand/arm presentation."
     Write-Host "PASS - pelvis plus both measured leg chains produced read-only lower-body IK preflight telemetry with no lower-body writes."
 }
-Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."
+Write-Host "PASS - dedicated presenter submission, hook restoration and same-owner XR shutdown verified."
+if ($RequireExplicitPassthroughDisable) {
+    Write-Host "PASS - deliberate tracking disable restored natural camera passthrough."
+}
 if ($RequireFlatTheaterUi) {
-    Write-Host "PASS - flat-theater Sense ray/cursor, exact CoJ UI select, loading-gate release and native-stereo transition verified."
+    Write-Host "PASS - flat-theater presentation and native-stereo transition verified."
+    if ($RequireInteractionRegression) {
+        Write-Host "PASS - flat-theater Sense ray/cursor, exact CoJ UI routes and loading-gate release verified."
+    }
 }
 if ($RequireOpenVrRuntimeState) {
     Write-Host "PASS - OpenVR connected/tracking/presenting state and joined shutdown-complete state verified."

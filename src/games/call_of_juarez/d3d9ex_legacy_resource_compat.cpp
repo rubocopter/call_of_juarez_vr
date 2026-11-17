@@ -209,6 +209,7 @@ HRESULT STDMETHODCALLTYPE HookCreateTexture(
     IDirect3DTexture9** texture,
     HANDLE* shared_handle) {
     const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    const DWORD entry_error = GetLastError();
     void** vtable = DeviceVtable(device);
     const auto original = reinterpret_cast<CreateTextureFn>(
         g_registry.OriginalTarget(vtable, kCreateTextureIndex));
@@ -224,10 +225,13 @@ HRESULT STDMETHODCALLTYPE HookCreateTexture(
     LegacyTextureCreateEvent event = BaseEvent(
         LegacyTextureKind::texture_2d, device, caller, width, height, 1, levels,
         usage, effective_usage, format, pool, effective_pool, translated);
+    event.shared_argument = shared_handle != nullptr;
     if (state.device) Notify(state, event);
+    SetLastError(entry_error);
     const HRESULT result = original(
         device, width, height, levels, effective_usage, format, effective_pool,
         texture, shared_handle);
+    const DWORD native_error = GetLastError();
     if (state.device) {
         if (SUCCEEDED(result) && texture && *texture && translated) {
             TrackResource(static_cast<IDirect3DBaseTexture9*>(*texture),
@@ -235,8 +239,10 @@ HRESULT STDMETHODCALLTYPE HookCreateTexture(
         }
         event.phase = LegacyTextureCreatePhase::result;
         event.result = result;
+        event.object = SUCCEEDED(result) && texture ? reinterpret_cast<std::uintptr_t>(*texture) : 0;
         Notify(state, event);
     }
+    SetLastError(native_error);
     return result;
 }
 

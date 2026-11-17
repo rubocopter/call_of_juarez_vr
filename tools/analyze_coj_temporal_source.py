@@ -11,6 +11,10 @@ QUEUE='native_hdr_alpha_queue: '
 # Existing event allowance plus four programs, each with at most 1024 code
 # and 1024 raw-constant uint32 words (10 digits + comma), plus record metadata.
 MAX_EVENT_CHARS=64*1024+4*(2*1024*11+512)
+MAX_SCOPE_CHARS=MAX_EVENT_CHARS+72*(2*1024*11+1024)
+DRAW_PAIR_STATES=frozenset(('colorWrite secondaryColorWrite alphaTest alphaFunc alphaRef alphaBlend '
+    'srcBlend dstBlend blendOp blendFactor separateAlpha srcBlendAlpha dstBlendAlpha blendOpAlpha '
+    'depthTest depthWrite depthFunc depthBiasBits slopeBiasBits stencilTest cullMode scissorTest srgbWrite').split())
 WRITE_FIELDS=('sourceWriteCalls','sourceAlphaWriteCalls','sourceLastWriterShader',
               'sourceWriteObservationComplete')
 COPY_FIELDS=('sourceCopyCalls','sourceLastCopySource','sourceLastCopySourceFormat',
@@ -98,6 +102,24 @@ def vertex_program_observation(producer):
                 unobservedDraws=v['unobservedDraws'],readFailures=v['readFailures'],programs=out,
                 semantics='first_draw_constants_per_exact_program_only')
 
+def first_color_clear_observation(producer):
+    if 'firstColorClear' not in producer:return dict(available=False,leadingFullViewport=False)
+    clear=producer['firstColorClear']
+    if not isinstance(clear,dict):raise ValueError('Invalid first color clear witness')
+    rectangles=integer(clear,'rectangles',0,2)
+    preceding=integer(clear,'drawsBefore',0,producer['drawCalls'])
+    for key in ('stateComplete','fullViewport','scissorEnabled','leadingFullViewport'):
+        if type(clear.get(key)) is not bool:raise ValueError('Invalid first color clear '+key)
+    if (clear['stateComplete'] and rectangles!=1 or
+            not clear['stateComplete'] and (clear['fullViewport'] or clear['scissorEnabled'])):
+        raise ValueError('Inconsistent first color clear state')
+    if not producer['clearCalls'] and (rectangles or preceding or clear['stateComplete']):
+        raise ValueError('First color clear receipt without a clear call')
+    leading=(producer['observationComplete'] and producer['clearCalls']==1 and preceding==0 and rectangles==1 and clear['stateComplete']
+             and clear['fullViewport'] and not clear['scissorEnabled'])
+    if clear['leadingFullViewport']!=leading:raise ValueError('Inconsistent leading clear footprint')
+    return dict(clear,available=True)
+
 def producer_observation(event):
     """Optional direct-RT0 producer intents frozen at the native copy boundary.
 
@@ -108,7 +130,9 @@ def producer_observation(event):
     if 'sourceCopyProducer' not in event:
         return dict(available=False,observed=False,complete=False,surface=None,drawCalls=None,
             alphaDrawCalls=None,rgbOnlyDrawCalls=None,alphaBlendDrawCalls=None,clearCalls=None,
-            firstAlphaBlend=alpha_blend_observation({}),vertexPrograms=vertex_program_observation({}))
+            firstAlphaBlend=alpha_blend_observation({}),vertexPrograms=vertex_program_observation({}),
+            firstColorClear=first_color_clear_observation({}),incomingStretchRect=None,directDeviceWrites=None,
+            secondaryTargetBinding=None)
     counts=('surface','drawCalls','alphaDrawCalls','alphaBlendDrawCalls','clearCalls',
             'firstAlphaShader','lastAlphaShader')
     if not isinstance(p,dict):raise ValueError('Invalid sourceCopyProducer')
@@ -126,18 +150,88 @@ def producer_observation(event):
         raise ValueError('Producer completeness/counters without observed surface writes')
     if not p['alphaDrawCalls'] and (p['firstAlphaShader'] or p['lastAlphaShader']):
         raise ValueError('Producer shader without alpha draw')
+    def ingress_surface(witness,positive):
+        surface=integer(witness,'surface',0)
+        if (surface or positive) and (not surface or surface!=event.get('sourceLastCopySource') or
+                not event.get('sourceCopyCalls') or event.get('sourceLastCopySourceFormat')!=113):
+            raise ValueError('Ingress witness without matching FP16 copy source identity')
+        return surface
+    def destination_writes(field):
+        if field not in p:return None
+        witness=p[field]
+        if not isinstance(witness,dict) or type(witness.get('complete')) is not bool:
+            raise ValueError('Invalid '+field+' witness')
+        calls=integer(witness,'calls',0)
+        return dict(surface=ingress_surface(witness,calls or witness['complete']),
+            calls=calls,complete=witness['complete'])
+    secondary=None
+    if 'secondaryTargetBinding' in p:
+        witness=p['secondaryTargetBinding']
+        if not isinstance(witness,dict) or any(type(witness.get(k)) is not bool for k in ('bound','complete')):
+            raise ValueError('Invalid secondary target binding witness')
+        secondary=dict(surface=ingress_surface(witness,witness['bound'] or witness['complete']),
+            bound=witness['bound'],complete=witness['complete'])
     return dict(available=True,observed=observed,complete=p['observationComplete'],surface=p['surface'],
         drawCalls=p['drawCalls'] if observed else None,alphaDrawCalls=p['alphaDrawCalls'] if observed else None,
         rgbOnlyDrawCalls=p['drawCalls']-p['alphaDrawCalls'] if observed else None,
         alphaBlendDrawCalls=p['alphaBlendDrawCalls'] if observed else None,clearCalls=p['clearCalls'] if observed else None,
         firstAlphaShader=p['firstAlphaShader'] if observed else None,lastAlphaShader=p['lastAlphaShader'] if observed else None,
         firstAlphaBlend=alpha_blend_observation(p),vertexPrograms=vertex_program_observation(p),
+        firstColorClear=first_color_clear_observation(p),
+        incomingStretchRect=destination_writes('incomingStretchRect'),
+        directDeviceWrites=destination_writes('directDeviceWrites'),secondaryTargetBinding=secondary,
         coverage=p['coverage'],semantics='successful_rt0_call_intent_only')
 
 def producer_snapshot_changed(before,after,copy_delta):
     # Both values are frozen at the native copy, not running producer totals.
     return (copy_delta==0 and 'sourceCopyProducer' in before and 'sourceCopyProducer' in after
             and before['sourceCopyProducer']!=after['sourceCopyProducer'])
+
+def draw_pair_observation(event,producer):
+    """Exact paired programs for bounded draw intents frozen at the last native copy."""
+    if 'sourceCopyDrawPairs' not in event:
+        return dict(available=False,fragmentCoverageQualified=False,samples=[])
+    witness=event['sourceCopyDrawPairs']
+    if not producer['available'] or not isinstance(witness,dict) or integer(witness,'schema',1,1)!=1:
+        raise ValueError('Invalid draw-pair schema or missing producer')
+    if witness.get('coverage')!='first_8_then_every_16_through_1024':
+        raise ValueError('Invalid draw-pair coverage')
+    draws=producer['drawCalls'] or 0
+    expected=set(range(1,min(8,draws)+1))|set(range(16,min(draws,1024)+1,16))
+    observed=integer(witness,'observed',0,len(expected))
+    failures=integer(witness,'readFailures',0,len(expected))
+    samples=witness.get('samples')
+    if observed+failures!=len(expected) or not isinstance(samples,list) or len(samples)!=observed:
+        raise ValueError('Invalid draw-pair accounting')
+
+    def program(value,versions):
+        if not isinstance(value,dict):raise ValueError('Invalid paired shader')
+        shader=integer(value,'shader',0)
+        size=integer(value,'shaderBytes',0,4096)
+        code=value.get('bytecode')
+        if not isinstance(code,list) or len(code)*4!=size or any(type(w) is not int or not 0<=w<2**32 for w in code):
+            raise ValueError('Invalid paired shader words')
+        if shader and (len(code)<2 or code[0] not in versions or code[-1]!=0xffff) or not shader and code:
+            raise ValueError('Invalid paired shader envelope')
+        return dict(value,sha256=hashlib.sha256(struct.pack('<'+'I'*len(code),*code)).hexdigest() if code else None)
+
+    out=[];previous=0
+    for sample in samples:
+        if not isinstance(sample,dict):raise ValueError('Invalid draw-pair sample')
+        ordinal=integer(sample,'ordinal',1,1024)
+        if ordinal<=previous or ordinal not in expected:raise ValueError('Invalid draw-pair ordinal')
+        previous=ordinal
+        for key in ('secondaryTargetBound','depthBound'):
+            if type(sample.get(key)) is not bool:raise ValueError('Invalid draw-pair '+key)
+        states=sample.get('states')
+        if not isinstance(states,dict) or states.keys()!=DRAW_PAIR_STATES:raise ValueError('Invalid draw-pair states')
+        for key in states:integer(states,key,0,2**32-1)
+        integer(states,'colorWrite',1,15);integer(states,'secondaryColorWrite',0,15)
+        out.append(dict(sample,
+            vertex=program(sample.get('vertex'),(0xfffe0101,0xfffe0200,0xfffe0300)),
+            pixel=program(sample.get('pixel'),(0xffff0101,0xffff0102,0xffff0103,0xffff0104,0xffff0200,0xffff0300))))
+    return dict(available=True,coverage=witness['coverage'],observed=observed,readFailures=failures,
+        drawsNotSampled=draws-len(expected),fragmentCoverageQualified=False,samples=out)
 
 def copy_observation(event):
     """Typed native-copy evidence, independently optional on historical records."""
@@ -266,7 +360,7 @@ def vector(obj,key,count):
         raise ValueError('Invalid '+key+' value')
     return values
 def analyze(lines,run_id,build_id):
-    rows=[];scopes={};queues=[];errors=[];starts=ends=0;running=False
+    rows=[];scopes={};draw_pairs={};queues=[];errors=[];starts=ends=0;running=False
     for number,line in enumerate(lines,1):
         line=line.rstrip('\r\n')
         if line.startswith('run_start:'):
@@ -281,7 +375,8 @@ def analyze(lines,run_id,build_id):
         elif line.startswith((PREFIX,SCOPE,QUEUE)):
             try:
                 if not running:raise ValueError('Observation outside run interval')
-                if len(line)>MAX_EVENT_CHARS:raise ValueError('Oversized sample')
+                if len(line)>(MAX_SCOPE_CHARS if line.startswith(SCOPE) else MAX_EVENT_CHARS):
+                    raise ValueError('Oversized sample')
                 if line.startswith(QUEUE):
                     if len(queues)>=60:raise ValueError('Queue budget exceeded')
                     queues.append(dict(line=number,event=parse_queue(line)));continue
@@ -298,7 +393,10 @@ def analyze(lines,run_id,build_id):
                     scope=event['scope']
                     if scope in scopes or len(scopes)>=20:raise ValueError('Duplicate/excess source scope')
                     if type(event.get('complete')) is not bool:raise ValueError('Invalid scope completion')
-                    integer(event,'attemptedConsumers',0,3);scopes[scope]=event;continue
+                    integer(event,'attemptedConsumers',0,3)
+                    draw_pairs[scope]=draw_pair_observation(event,producer)
+                    scopes[scope]=event;continue
+                if 'sourceCopyDrawPairs' in event:raise ValueError('Draw pairs outside copy scope summary')
                 if len(rows)>=60:raise ValueError('Source sample budget exceeded')
                 for key in ('device','source'):integer(event,key)
                 for key in ('width','height'):integer(event,key,1,8192)
@@ -396,6 +494,7 @@ def analyze(lines,run_id,build_id):
         scope_reports.append(dict(event=scope,sourceWriteObservation=write_observation(scope),
             sourceCopyObservation=copy_observation(scope),
             sourceCopyProducerObservation=producer_observation(scope),
+            sourceCopyDrawPairObservation=draw_pairs[identity],
             deliveredConsumers=delivered,missingConsumers=missing,
             deliveryComplete=scope['complete'] and not missing and all(r['scopeComplete'] for r in samples)))
         if missing:failures.append(dict(reason='missing_consumer_readback',scope=identity,consumers=missing))

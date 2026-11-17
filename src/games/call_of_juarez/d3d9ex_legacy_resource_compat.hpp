@@ -35,6 +35,9 @@ struct LegacyTextureCreateEvent {
     D3DPOOL effective_pool = D3DPOOL_DEFAULT;
     bool translated = false;
     HRESULT result = S_OK;
+    // 2D creation only. Value-only and meaningful at the result boundary.
+    std::uintptr_t object = 0;
+    bool shared_argument = false;
 };
 
 using LegacyTextureEventCallback =

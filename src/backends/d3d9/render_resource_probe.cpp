@@ -29,34 +29,28 @@ bool RenderResourceCallBoundary::End(IDirect3DDevice9* device) noexcept {
 namespace {
 using Microsoft::WRL::ComPtr;
 struct LastErrorScope { DWORD value=GetLastError();~LastErrorScope(){SetLastError(value);} };
-std::uintptr_t Identity(IUnknown* object) noexcept {
-    if(!object)return 0;
-    ComPtr<IUnknown> canonical;
-    return SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&canonical)))&&canonical
-        ? reinterpret_cast<std::uintptr_t>(canonical.Get()):0;
-}
 D3D9RenderResourceInfo Surface(IDirect3DSurface9* surface,HRESULT read) noexcept {
     D3D9RenderResourceInfo out{};
     if(!surface){out.valid=SUCCEEDED(read)||read==D3DERR_NOTFOUND;return out;}
-    out.bound=true;out.object=Identity(surface);out.surface=out.object;
+    out.bound=true;out.object=RenderResourceIdentity(surface);out.surface=out.object;
     D3DSURFACE_DESC desc{};
     out.valid=SUCCEEDED(read)&&out.object&&SUCCEEDED(surface->GetDesc(&desc));
     out.width=desc.Width;out.height=desc.Height;out.format=desc.Format;out.usage=desc.Usage;
     out.pool=desc.Pool;out.samples=desc.MultiSampleType;out.quality=desc.MultiSampleQuality;out.type=desc.Type;
     ComPtr<IDirect3DBaseTexture9> parent;
-    if(SUCCEEDED(surface->GetContainer(IID_PPV_ARGS(&parent)))&&parent)out.parent=Identity(parent.Get());
+    if(SUCCEEDED(surface->GetContainer(IID_PPV_ARGS(&parent)))&&parent)out.parent=RenderResourceIdentity(parent.Get());
     return out;
 }
 D3D9RenderResourceInfo Texture(IDirect3DBaseTexture9* texture,HRESULT read) noexcept {
     D3D9RenderResourceInfo out{};
     if(!texture){out.valid=SUCCEEDED(read);return out;}
-    out.bound=true;out.object=Identity(texture);out.type=texture->GetType();out.levels=texture->GetLevelCount();
+    out.bound=true;out.object=RenderResourceIdentity(texture);out.type=texture->GetType();out.levels=texture->GetLevelCount();
     out.valid=SUCCEEDED(read)&&out.object;
     D3DSURFACE_DESC desc{};ComPtr<IDirect3DSurface9> surface;
     if(out.type==D3DRTYPE_TEXTURE){
         auto* tex=static_cast<IDirect3DTexture9*>(texture);
         out.valid=SUCCEEDED(tex->GetLevelDesc(0,&desc))&&out.valid;
-        if(SUCCEEDED(tex->GetSurfaceLevel(0,&surface))&&surface)out.surface=Identity(surface.Get());
+        if(SUCCEEDED(tex->GetSurfaceLevel(0,&surface))&&surface)out.surface=RenderResourceIdentity(surface.Get());
         else out.valid=false;
     }else if(out.type==D3DRTYPE_CUBETEXTURE){
         auto* tex=static_cast<IDirect3DCubeTexture9*>(texture);
@@ -102,7 +96,7 @@ D3D9RenderResourceSnapshot ObserveD3D9RenderResources(IDirect3DDevice9* device) 
     ComPtr<IDirect3DVertexShader9> vertex;ComPtr<IDirect3DPixelShader9> pixel;
     out.valid=SUCCEEDED(device->GetVertexShader(&vertex))&&out.valid;
     out.valid=SUCCEEDED(device->GetPixelShader(&pixel))&&out.valid;
-    out.vertex_shader=Identity(vertex.Get());out.pixel_shader=Identity(pixel.Get());
+    out.vertex_shader=RenderResourceIdentity(vertex.Get());out.pixel_shader=RenderResourceIdentity(pixel.Get());
     if((vertex&&!out.vertex_shader)||(pixel&&!out.pixel_shader))out.valid=false;
     D3DMATRIX view{},projection{};
     out.transforms_valid=SUCCEEDED(device->GetTransform(D3DTS_VIEW,&view))&&

@@ -4451,7 +4451,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     std::string* error, const CoJInputDispatchPhase phase,
     const float head_relative_move_yaw_degrees,
     const std::uint64_t monotonic_us,
-    const CoJInputDispatchTraceContext* trace) noexcept {
+    const CoJInputDispatchTraceContext* trace, CoJFirePresses* fire_presses) noexcept {
+    if (fire_presses) *fire_presses={};
     // This scope observes this invocation only. Its sink runs once, after JNI
     // cleanup, including early failures. No extra native input call is made.
     std::optional<CoJInputDispatchDiagnostic> diagnostic;
@@ -4804,6 +4805,11 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                     DeleteLocal(env, target);
                     DeleteLocal(env, action);
                     return false;
+                }
+                if (fire_presses && current_pressed) {
+                    // Logical hands of actions 9/10 match BuildCoJGameplayActionValues.
+                    if (item.action==9) fire_presses->left=true;
+                    if (item.action==10) fire_presses->right=true;
                 }
         } else {
             if (diagnostic) diagnostic->stage = "analog_translate";

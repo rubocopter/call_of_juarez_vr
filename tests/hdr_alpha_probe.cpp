@@ -44,6 +44,36 @@ public:
         std::memset(data,0,bytes);*count=change_size?bytes-4:bytes;return S_OK;
     }
 };
+// Expose a different interface address for a real surface after the native
+// write. The observer must match IUnknown and reject an unidentifiable write.
+class SurfaceAliasFixture final : public IDirect3DSurface9 {
+public:
+    explicit SurfaceAliasFixture(IDirect3DSurface9* surface) : surface_(surface) {}
+    bool identity_available = true;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
+        if (identity_available && iid == IID_IUnknown) return surface_->QueryInterface(iid, out);
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9** out) override { return surface_->GetDevice(out); }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, const void*, DWORD, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, void*, DWORD*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE FreePrivateData(REFGUID) override { return E_NOTIMPL; }
+    DWORD STDMETHODCALLTYPE SetPriority(DWORD) override { return 0; }
+    DWORD STDMETHODCALLTYPE GetPriority() override { return 0; }
+    void STDMETHODCALLTYPE PreLoad() override {}
+    D3DRESOURCETYPE STDMETHODCALLTYPE GetType() override { return D3DRTYPE_SURFACE; }
+    HRESULT STDMETHODCALLTYPE GetContainer(REFIID iid, void** out) override { return surface_->GetContainer(iid, out); }
+    HRESULT STDMETHODCALLTYPE GetDesc(D3DSURFACE_DESC* out) override { return surface_->GetDesc(out); }
+    HRESULT STDMETHODCALLTYPE LockRect(D3DLOCKED_RECT*, const RECT*, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE UnlockRect() override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetDC(HDC*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE ReleaseDC(HDC) override { return E_NOTIMPL; }
+private:
+    IDirect3DSurface9* surface_;
+};
 int main() {
     using namespace cojvr::games::call_of_juarez;
     {
@@ -118,6 +148,7 @@ int main() {
             SUCCEEDED(device->GetRenderState(D3DRS_COLORWRITEENABLE,&original_mask)),"write witness sentinel unavailable");
         Check(SUCCEEDED(device->SetRenderTarget(0,surface.Get())),"source target bind failed");
         HdrSourceWrites writes;
+        ObserveHdrInitialSecondaryTargets(device.Get(),writes);
         const auto identity=reinterpret_cast<std::uintptr_t>(source.Get());
         ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::clear,D3DCLEAR_TARGET},writes);
         Check(writes.calls==1&&writes.alpha_calls==1&&writes.complete&&
@@ -144,7 +175,7 @@ int main() {
             SUCCEEDED(device->SetRenderTarget(0,copy_source.Get())),"producer state setup failed");
         const auto cleared=device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0);
         Check(SUCCEEDED(cleared),"producer clear failed");
-        ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::clear,D3DCLEAR_TARGET,cleared},writes);
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,MakeRenderResourceClearEvent(0,nullptr,D3DCLEAR_TARGET,cleared,0),writes);
         struct Vertex {float x,y,z,w;DWORD color;};
         const Vertex triangle[]={{0,0,.5F,1,0xffffffff},{32,0,.5F,1,0xffffffff},{0,32,.5F,1,0xffffffff}};
         Check(SUCCEEDED(device->SetFVF(D3DFVF_XYZRHW|D3DFVF_DIFFUSE))&&
@@ -198,18 +229,139 @@ int main() {
             writes.copy_source_rect.right==32&&writes.copy_destination_rect.bottom==32,"typed source copy/rectangles missing");
         Check(HasCurrentEyeHdrCopy(writes,32,32)&&writes.copy_write_call==4,
             "typed equal-extent GPU copy did not establish scoped readiness");
+        auto written_through_alias = writes;
+        SurfaceAliasFixture alias(surface.Get());
+        const auto alias_fill = device->ColorFill(surface.Get(), nullptr, 0);
+        Check(SUCCEEDED(alias_fill), "fixture alias write failed");
+        ObserveHdrDeviceWrite(ResourceWriteKind::color_fill,&alias,nullptr,alias_fill,32,32,written_through_alias);
+        Check(!HasCurrentEyeHdrCopy(written_through_alias,32,32)&&written_through_alias.complete&&
+            written_through_alias.calls==writes.calls+1,"write through a COM alias retained copied readiness");
+        alias.identity_available=false;
+        auto unknown_identity=writes;
+        ObserveHdrDeviceWrite(ResourceWriteKind::color_fill,&alias,nullptr,alias_fill,32,32,unknown_identity);
+        Check(!HasCurrentEyeHdrCopy(unknown_identity,32,32)&&!unknown_identity.direct_write_observation_complete,
+            "unidentifiable write retained copied readiness");
         CheckProducer(writes,reinterpret_cast<std::uintptr_t>(copy_source.Get()),true,2,1,1,1);
+        Check(writes.copy_producer.HasLeadingFullClear(),"copy missed the leading full-viewport producer clear");
         CheckFirstBlend(writes.copy_producer,reinterpret_cast<std::uintptr_t>(blend_shader.Get()));
+        const auto& pairs=writes.copy_producer.draw_pairs;
+        Check(pairs.observed==2&&pairs.read_failures==0&&pairs.samples[0]&&pairs.samples[1],
+            "copy boundary did not freeze two draw-pair witnesses");
+        const auto& first=*pairs.samples[0];
+        const auto& second=*pairs.samples[1];
+        Check(first.ordinal==1&&second.ordinal==2&&!first.vertex.shader&&
+            first.pixel.shader==reinterpret_cast<std::uintptr_t>(blend_shader.Get())&&
+            first.pixel.shader_bytes==sizeof(program)&&
+            std::memcmp(first.pixel.bytecode.data(),program,sizeof(program))==0&&
+            !first.secondary_target_bound&&first.states[0]==D3DCOLORWRITEENABLE_RED&&
+            second.states[0]==D3DCOLORWRITEENABLE_ALPHA,
+            "draw-pair lost exact fixed-function/PS identity, target binding or draw-specific state");
         Check(SUCCEEDED(device->SetRenderTarget(0,copy_source.Get())),"producer rebind failed");
         const auto later_clear=device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0);
         Check(SUCCEEDED(later_clear),"later producer clear failed");
         ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::clear,D3DCLEAR_TARGET,later_clear},writes);
         CheckProducer(writes,reinterpret_cast<std::uintptr_t>(copy_source.Get()),true,2,1,1,1);
+        Check(pairs.observed==2&&pairs.samples[0].get()==&first,
+            "later producer activity changed the frozen draw-pair snapshot");
         Check(SUCCEEDED(device->SetRenderTarget(0,surface.Get())),"source target restore failed");
         auto refreshed=writes;
         ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,
             device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT),refreshed);
         CheckProducer(refreshed,reinterpret_cast<std::uintptr_t>(copy_source.Get()),true,2,1,1,2);
+        Check(writes.copy_producer.HasLeadingFullClear()&&!refreshed.copy_producer.HasLeadingFullClear(),
+            "later producer clear rewrote the frozen first copy or admitted a fresh full-clear witness");
+        auto blitted=writes;
+        const auto incoming=device->StretchRect(surface.Get(),nullptr,copy_source.Get(),nullptr,D3DTEXF_POINT);
+        Check(SUCCEEDED(incoming),"incoming native copy fixture failed");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,surface.Get(),nullptr,copy_source.Get(),nullptr,incoming,blitted);
+        Check(blitted.copy_producer_complete&&blitted.copy_producer.incoming_copies==0,
+            "a post-copy producer write rewrote the frozen witness");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,
+            device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT),blitted);
+        CheckProducer(blitted,reinterpret_cast<std::uintptr_t>(copy_source.Get()),true,2,1,1,2);
+        Check(HasCurrentEyeHdrCopy(blitted,32,32)&&blitted.copy_producer.incoming_copies==1&&
+            blitted.copy_producer.incoming_copy_observation_complete,
+            "incoming blit did not invalidate producer coverage independently of the observed copy");
+
+        HdrSourceWrites blit_only;
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,surface.Get(),nullptr,copy_source.Get(),nullptr,incoming,blit_only);
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,copied,blit_only);
+        CheckProducer(blit_only,reinterpret_cast<std::uintptr_t>(copy_source.Get()),false,0,0,0,0);
+        Check(blit_only.copy_producer.incoming_copies==1&&blit_only.copy_producer.incoming_copy_observation_complete,
+            "write before any RT0 draw or clear escaped the frozen witness");
+
+        auto failed_blit=writes;
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,surface.Get(),nullptr,copy_source.Get(),nullptr,E_FAIL,failed_blit);
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,copied,failed_blit);
+        CheckProducer(failed_blit,reinterpret_cast<std::uintptr_t>(copy_source.Get()),true,2,1,1,2);
+        Check(failed_blit.copy_producer.incoming_copies==0,"failed blit became a producer write");
+
+        auto direct=writes;
+        const auto fill=device->ColorFill(copy_source.Get(),nullptr,0xff225588);
+        Check(SUCCEEDED(fill),"direct producer ColorFill fixture failed");
+        ObserveHdrDeviceWrite(ResourceWriteKind::color_fill,copy_source.Get(),nullptr,fill,32,32,direct);
+        Check(direct.copy_producer.direct_writes==0&&HasCurrentEyeHdrCopy(direct,32,32),
+            "ColorFill on the producer changed the frozen destination");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,
+            device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT),direct);
+        Check(direct.copy_producer.direct_write_observation_complete&&direct.copy_producer.direct_writes==1&&
+            HasCurrentEyeHdrCopy(direct,32,32),"recopy lost direct producer-write evidence");
+        const auto uploaded=device->UpdateSurface(upload.Get(),nullptr,surface.Get(),nullptr);
+        Check(SUCCEEDED(uploaded),"copied destination upload fixture failed");
+        ObserveHdrDeviceWrite(ResourceWriteKind::update_surface,surface.Get(),nullptr,uploaded,32,32,direct);
+        Check(!HasCurrentEyeHdrCopy(direct,32,32)&&direct.complete&&direct.copy_producer.direct_writes==1,
+            "later upload did not withdraw the destination or changed the frozen producer");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,
+            device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT),direct);
+        Check(HasCurrentEyeHdrCopy(direct,32,32),"recopy after upload did not restore currency");
+        ObserveHdrDeviceWrite(ResourceWriteKind::update_surface,nullptr,nullptr,E_FAIL,32,32,direct);
+        Check(HasCurrentEyeHdrCopy(direct,32,32),"failed upload invalidated the copied destination");
+        ObserveHdrDeviceWrite(ResourceWriteKind::update_surface,nullptr,nullptr,S_OK,32,32,direct);
+        Check(!HasCurrentEyeHdrCopy(direct,32,32)&&!direct.direct_write_observation_complete,
+            "successful write without destination did not withdraw completeness");
+        ComPtr<IDirect3DTexture9> upload_mips,device_mips;
+        ComPtr<IDirect3DSurface9> mip0,mip1;
+        Check(SUCCEEDED(device->CreateTexture(64,64,2,0,D3DFMT_A16B16G16R16F,D3DPOOL_SYSTEMMEM,&upload_mips,nullptr))&&
+            SUCCEEDED(device->CreateTexture(64,64,2,0,D3DFMT_A16B16G16R16F,D3DPOOL_DEFAULT,&device_mips,nullptr))&&
+            SUCCEEDED(device_mips->GetSurfaceLevel(0,&mip0))&&SUCCEEDED(device_mips->GetSurfaceLevel(1,&mip1)),
+            "typed texture write fixture allocation failed");
+        const auto updated_texture=device->UpdateTexture(upload_mips.Get(),device_mips.Get());
+        Check(SUCCEEDED(updated_texture),"native UpdateTexture fixture failed");
+        HdrSourceWrites mip_writes;
+        ObserveHdrDeviceWrite(ResourceWriteKind::update_texture,nullptr,device_mips.Get(),updated_texture,32,32,mip_writes);
+        Check(mip_writes.direct_write_observation_complete&&
+            mip_writes.copy_destinations[0].surface==reinterpret_cast<std::uintptr_t>(mip1.Get())&&
+            mip_writes.copy_destinations[0].direct_writes==1&&!mip_writes.copy_destinations[1].surface,
+            "UpdateTexture did not identify the matching mip surface");
+        auto patch=writes;
+        ObserveHdrPatchWrite(device.Get(),E_FAIL,32,32,patch);
+        Check(HasCurrentEyeHdrCopy(patch,32,32),"failed patch invalidated HDR destination");
+        ObserveHdrPatchWrite(device.Get(),S_OK,32,32,patch);
+        Check(!HasCurrentEyeHdrCopy(patch,32,32)&&patch.calls==writes.calls+1&&
+            patch.alpha_calls==writes.alpha_calls,"unclassified patch was not counted as a potential color write");
+
+        for(unsigned scenario=0;scenario<4;++scenario) {
+            Check(SUCCEEDED(device->SetRenderTarget(0,copy_source.Get())),"clear fixture target");
+            const D3DVIEWPORT9 viewport{0,0,scenario==0?16U:32U,32,0,1};
+            const RECT scissor{0,0,16,32};
+            const D3DRECT rectangle{0,0,16,32};
+            const auto* rects=scenario==2?&rectangle:nullptr;
+            const DWORD count=rects?1U:0U;
+            Check(SUCCEEDED(device->SetViewport(&viewport))&&SUCCEEDED(device->SetScissorRect(&scissor))&&
+                SUCCEEDED(device->SetRenderState(D3DRS_SCISSORTESTENABLE,scenario==1)),"clear fixture state");
+            const auto result=device->Clear(count,rects,D3DCLEAR_TARGET,0,1,0);
+            Check(SUCCEEDED(result),"clear fixture call");
+            HdrSourceWrites clear_writes;
+            if(scenario==3)
+                ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::draw},clear_writes);
+            ObserveHdrSourceWrites(device.Get(),identity,32,32,
+                MakeRenderResourceClearEvent(count,rects,D3DCLEAR_TARGET,result,0),clear_writes);
+            const auto& producer=clear_writes.producers[0];
+            Check(producer.clear_calls==1&&!producer.HasLeadingFullClear(),
+                "partial viewport, scissor, rectangle list or late clear admitted");
+        }
+        Check(SUCCEEDED(device->SetRenderState(D3DRS_SCISSORTESTENABLE,FALSE))&&
+            SUCCEEDED(device->SetRenderTarget(0,surface.Get())),"clear fixture state restore");
         HdrSourceWrites bounded;
         std::array<ComPtr<IDirect3DSurface9>,5> producers;
         for(auto& producer:producers) {
@@ -227,6 +379,65 @@ int main() {
         bounded={};
         ObserveHdrSourceCopy(device.Get(),identity,32,32,producers[0].Get(),nullptr,surface.Get(),nullptr,bounded_copy,bounded);
         CheckProducer(bounded,0,false,0,0,0,0);
+
+        auto other_blits=writes;
+        const auto unrelated=device->StretchRect(surface.Get(),nullptr,producers.back().Get(),nullptr,D3DTEXF_POINT);
+        Check(SUCCEEDED(unrelated),"unrelated native blit fixture failed");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,surface.Get(),nullptr,producers.back().Get(),nullptr,unrelated,other_blits);
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,copied,other_blits);
+        Check(other_blits.copy_producer.incoming_copy_observation_complete&&!other_blits.copy_producer.incoming_copies,
+            "unrelated same-extent blit tainted the selected producer");
+        std::vector<ComPtr<IDirect3DSurface9>> copy_destinations(other_blits.copy_destinations.size());
+        for(auto& destination:copy_destinations){
+            Check(SUCCEEDED(device->CreateRenderTarget(32,32,D3DFMT_A16B16G16R16F,D3DMULTISAMPLE_NONE,0,FALSE,
+                &destination,nullptr)),"blit budget fixture target failed");
+            const auto result=device->StretchRect(surface.Get(),nullptr,destination.Get(),nullptr,D3DTEXF_POINT);
+            Check(SUCCEEDED(result),"blit budget fixture copy failed");
+            ObserveHdrSourceCopy(device.Get(),identity,32,32,surface.Get(),nullptr,destination.Get(),nullptr,result,other_blits);
+        }
+        Check(other_blits.copy_producer.incoming_copy_observation_complete,"overflow rewrote frozen copy");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,copied,other_blits);
+        Check(other_blits.copy_producer_complete&&!other_blits.copy_producer.incoming_copy_observation_complete,
+            "overflow was confused with complete incoming blit coverage or invalidated RT0 observation");
+
+        HdrSourceWrites secondary;
+        Check(SUCCEEDED(device->SetRenderTarget(0,producers[0].Get()))&&
+            SUCCEEDED(device->SetRenderTarget(1,copy_source.Get())),"secondary producer fixture setup failed");
+        ObserveHdrInitialSecondaryTargets(device.Get(),secondary);
+        Check(SUCCEEDED(device->SetRenderTarget(1,nullptr)),"secondary producer fixture unbind failed");
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::set_target,1},secondary);
+        Check(SUCCEEDED(device->SetRenderTarget(0,producers[0].Get())),"secondary copy fixture RT0 failed");
+        const auto copied_secondary=device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT);
+        Check(SUCCEEDED(copied_secondary),"secondary producer copy failed");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,copied_secondary,secondary);
+        CheckProducer(secondary,reinterpret_cast<std::uintptr_t>(copy_source.Get()),false,0,0,0,0);
+        Check(secondary.copy_producer.secondary_target_observation_complete&&secondary.copy_producer.was_secondary_target,
+            "producer already bound in RT1 at scope entry escaped observation");
+
+        const auto bind_destination=device->SetRenderTarget(1,surface.Get());
+        Check(SUCCEEDED(bind_destination),"bind copied texture as MRT fixture failed");
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::set_target,1,bind_destination,
+            0,0,reinterpret_cast<std::uintptr_t>(surface.Get())},secondary);
+        const auto clear_mrt=device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0);
+        Check(SUCCEEDED(clear_mrt),"MRT fixture clear failed");
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,
+            MakeRenderResourceClearEvent(0,nullptr,D3DCLEAR_TARGET,clear_mrt,0),secondary);
+        Check(!HasCurrentEyeHdrCopy(secondary,32,32)&&secondary.copy_producer.was_secondary_target,
+            "MRT write left copied content current or rewrote the frozen producer");
+        Check(secondary.complete&&secondary.calls==2&&secondary.copy_calls==1,
+            "known MRT write invalidated the observation or missed the write ordinal");
+        Check(SUCCEEDED(device->SetRenderTarget(1,nullptr)),"MRT fixture unbind failed");
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::set_target,1},secondary);
+        const auto recopy=device->StretchRect(copy_source.Get(),nullptr,surface.Get(),nullptr,D3DTEXF_POINT);
+        Check(SUCCEEDED(recopy),"MRT fixture recopy failed");
+        ObserveHdrSourceCopy(device.Get(),identity,32,32,copy_source.Get(),nullptr,surface.Get(),nullptr,recopy,secondary);
+        Check(HasCurrentEyeHdrCopy(secondary,32,32)&&secondary.copy_producer.ingress_surface==secondary.copy_source,
+            "new native copy did not restore currency and exact ingress identity");
+        secondary.secondary_slots_known[0]=false; // Simulate an unavailable initial slot read.
+        ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::draw},secondary);
+        Check(!HasCurrentEyeHdrCopy(secondary,32,32),"unreadable secondary state kept an older copy current");
+        Check(SUCCEEDED(device->SetRenderTarget(0,surface.Get())),
+            "secondary fixture cleanup failed");
         auto overwritten=writes;
         ObserveHdrSourceWrites(device.Get(),identity,32,32,{RenderResourceOperation::clear,D3DCLEAR_TARGET},overwritten);
         Check(!HasCurrentEyeHdrCopy(overwritten,32,32),"later source clear retained copied readiness");
