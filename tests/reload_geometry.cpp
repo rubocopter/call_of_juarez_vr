@@ -37,6 +37,17 @@ int main(){
     for(const auto& mouth:mouths)Check(!mouth.valid,"failed observation retained previous mouths");
     drum={{},{0,1,0},{0,0,1},true};
     Check(!BuildCoJReloadMouthFrames(CoJReloadModel::unknown,drum,mouths),"unknown model admitted");
+    Check(BuildCoJReloadMouthFrames(CoJReloadModel::schofield,drum,mouths),"Schofield rear face unavailable");
+    Check(mouths[0].position.x>0 && mouths[0].position.y>0 &&
+          mouths[1].position.x>0 && mouths[1].position.y<0 &&
+          mouths[2].position.y<-1.F && mouths[3].position.x<0 &&
+          mouths[4].position.x<0 && mouths[5].position.y>1.F,
+          "Schofield presentation must empty clockwise from top-right in model space");
+    for(int loaded=0;loaded<=6;++loaded) {
+        const auto mask=CoJSchofieldEmptyMask(loaded);
+        Check(mask && *mask==(1U<<(6-loaded))-1U,"Schofield display must derive empties from loaded count");
+    }
+    Check(!CoJSchofieldEmptyMask(-1) && !CoJSchofieldEmptyMask(7),"invalid Schofield count admitted");
     drum.position.x=std::numeric_limits<float>::quiet_NaN();
     Check(!BuildCoJReloadMouthFrames(CoJReloadModel::peacemaker,drum,mouths),"nonfinite frame admitted");
     // Geometry ranking is diagnostic only: a gate element's origin is not a

@@ -129,8 +129,9 @@ class VM:
                 elif op in (0x10, 0x11):
                     n = 1 if op == 0x10 else 2
                     stack.append(int.from_bytes(code[pc:pc+n], 'big', signed=True)); pc += n
-                elif op == 0x13:
-                    idx = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
+                elif op in (0x12, 0x13):
+                    size = 1 if op == 0x12 else 2
+                    idx = int.from_bytes(code[pc:pc+size], 'big'); pc += size
                     entry = pool.get(idx)
                     stack.append(pool.utf8(entry[1]) if entry[0] == 'String' else entry[1])
                 elif op in (0x15, 0x17, 0x19): stack.append(locals_[code[pc]]); pc += 1

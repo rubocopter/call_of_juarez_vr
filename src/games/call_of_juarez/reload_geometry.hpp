@@ -4,9 +4,16 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 namespace cojvr::games::call_of_juarez {
-enum class CoJReloadModel : std::uint8_t { unknown, peacemaker, frontier };
+enum class CoJReloadModel : std::uint8_t { unknown, peacemaker, frontier, schofield };
+// Aggregate presentation only. Bit order starts at the rear face's +X/+Y
+// chamber and proceeds toward -Y. No gameplay decision consumes this mask.
+inline std::optional<unsigned> CoJSchofieldEmptyMask(int loaded) noexcept {
+    if(loaded<0||loaded>6)return std::nullopt;
+    return (1U<<(6-loaded))-1U;
+}
 enum class CoJReloadGeometrySource : std::uint8_t { unknown, pre_native, post_overlay };
 // Centimetres, relative to a stable root or barrel frame. Read-only diagnostics.
 struct CoJReloadLocalFrame {
@@ -44,6 +51,7 @@ struct CoJReloadGeometrySnapshot {
     // Same-owner m_fRotate bracketing this synchronous read, in native degrees.
     // This is not a chamber index or proof of native animation composition.
     float native_drum_phase_degrees=0;
+    int schofield_loaded=-1; // Stable count for the exact displayed Schofield wait owner.
     bool valid = false;
 };
 // Exact model observations in centimetres. These are chamber-mouth geometry,
@@ -67,12 +75,21 @@ inline bool BuildCoJReloadMouthFrames(CoJReloadModel model,
         {1.196130F,.009727F,-2.007212F},{.591903F,1.036132F,-2.008803F},
         {-1.185826F,-.010422F,-2.010485F},{.609356F,-1.026731F,-2.007292F},
         {-.598805F,1.025625F,-2.010424F},{-.581604F,-1.036808F,-2.008913F}}};
-    if(model!=CoJReloadModel::peacemaker && model!=CoJReloadModel::frontier)return false;
-    const auto& local=model==CoJReloadModel::peacemaker?peacemaker:frontier;
+    constexpr std::array<runtime::Vec3,6> schofield{{
+        {1.08484F,.63143F,-1.88044F},{1.08835F,-.62002F,-1.88210F},
+        {.00633F,-1.24882F,-1.88382F},{-1.07925F,-.62613F,-1.88387F},
+        {-1.08276F,.62533F,-1.88221F},{-.00079F,1.25364F,-1.88049F}}};
+    const std::array<runtime::Vec3,6>* local=nullptr;
+    switch(model){
+    case CoJReloadModel::peacemaker:local=&peacemaker;break;
+    case CoJReloadModel::frontier:local=&frontier;break;
+    case CoJReloadModel::schofield:local=&schofield;break;
+    default:return false;
+    }
     const auto u=drum.up,f=drum.forward;
     const runtime::Vec3 x{u.y*f.z-u.z*f.y,u.z*f.x-u.x*f.z,u.x*f.y-u.y*f.x};
     for(std::size_t i=0;i<out.size();++i){
-        const auto p=local[i];
+        const auto p=(*local)[i];
         out[i]={{drum.position.x+x.x*p.x+u.x*p.y+f.x*p.z,
             drum.position.y+x.y*p.x+u.y*p.y+f.y*p.z,
             drum.position.z+x.z*p.x+u.z*p.y+f.z*p.z},u,f,true};

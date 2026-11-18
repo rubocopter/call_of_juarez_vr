@@ -2885,13 +2885,17 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     const auto& frames=source==CoJReloadGeometrySource::pre_native?overlay.natural:overlay.targets;
     if(frames.empty() || overlay.barrel_element<0 ||
         static_cast<std::size_t>(overlay.barrel_element)>=frames.size())return false;
+    void* const player=being_;
+    void* const weapon=overlay.weapon;
+    const auto generation=being_generation_;
     void* env=Environment(error);
     if(!env)return false;
     const char* class_name=nullptr;
     if(!ReadCoJMotionReloadWeaponClassName(env,being_,hand,class_name) || !class_name)return false;
     const std::string_view name{class_name};
     const auto model=name=="WeaponPistolPeacemaker"?CoJReloadModel::peacemaker:
-        name=="WeaponPistolFrontier1878_Regular"?CoJReloadModel::frontier:CoJReloadModel::unknown;
+        name=="WeaponPistolFrontier1878_Regular"?CoJReloadModel::frontier:
+        name=="WeaponPistolSchofield"?CoJReloadModel::schofield:CoJReloadModel::unknown;
     if(model==CoJReloadModel::unknown)return false;
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
     const auto method_fn=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
@@ -2947,10 +2951,38 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
         return !bad && read_frame(index,frame);
     };
     CoJReloadGeometrySnapshot observed{};observed.model=model;observed.source=source;
+    const char* gate_name=model==CoJReloadModel::peacemaker?"ColtLock":
+        model==CoJReloadModel::schofield?"GunReleaser":"GunLoader";
+    const auto schofield_count=[&]() noexcept {
+        if(model!=CoJReloadModel::schofield || source!=CoJReloadGeometrySource::post_overlay ||
+            being_!=player || being_generation_!=generation || overlay.weapon!=weapon)return -1;
+        const auto get_cancelled=EnvFunction<GetBooleanFieldFn>(env,kGetBooleanField);
+        if(!get_cancelled || !EnvFunction<void*>(env,kGetIntField) ||
+            !EnvFunction<void*>(env,kGetObjectField))return -1;
+        long_gun_observer_detail::Reader reader{env};
+        auto player_class=reader.Class(player);
+        auto weapon_class=reader.Class(weapon);
+        const auto ticket_field=reader.Field(player_class,"cojvrReloadProbeWeapon","LWeapon;");
+        const auto status_field=reader.Field(player_class,"cojvrReloadProbeStatus","I");
+        const auto hand_field=reader.Field(player_class,"cojvrReloadProbeHand","I");
+        const auto cancelled_field=reader.Field(player_class,"cojvrReloadProbeCancelled","Z");
+        const auto owner_field=reader.Field(weapon_class,"cOwner","LPawnInventory;");
+        const auto loaded_field=reader.Field(weapon_class,"m_iAmmo0Count","I");
+        if(!reader.ok || reader.IntField(player,status_field)!=2 ||
+            reader.IntField(player,hand_field)!=hand || !reader.ok)return -1;
+        const bool cancelled=get_cancelled(env,player,cancelled_field)!=0;
+        if(!reader.Check() || cancelled)return -1;
+        auto ticket=reader.ObjectField(player,ticket_field);
+        auto owner=reader.ObjectField(weapon,owner_field);
+        if(!reader.Equal(ticket,weapon) || !reader.Equal(owner,player))return -1;
+        const int loaded=reader.IntField(weapon,loaded_field);
+        return reader.ok && loaded>=0 && loaded<=6 ? loaded : -1;
+    };
+    const int loaded_before=schofield_count();
     if(!read_frame(0,observed.root) ||
         !read_frame(overlay.barrel_element,observed.barrel) ||
         !read(model==CoJReloadModel::peacemaker?"ColtDrum":"GunDrum",observed.drum) ||
-        !read(model==CoJReloadModel::peacemaker?"ColtLock":"GunLoader",observed.gate) ||
+        !read(gate_name,observed.gate) ||
         !BuildCoJReloadMouthFrames(model,observed.drum,observed.mouths) ||
         !BuildCoJReloadLocalFrame(observed.root,observed.gate,observed.gate_root) ||
         !BuildCoJReloadLocalFrame(observed.root,observed.drum,observed.drum_root) ||
@@ -2966,6 +2998,8 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     const float phase_after=float_fn(env,overlay.weapon,phase_field);
     if(ClearException(env,error,"reload geometry final phase read") ||
         !std::isfinite(phase_after) || phase_after!=phase)return false;
+    if(loaded_before>=0 && loaded_before==schofield_count())observed.schofield_loaded=loaded_before;
+    if(being_!=player || being_generation_!=generation || overlay.weapon!=weapon)return false;
     observed.native_drum_phase_degrees=phase;
     observed.valid=true;geometry=observed;return true;
 }

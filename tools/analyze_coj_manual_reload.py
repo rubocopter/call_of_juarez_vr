@@ -202,16 +202,19 @@ def read_events(log, evidence, *, extra_events=()):
     return events
 
 
+def mechanical_vector(text):
+    # RuntimeVectorText emits (x,y,z); retain bare-vector fixture compatibility.
+    if text.startswith('(') and text.endswith(')'):
+        text = text[1:-1]
+    result = tuple(float(x) for x in text.split(','))
+    if len(result) != 3 or not all(math.isfinite(x) for x in result):
+        raise ValueError('Invalid mechanical vector')
+    return result
+
+
 def geometry_metrics(fields):
     def vector(key):
-        text = fields[key]
-        # RuntimeVectorText emits (x,y,z); retain bare-vector fixture compatibility.
-        if text.startswith('(') and text.endswith(')'):
-            text = text[1:-1]
-        result = tuple(float(x) for x in text.split(','))
-        if len(result) != 3 or not all(math.isfinite(x) for x in result):
-            raise ValueError('Invalid mechanical vector')
-        return result
+        return mechanical_vector(fields[key])
     def cosine(a, b):
         na, nb = math.hypot(*a), math.hypot(*b)
         if not math.isfinite(na) or not math.isfinite(nb) or min(na, nb) < 1e-12:
@@ -478,6 +481,19 @@ def port_pivot_probe(fields):
                 status=status, nearest_mouth=index, nearest_cm=nearest,
                 runner_up_cm=runner, separation_cm=separation, axial_cm=axial,
                 radial_cm=radial, gate_open_confirmed=False, socket_admission=False)
+
+
+def schofield_presentation(fields):
+    loaded_key, mask_key = 'schofield_loaded', 'schofield_display_empty_mask'
+    if loaded_key not in fields and mask_key not in fields:
+        return None
+    loaded, mask = integer(fields, loaded_key), integer(fields, mask_key)
+    if (fields.get('model') != 'schofield' or fields.get('source') != 'post_overlay' or
+            not yes(fields, 'manual_session') or loaded not in range(7) or
+            mask != (1 << (6-loaded)) - 1):
+        raise ValueError('Invalid aggregate Schofield presentation')
+    mouths = [mechanical_vector(fields[f'mouth{i}']) for i in range(6)]
+    return dict(loaded=loaded, empty_mouths=list(range(6-loaded)), mouth_centers_cm=mouths)
 
 
 def relative_orientation_angle_degrees(reference, current, part, anchor):
@@ -1423,6 +1439,9 @@ def analyze_evidence(directory):
                 row.update(metrics)
                 row['native_drum_phase_deg']=native_drum_phase(f)
                 row['chamber_occupancy_observed']=False
+                chamber_presentation = schofield_presentation(f)
+                if chamber_presentation is not None:
+                    row['schofield_presentation'] = chamber_presentation
                 port_probe = port_pivot_probe(f)
                 if port_probe is not None:
                     row['port_probe'] = port_probe
@@ -1434,7 +1453,7 @@ def analyze_evidence(directory):
                                 yes(f, 'native_observation_valid') and yes(f, 'native_probe_valid') and
                                 yes(f, 'context_allowed') and f.get('native_reloading') in ('0','false') and
                                 integer(f, 'native_status') in (0,4) and
-                                f.get('model') in ('peacemaker','frontier') and
+                                f.get('model') in ('peacemaker','frontier','schofield') and
                                 all(v is not None for v in reference_owner) and
                                 all(v>0 for v in reference_owner[:3]) and
                                 reference_owner[3] in (0,1) and

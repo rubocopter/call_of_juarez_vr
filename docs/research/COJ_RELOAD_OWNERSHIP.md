@@ -876,19 +876,39 @@ open barrel/drum transform and clearance to qualify placement. The bind mesh
 does not identify the native indexing phase or which chamber contains a case.
 
 The native weapon exposes one loaded count for all six chambers. The ammo skin
-switches between zero and positive load. Per-chamber spent brass needs an
-observed starting state and confirmed shot-to-drum correspondence, with history
-cleared when ownership or accounting becomes uncertain. A falling spent case
-can be cosmetic. Floor persistence needs qualified contact and depth ordering.
+switches between zero and positive load. The read-only base Schofield observer
+transforms the six measured rear centres using the displayed drum basis. In
+the waiting phase it derives an empty mask from the exact aggregate count
+bracketed around that read. The same held object must own the wait ticket,
+hand and inventory on both sides of the read. The presentation order starts at drum-local
+`+X/+Y`, continues down the right side, then wraps up the left. The analyser
+keeps it separate from measured occupancy. Placement and readability from the
+rear remain unobserved in the headset.
 
 The original `PawnInventory.AddAmmo(Weapon, boolean)` previews availability
 with `true`. Its write branch caps removal by reserve headroom, subtracts from
 the weapon and credits the matching reserve as two separate writes. The normal
 `Weapon.InvokeAddAmmo` pickup route rejects owned weapons. An explicit unload
-for a held Schofield therefore needs its own retained-owner transaction, with
-authoritative before/after readback of both counts. A promise to empty the drum
-requires enough reserve headroom for the complete transfer. Ambiguous results
-must withhold replay and refund. This is an offline native candidate boundary.
+for a held Schofield uses the pinned native transfer once inside an
+offline-only derivative. It checks the retained waiting owner, exact pistol
+counter and headroom before entering the call and compares both backing
+counts afterward. With insufficient headroom it declines the entire request.
+An interruption can occur between the two native writes. When a callback or
+readback invalidates the operation, the lab quarantines that instance and
+withholds further insertion, keepalive and retries. A retained-body veto
+prevents a late ammunition transfer even after the wait ticket is lost and
+allows an ordinary subsequent native reload after the borrowed body retires.
+The lab exercises the original transfer and storage bytecode with engine
+callbacks modelled.
+
+The original public `ReloadWeapon()` only dispatches a hand when the
+transferable reload count is positive. That excludes a full drum or zero
+reserve. The lab reaches the waiting phase through the existing protected
+hand request with modelled scheduling, including full and zero-reserve cases.
+Gameplay admission needs its own exact opening boundary through both native
+animation and the wait/close lifecycle. The player package retains the
+ordinary whole-bundle completion path. The requested unload gesture, lateral
+close and chamber highlighting await that qualification.
 
 The displayed-frame observer resolves the drum and gate by native element name,
 checks readback against the current controller-mapped child transaction and

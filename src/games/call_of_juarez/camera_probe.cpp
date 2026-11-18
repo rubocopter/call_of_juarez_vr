@@ -4525,7 +4525,8 @@ bool ApplyTrackedWeapons(
                         ";hand_owner="+(source==CoJReloadGeometrySource::pre_native?
                             "pre_overlay_unverified":"vr_scoped_applied")+
                         ";mechanics_owner=native;units=cm;gate_clearance=unverified;interaction_enabled=false;model="+
-                        (geometry.model==CoJReloadModel::peacemaker?"peacemaker":"frontier")+
+                        (geometry.model==CoJReloadModel::peacemaker?"peacemaker":
+                            geometry.model==CoJReloadModel::schofield?"schofield":"frontier")+
                         ";native_drum_phase_deg="+std::to_string(geometry.native_drum_phase_degrees)+
                         ";native_phase_stable=1"+
                         ";root="+vector(geometry.root.position)+
@@ -4557,6 +4558,13 @@ bool ApplyTrackedWeapons(
                     if(source==CoJReloadGeometrySource::post_overlay){
                         for(std::size_t i=0;i<geometry.mouths.size();++i)
                             detail+=";mouth"+std::to_string(i)+"="+vector(geometry.mouths[i].position);
+                        if(const auto mask=CoJSchofieldEmptyMask(geometry.schofield_loaded)){
+                            detail+=";schofield_loaded="+std::to_string(geometry.schofield_loaded)+
+                                ";schofield_display_empty_mask="+std::to_string(*mask);
+                        }
+                    }
+                    if(source==CoJReloadGeometrySource::post_overlay &&
+                        geometry.model!=CoJReloadModel::schofield){
                         const auto port=RankCoJReloadGatePivotMouths(geometry,probe_owner_qualified);
                         detail+=";port_reference=gate_element_origin_unverified"
                             ";port_owner_qualified="+std::to_string(probe_owner_qualified)+

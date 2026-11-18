@@ -87,11 +87,13 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   native ammunition accounting on unload and insertion, and require native
   close confirmation before admitting fresh fire input. The current automatic
   close after insertion remains the baseline for comparison.
-  First verify the six rear mouths in the displayed open drum. Show spent
-  cases only with known chamber history. Use a short cosmetic fall before
-  qualifying ground contact or persistence. Prefer returning still-loaded
-  rounds to the pistol reserve once the native two-counter transfer has been
-  verified for the held weapon, including a full reserve and interrupted calls.
+  The read-only trace has six measured rear mouths and a count-based empty
+  mask, starting at the upper-right in drum space. Qualify that presentation
+  against the displayed open drum. Return all still-loaded rounds to the
+  pistol reserve when it has room for the complete transfer. Host tests
+  exercise that transfer on the exact archive, full-reserve rejection and
+  quarantine after interrupted native writes. The gameplay route, cleared
+  drum view and gesture close remain open. The design has no ground pickup.
 - Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
   per-calibre loose ammunition are not implemented by the manual transfer routes.
 - Explicit LeMat mode/port selection, dual-wield manual reload and legacy `_Old`
@@ -224,9 +226,10 @@ common lease for both eye colors and masks through consumer retirement. One
 native-size slot with lossless mask packing skips busy frames and reuses the
 same allocations after both fences and private reader retirement. A duplicate
 color pool still makes the shared and private storage exceed the sampled-depth
-capture budget. Next correlate the native allocation, initialization and
-write receipts in a live stereo scope and integrate with existing color
-ownership. Water and other transparency remain separate cases.
+capture budget. Ten live stereo pairs now correlate the native allocations,
+initialization and bounded write/copy receipts. Integrate the established
+source boundaries with existing color ownership. Water and other transparency
+remain separate cases.
 Camera/depth reprojection and blend state do not establish that coverage.
 Next qualify native
 dynamic/material exclusions, scoped game jitter and dynamic motion, connect

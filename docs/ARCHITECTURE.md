@@ -1200,6 +1200,10 @@ the renderer globally orders their faces and uploads bounded chunks without
 exceeding its original constant-buffer limit. The bundle is a provisional count
 presentation, not an exact-calibre speedloader. Single-cartridge proximity
 diagnostics do not qualify bundle contact and are withheld for bundle samples.
+The base Schofield drum diagnostic reads the displayed element frames and uses
+the aggregate native count to describe six presentation slots in a fixed
+order. Its centre positions and empty mask carry no gameplay authority. The
+held unload laboratory is isolated from the player package.
 Shared transaction guards prevent cross-family callback reentry.
 All new paths remain source/host candidates with generic grip-zone interaction;
 per-model ports, shell/calibre fidelity, native mechanical playback and physical acceptance

@@ -625,10 +625,42 @@ int replacement_reads = 0;
 int geometry_phase_field,geometry_phase_reads=0;
 float geometry_phase=120;
 bool change_phase_during_read=false;
+void* geometry_probe_weapon=nullptr;
+int geometry_loaded=4,geometry_probe_hand=0;
+bool retire_geometry_probe=false;
 void* JNI_CALL GeometryField(void*,void*,const char* name,const char* signature) {
+    if(weapon_class==&schofield_class&&std::strcmp(name,"m_fRotate")) {
+        if(Fail())return nullptr;
+        return const_cast<char*>(name);
+    }
     Require(!std::strcmp(name,"m_fRotate") && !std::strcmp(signature,"F"),"unexpected mechanical field");
     if(Fail())return nullptr;
     return &geometry_phase_field;
+}
+void* JNI_CALL SchofieldGeometryObjectField(void*,void* object,void* field) {
+    if(Fail())return nullptr;
+    const auto name=static_cast<const char*>(field);
+    if(!std::strcmp(name,"cOwner")){
+        Require(object==&weapon,"Schofield geometry read wrong inventory owner");
+        return Ref(&player);
+    }
+    Require(object==&player&&!std::strcmp(name,"cojvrReloadProbeWeapon"),"wrong geometry ticket field");
+    return geometry_probe_weapon?Ref(geometry_probe_weapon):nullptr;
+}
+int JNI_CALL SchofieldGeometryIntField(void*,void* object,void* field) {
+    if(Fail())return 0;
+    const auto name=static_cast<const char*>(field);
+    if(!std::strcmp(name,"m_iAmmo0Count")){
+        Require(object==&weapon,"Schofield geometry read wrong ammo owner");
+        return geometry_loaded;
+    }
+    Require(object==&player,"Schofield geometry read wrong ticket owner");
+    return !std::strcmp(name,"cojvrReloadProbeHand")?geometry_probe_hand:2;
+}
+std::uint8_t JNI_CALL SchofieldGeometryBooleanField(void*,void* object,void* field) {
+    Require(object==&player&&!std::strcmp(static_cast<char*>(field),"cojvrReloadProbeCancelled"),
+        "wrong geometry cancel field");
+    return Fail()?1:0;
 }
 void* JNI_CALL GeometryString(void*, const char* text) {
     if (Fail()) return nullptr;
@@ -664,7 +696,8 @@ int JNI_CALL GeometryInteger(void* env, void* object, void* method, const Value*
     }
     const bool peacemaker = weapon_class == &peacemaker_class;
     if (!std::strcmp(text,peacemaker ? "ColtDrum" : "GunDrum")) return drum_index;
-    if (!std::strcmp(text,peacemaker ? "ColtLock" : "GunLoader")) return gate_index;
+    if (!std::strcmp(text,peacemaker ? "ColtLock" :
+        weapon_class==&schofield_class?"GunReleaser":"GunLoader")) return gate_index;
     Require(false,"unexpected named geometry element"); return -1;
 }
 void* JNI_CALL GeometryNew(void*, void* cls, void* constructor, const Value*) {
@@ -693,6 +726,7 @@ std::uint8_t JNI_CALL GeometryBoolean(void* env, void* object, void* method, con
         actual[geometry_hand] = &replacement;
         ++replacement_reads;
     }
+    if(retire_geometry_probe&&index==gate_index)geometry_probe_weapon=&replacement;
     return 1;
 }
 float JNI_CALL GeometryFloat(void*, void* object, void* field) {
@@ -791,6 +825,28 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
         }
     }
     return step;
+}
+
+void SchofieldGeometryChecks(JavaPlayerBridge& bridge) {
+    for(int sample=0;sample<5;++sample){
+        GeometryReset(bridge,0,false);
+        weapon_class=&schofield_class;
+        Set(95,SchofieldGeometryObjectField);Set(96,SchofieldGeometryBooleanField);
+        Set(100,SchofieldGeometryIntField);
+        geometry_probe_weapon=sample==1?&replacement:&weapon;
+        retire_geometry_probe=sample==2;
+        geometry_probe_hand=sample==3?1:0;
+        geometry_loaded=sample==4?7:4;
+        CoJReloadGeometrySnapshot result{};
+        Require(bridge.TryObserveReloadGeometry(0,result,CoJReloadGeometrySource::post_overlay),
+            "Schofield lost read-only rear geometry");
+        Require(result.model==CoJReloadModel::schofield&&result.schofield_loaded==(sample==0?4:-1),
+            "Schofield ammo receipt escaped its exact wait owner");
+        Require(geometry_names==std::vector<std::string>{"GunDrum","GunReleaser"},
+            "Schofield geometry read wrong named elements");
+        Require(refs==0&&!pending&&writes==0,"Schofield observation touched ownership or leaked JNI state");
+    }
+    retire_geometry_probe=false;
 }
 // Full bridge path: recovery + trace + manual finger policy + retained curled
 // overlay verification + JNI world-frame reads. No predicate/reader is mocked.
@@ -1470,6 +1526,7 @@ void ReloadGeometryTests(JavaPlayerBridge& bridge) {
     }
     // Borrowed test handles are not bridge-owned global references/transactions.
     bridge.weapon_overlays_={}; bridge.vector_class_=nullptr;
+    SchofieldGeometryChecks(bridge);
     bridge.being_=nullptr; geometry_mode=false;
 }
 }

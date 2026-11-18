@@ -1609,6 +1609,24 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(row['gate_drum_forward_cosine'], 1)
         self.assertFalse(row['gate_open_confirmed'])
 
+    def test_schofield_empty_mask_is_aggregate_presentation(self):
+        fields = dict(manual_session=1, frame_sequence=2, hand=0, model='schofield',
+                      source='post_overlay', drum='0,0,0', gate='0,2,0', drum_up='0,1,0',
+                      gate_up='0,1,0', inward='0,0,1', gate_forward='0,0,1',
+                      root='0,0,0', root_up='0,1,0', root_forward='0,0,1',
+                      barrel='0,0,0', barrel_up='0,1,0', barrel_forward='0,0,1',
+                      schofield_loaded=4, schofield_display_empty_mask=3)
+        for i in range(6):
+            fields[f'mouth{i}'] = f'{i},2,-1.88'
+        report = self.evidence([trace(2), event('manual_reload_geometry', **fields)])
+        row = report['mechanical_observations'][0]
+        self.assertEqual(row['schofield_presentation']['empty_mouths'], [0, 1])
+        self.assertFalse(row['chamber_occupancy_observed'])
+        for bad in (dict(schofield_display_empty_mask=5), dict(source='pre_native'),
+                    dict(model='frontier'), dict(mouth2='0,0,nan')):
+            report = self.evidence([trace(2), event('manual_reload_geometry', **(fields | bad))])
+            self.assertTrue(any(i['kind'] == 'invalid_mechanical_geometry' for i in report['issues']))
+
     def test_malformed_native_vector_delimiters_remain_invalid(self):
         for gate in ('(0,2,0', '0,2,0)', '((0,2,0))', '(0,2)', '(0,nan,0)'):
             with self.subTest(gate=gate):

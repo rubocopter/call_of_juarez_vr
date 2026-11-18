@@ -31,13 +31,13 @@ def production_builder(archive, kind):
 
 
 class FamilyVM(indexed_session.IndexedBodyCycleVM):
-    def __init__(self, kind='WeaponPistolLemant', hand=0):
+    def __init__(self, kind='WeaponPistolLemant', hand=0, *, builder=production_builder):
         # Reuse original Started/storage execution through the production builder.
         # Replace the constructor fixture for one-index classes after construction.
         super().__init__(kind if kind in (
             'WeaponPistolLemant', 'WeaponPistolDerringer',
             'WeaponRifleRemington', 'WeaponRifleRemingtonSawOff') else 'WeaponPistolLemant', hand,
-            builder=production_builder)
+            builder=builder)
         self.weapon['class'] = kind
         self.clip = kind in ('WeaponPistolSchofield', 'WeaponPistolSchofield_A', 'WeaponPistolSchofield_B')
         if self.clip:

@@ -1,6 +1,7 @@
 """Interpreted Schofield clip transaction; native animation/skins are doubles."""
 from pathlib import Path
 import hashlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,9 @@ from manual_reload_native import ManualVM
 from reload_wait_probe import original, JVMThrown
 from inspect_java_bytecode import parse_class, disassemble
 from patch_coj_weapon_consumers import patch_manual_reload_classes, Code, u2, u4
+from indexed_manual_reload import original_archive
+from runtime_manual_families import FamilyVM
+from reload_wait_probe import VM
 
 
 def clip_verifier_class():
@@ -271,20 +275,24 @@ class OfflineClipTests(unittest.TestCase):
                 return subprocess.run([str(java), '-Xverify:all', '-cp',
                                        str(root) + ';' + str(path), 'VerifyManualClip'],
                                       capture_output=True, text=True, timeout=30)
-            for weapon in clips.CLIP_WEAPONS:
-                player, machine = clips.build_offline_clip_lab(raw, weapon)
-                target = root / (weapon + '.pak')
+            from coj_schofield_unload import build_offline_schofield_unload
+            variants = {weapon: clips.build_offline_clip_lab(raw, weapon) for weapon in clips.CLIP_WEAPONS}
+            variants['SchofieldUnloadLab'] = build_offline_schofield_unload(raw)
+            for variant, (player, machine) in variants.items():
+                target = root / (variant + '.pak')
                 with zipfile.ZipFile(source) as original_archive, zipfile.ZipFile(target, 'w') as out:
                     replacement = {'ArmedPlayerBeing.class': player, 'StateMashine.class': machine}
                     for info in original_archive.infolist():
                         out.writestr(info, replacement.get(info.filename,
                                                           original_archive.read(info.filename)))
                 result = verify(target)
-                self.assertEqual(result.returncode, 0, weapon + ': ' + result.stdout + result.stderr)
-                if weapon == clips.CLIP_WEAPONS[0]:
+                self.assertEqual(result.returncode, 0, variant + ': ' + result.stdout + result.stderr)
+                if variant in (clips.CLIP_WEAPONS[0], 'SchofieldUnloadLab'):
+                    helper = ('cojvrLabUnloadSchofield' if variant == 'SchofieldUnloadLab'
+                              else 'cojvrInsertManualClip')
                     _, methods = parse_class(player)
                     helper_code = next(m.code for m in methods
-                                       if (m.name, m.descriptor) == ('cojvrInsertManualClip', '()Z'))
+                                       if (m.name, m.descriptor) == (helper, '()Z'))
                     self.assertEqual(player.count(helper_code), 1)
                     invalid_player = player.replace(helper_code, b'\xfe' + helper_code[1:], 1)
                     invalid_archive = root / 'bad-clip.pak'
@@ -304,6 +312,138 @@ class OfflineClipTests(unittest.TestCase):
         self.assertEqual(code.count('WeaponReload(LWeapon;)Z'), 1)
         self.assertNotIn('SetAmmoCount', code)
         self.assertNotIn('SetAmount', code)
+
+
+class UnloadVM(FamilyVM):
+    def __init__(self, loaded=2, reserve=10):
+        from coj_schofield_unload import build_offline_schofield_unload
+        raw = original_archive()
+        classes = build_offline_schofield_unload(raw)
+        super().__init__('WeaponPistolSchofield', builder=lambda *_: classes)
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            pool, methods = parse_class(archive.read('PawnInventory.class'))
+        self.classes['PawnInventory'] = pool, {(m.name, m.descriptor): m for m in methods}
+        self.unload_calls = 0
+        self.weapon['m_iAmmo0Count'] = loaded
+        self.player['nAmmoPistol'] = reserve
+        self.wait()
+
+    def _native(self, owner, name, args):
+        if name == 'AddAmmo':
+            self.unload_calls += 1
+            return VM.run(self, 'PawnInventory', name, '(LWeapon;Z)Z', owner, args)
+        if name == 'min': return min(args)
+        if name == 'PlaySound2D': return 0
+        return super()._native(owner, name, args)
+
+    def unload(self):
+        return self.boolean('cojvrLabUnloadSchofield')
+
+
+class OfflineUnloadTests(unittest.TestCase):
+    def test_original_native_unload_and_reload_conserve_ammo(self):
+        for loaded in range(1, 7):
+            with self.subTest(loaded=loaded):
+                before = 0 if loaded < 6 else 93
+                vm = UnloadVM(loaded, before)
+                self.assertEqual(vm.vector(), ((loaded, 0), (10, 10, before)))
+                self.assertTrue(vm.unload())
+                self.assertEqual(vm.vector(), ((0, 0), (10, 10, before+loaded)))
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 21)
+                self.assertFalse(vm.unload())
+                self.assertEqual(vm.unload_calls, 1)
+                self.assertTrue(vm.insert_clip())
+                self.assertEqual(sum(vm.vector()[0])+vm.vector()[1][2], before+loaded)
+
+    def test_lab_requires_the_exact_archive_and_is_absent_from_the_player_patch(self):
+        from coj_schofield_unload import build_offline_schofield_unload
+        raw = original_archive()
+        with self.assertRaisesRegex(ValueError, 'SHA-256'):
+            build_offline_schofield_unload(raw + b'X')
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            player, _ = patch_manual_reload_classes(archive.read('ArmedPlayerBeing.class'),
+                                                     archive.read('StateMashine.class'))
+        self.assertNotIn('cojvrLabUnloadSchofield', {method.name for method in parse_class(player)[1]})
+
+    def test_rejects_invalid_preconditions_without_writes(self):
+        for change in ('short_headroom', 'full_reserve', 'bad_count', 'counter', 'wrong_model', 'not_waiting'):
+            with self.subTest(change=change):
+                vm = UnloadVM()
+                if change == 'short_headroom': vm.player['nAmmoPistol'] = 98
+                if change == 'full_reserve': vm.player['nAmmoPistol'] = 99
+                if change == 'bad_count': vm.weapon['m_iAmmo0Count'] = 7
+                if change == 'counter': vm.counters[2]['cOwner'] = {}
+                if change == 'wrong_model': vm.weapon['class'] = 'WeaponPistolSchofield_A'
+                if change == 'not_waiting': vm.machine['m_sCurrentState'] = vm.states[20]
+                before = vm.vector()
+                self.assertFalse(vm.unload())
+                self.assertEqual(vm.vector(), before)
+                self.assertEqual(vm.unload_calls, 0)
+
+    def test_reentry_and_interrupted_native_write(self):
+        vm = UnloadVM()
+        replies = []
+        def reenter(when, name, owner, args):
+            if when == 'before' and name == 'SetAmount':
+                replies.extend((vm.unload(), vm.insert_clip(),
+                                vm.boolean('cojvrKeepManualReloadAlive')))
+        vm.hook = reenter
+        self.assertTrue(vm.unload())
+        self.assertEqual(replies, [False, False, False])
+
+        vm = UnloadVM()
+        exception = {'class': 'Throwable', 'point': 'before_reserve_write'}
+        def interrupt(when, name, owner, args):
+            if when == 'before' and name == 'SetAmount': raise JVMThrown(exception)
+        vm.hook = interrupt
+        with self.assertRaises(JVMThrown) as raised:
+            vm.unload()
+        self.assertIs(raised.exception.value, exception)
+        self.assertEqual(vm.vector(), ((0, 0), (10, 10, 10)))
+        self.assertTrue(vm.player['cojvrClipFaulted'])
+        self.assertFalse(vm.unload())
+        self.assertFalse(vm.insert_clip())
+        self.assertFalse(vm.boolean('cojvrKeepManualReloadAlive'))
+        self.assertEqual(vm.unload_calls, 1)
+
+    def test_completed_native_call_with_wrong_readback_remains_quarantined(self):
+        vm = UnloadVM()
+        def change_reserve(when, name, owner, args):
+            if when == 'after' and name == 'SetAmount':
+                vm.player['nAmmoPistol'] -= 1
+        vm.hook = change_reserve
+        self.assertFalse(vm.unload())
+        self.assertTrue(vm.player['cojvrClipFaulted'])
+        self.assertEqual(vm.vector(), ((0, 0), (10, 10, 11)))
+        self.assertFalse(vm.unload())
+        self.assertEqual(vm.unload_calls, 1)
+
+    def test_loss_of_wait_ticket_does_not_release_the_original_transfer(self):
+        for boundary in ('GetAmmoTypeCount', 'SetAmount'):
+            with self.subTest(boundary=boundary):
+                vm = UnloadVM()
+                exception = {'class': 'Throwable'}
+                def interrupt(when, name, owner, args):
+                    if when == 'before' and name == boundary:
+                        vm.hook = None
+                        vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [vm.hand])
+                        raise JVMThrown(exception)
+                vm.hook = interrupt
+                with self.assertRaises(JVMThrown) as raised:
+                    vm.unload()
+                self.assertIs(raised.exception.value, exception)
+                before = vm.vector()
+                vm.update(1.0)
+                self.assertEqual(vm.vector(), before)
+                self.assertEqual(vm.events, 0)
+                self.assertEqual(vm.desired_state, 1)
+                vm.update(1.4)
+                vm.player['cojvrManualReloadWeapon'] = None
+                vm.run('ArmedPlayerBeing', 'ReloadWeapon', '(I)V', vm.player, [vm.hand])
+                vm.machine.update(m_sCurrentState=vm.states[20], start=1.4)
+                vm.update(1.8); vm.update(2.2)
+                self.assertGreater(vm.vector()[0][0], before[0][0])
+                self.assertEqual(vm.events, 1)
 
 
 if __name__ == '__main__':
