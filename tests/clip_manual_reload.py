@@ -345,6 +345,12 @@ class SchofieldVM(FamilyVM):
             if self.on_request:
                 self.on_request()
             return None
+        if name == 'SetDesiredWeaponState':
+            hand, state = args
+            # The shipped setter classifies reload states 20–22 as two-handed
+            # even when the equipped Schofield and the idle pose use one hand.
+            desired = self.player['m_aHandStateMashine'][hand]['m_cDesiredState']
+            desired['m_bTwoHanded'] = state in (20, 21, 22, 25, 26, 27)
         if name == 'AddAmmo':
             self.unload_calls += 1
             return VM.run(self, 'PawnInventory', name, '(LWeapon;Z)Z', owner, args)
@@ -366,7 +372,7 @@ class SchofieldVM(FamilyVM):
 class SchofieldMotionTests(unittest.TestCase):
     def test_opens_full_or_zero_reserve_and_keeps_bundle_waiting_until_native_close(self):
         for hand in (0, 1):
-            for loaded, reserve in ((6, 3), (2, 0), (6, 0), (0, 0)):
+            for loaded, reserve in ((5, 77), (1, 75), (6, 3), (2, 0), (6, 0), (0, 0)):
                 with self.subTest(hand=hand, loaded=loaded, reserve=reserve):
                     vm = SchofieldVM(loaded, reserve, hand=hand, waiting=False)
                     before = vm.vector()
@@ -374,6 +380,7 @@ class SchofieldMotionTests(unittest.TestCase):
                     self.assertEqual(vm.requests, [('ArmedPlayerBeing', (hand,))])
                     self.assertEqual((vm.vector(), vm.events, vm.clip_calls), (before, 0, 0))
                     self.assertEqual((vm.player['cojvrReloadProbeStatus'], vm.desired_state), (1, 21))
+                    self.assertTrue(vm.player['m_aHandStateMashine'][hand]['m_cDesiredState']['m_bTwoHanded'])
                     self.assertIs(vm.player['cojvrReloadProbeWeapon'], vm.weapon)
                     self.assertIsNone(vm.player['cojvrManualReloadWeapon'])
                     self.assertFalse(vm.open())
@@ -436,6 +443,18 @@ class SchofieldMotionTests(unittest.TestCase):
                 self.assertEqual(len(vm.requests), 1)
                 self.assertTrue(vm.player['cojvrClipFaulted'])
                 self.assertFalse(vm.player['cojvrClipBusy'])
+
+    def test_open_accepts_only_the_armed_desired_reload_flag(self):
+        for support, slot, two_handed in ((False, 'm_cDesiredState', False),
+                                           (False, 'm_cActualState', True),
+                                           (True, 'm_cDesiredState', True)):
+            with self.subTest(support=support, slot=slot):
+                vm = SchofieldVM(waiting=False)
+                hand = vm.player['m_aHandStateMashine'][int(support)]
+                vm.on_request = lambda: hand[slot].update(m_bTwoHanded=two_handed)
+                before = vm.vector()
+                self.assertFalse(vm.open())
+                self.assertEqual(vm.vector(), before)
 
     def test_bundle_is_base_only_and_lost_ticket_cannot_add_on_native_close(self):
         for kind in clips.CLIP_WEAPONS[1:]:

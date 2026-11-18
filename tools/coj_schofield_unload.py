@@ -85,15 +85,18 @@ def _append_open(player: bytes) -> bytes:
                     field('PlayerState', 'm_iStateID', 'I')
                     c.emit(0x03 if support else 0x04); c.branch(0xa0, failure)
             for name in ('m_cActualState', 'm_cDesiredState'):
+                armed_reload_desired = opening and not support and name == 'm_cDesiredState'
                 c.emit(0x19, 7); field(hand_machine, name, 'LArmedPlayerBeing$HandState;')
                 c.emit(0x3a, 9, 0x19, 9); c.branch(0xc6, failure)
                 c.emit(0x19, 9); field(hand_state, 'm_bTwoHanded', 'Z')
-                c.branch(0x9a, failure)
+                # The original setter marks desired reload 21 as two-handed.
+                # The idle state and the other hand must still be independent.
+                c.branch(0x99 if armed_reload_desired else 0x9a, failure)
                 c.emit(0x19, 9); field(hand_state, 'm_cWeapon', 'LWeapon;')
                 if support: c.branch(0xc7, failure)
                 else: c.emit(0x2c); c.branch(0xa6, failure)
                 c.emit(0x19, 9); field(hand_state, 'm_iState', 'I')
-                if opening and not support and name == 'm_cDesiredState':
+                if armed_reload_desired:
                     c.emit(0x10, 21)
                 else:
                     c.emit(0x03 if support else 0x04)

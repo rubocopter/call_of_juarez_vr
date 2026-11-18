@@ -7201,7 +7201,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             EmitEvent("schofield_open",schofield_opened?"accepted":"rejected",
                 "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(reload_owner.weapon_id)+
                 ";loaded="+std::to_string(manual_input.native.ammo_readback)+
-                ";reserve="+std::to_string(manual_input.native.reserve_readback));
+                ";reserve="+std::to_string(manual_input.native.reserve_readback)+
+                ";call_completed="+std::to_string(completed)+";detail="+
+                (completed?std::string{}:gameplay_input_error));
         }catch(...){}
     }
     const bool interaction_pressed = gameplay_input.active && gameplay_input.interact &&
@@ -7337,15 +7339,16 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const bool reload_ticket_cleared = g_java_player_bridge.ClearSingleRoundReload();
     if (single_round_request)
         g_motion_reload.NoteSingleRoundDispatch(gameplay_input_ok && reload_ticket_cleared);
+    const bool manual_start_delivered=gameplay_input_ok&&reload_ticket_cleared&&manual_ticket_ready&&
+        (!manual_result.schofield_motion||schofield_opened);
     if(manual_result.start){
-        const bool delivered=gameplay_input_ok&&reload_ticket_cleared&&manual_ticket_ready&&
-            (!manual_result.schofield_motion||schofield_opened);
-        g_manual_reload.NoteStart(delivered);
-        if(!delivered)(void)g_java_player_bridge.CancelManualReload();
+        g_manual_reload.NoteStart(manual_start_delivered);
+        if(!manual_start_delivered)(void)g_java_player_bridge.CancelManualReload();
     }
     if (single_round_request || !reload_ticket_cleared) {
         try {
-            EmitEvent("manual_reload_round", gameplay_input_ok ? "requested" : "rejected",
+            const bool dispatched=manual_result.start?manual_start_delivered:(gameplay_input_ok&&reload_ticket_cleared);
+            EmitEvent("manual_reload_round", dispatched ? "requested" : "rejected",
                 "frame_sequence=" + std::to_string(frame_sequence) +
                 ";weapon_id=" + std::to_string(reload_owner.weapon_id) +
                 ";pending_cleared=" + std::to_string(reload_ticket_cleared) +
