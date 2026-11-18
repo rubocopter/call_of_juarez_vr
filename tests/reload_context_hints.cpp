@@ -18,6 +18,24 @@ struct Fixture {
 };
 }
 int main(){
+    Fixture refused;
+    (void)SetActionPromptLabel(refused.labels,PromptAction::reload,"Reload Button");
+    refused.r.unload_refusal=CoJReloadRefusal::reserve_full;
+    auto notice=refused.Frame();
+    Check(refused.Draw(notice,false)&&notice.reload_result_notice&&
+        notice.text.interaction.view()==u"No room in reserve. Press Reload Button to close.",
+        "capacity refusal must be visible with optional guides off");
+    refused.Step();refused.r.unload_refusal=CoJReloadRefusal::none;
+    notice=refused.Frame();
+    Check(refused.Draw(notice,false),"refusal should survive beyond a single rendered frame");
+    refused.Step();++refused.labels.binding_generation;
+    refused.r.unload_refusal=CoJReloadRefusal::reserve_full;
+    notice=refused.Frame();
+    Check(refused.Draw(notice,false)&&notice.text.controller_prompt_generation==refused.labels.binding_generation,
+        "a fresh refusal survives a binding refresh for the same owner");
+    refused.Step();refused.r.tracked=false;
+    notice=refused.Frame();
+    Check(!refused.Draw(notice,false),"close or owner loss must retire the refusal");
     Fixture empty;empty.s.native.reserve_readback=0;
     (void)SetActionPromptLabel(empty.labels,PromptAction::reload,"Reload Button");
     auto empty_out=empty.Frame();

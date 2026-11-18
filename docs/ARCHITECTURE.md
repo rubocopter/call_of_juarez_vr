@@ -1223,12 +1223,21 @@ must pass the single-hand idle check. After the request the armed desired state
 and empty support hand still verified. The
 retained wait accepts a downward shake with the muzzle tipped down to unload.
 A rearward pull or an upward wrist flick closes at any load count. Stroke
-classification uses the tracked aim and HMD-relative armed hand. The first
-stroke intent is retained through reversals until a neutral hold. A partial
+classification uses the tracked aim and HMD-relative armed hand. An opposing
+stroke discards accumulated progress even when the return cannot classify as
+a separate command. Reversal and pose discontinuity require a fresh neutral
+hold before the next attempt. A partial
 drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
 clears the outlines and pulses the armed hand. Confirmed reserve transfers also
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
 uses the verified quantity with one shared mesh and bounded stereo instances.
+The unload helper checks the original pistol counter's capacity inside the
+retained wait before calling native `AddAmmo`. A verified refusal leaves the
+drum open with unchanged counters, qualifies an armed-hand pulse and offers a
+short notice with the reload binding even when Weapon Guides are Off. An
+uncertain native result retires the session. Square keeps the normal close
+route. Optional reload telemetry samples the classifier only during this
+session, with phase changes and classified requests recorded immediately.
 The native watchdog and ownership retirement still
 control the animation lifecycle. A visual guide projects the six measured
 radial positions onto the positive-Z drum face and shows the aggregate live
@@ -1702,7 +1711,7 @@ PS VR2 with Sense controllers through SteamVR is the development reference.
 Bindings belong to runtime assets; game logic consumes logical actions/poses.
 Compatibility with other devices requires independent acceptance.
 
-## Public pre-alpha distribution
+## Public distribution
 
 `tools/package_release.ps1` builds/tests the Win32 OpenVR path and packages an
 explicit file allowlist with a complete SHA-256 inventory. Dependency identities
@@ -1714,7 +1723,10 @@ dependency download is required. Game files are patched locally and never shippe
 `release/cojvr.ps1` owns the public install/session journal and calls the existing
 exact-build transactional stage/unstage boundaries. Updates restore originals
 before deploying a replacement; failure retains recovery data or restores the
-original game. Default Install/update enables manual reload on fresh installs
+original game. Game ownership and the closed-game check are revalidated under
+the public mutation lock. Stable and pre-alpha packages share the version
+contract of the inventory and installation journal, including recovery from
+prealpha.7. Default Install/update enables manual reload on fresh installs
 and preserves the installed choice on upgrades. `release/cojvr-gui.ps1` provides
 a Windows PowerShell 5.1/WinForms graphical front end: Steam AppID 3020
 discovery through registered Steam roots, `libraryfolders.vdf` and
@@ -1790,7 +1802,9 @@ independent eye RT prototype and investigation probes remain off. Community
 reports use a bounded text
 allowlist and redact common local paths; they are inspected and shared manually.
 They do not replace canonical `vr_test.ps1 prepare`/`finish` acceptance evidence.
-The GitHub release workflow produces a draft prerelease for explicit publication.
+The GitHub release workflow produces an unpublished draft in the requested
+stable or pre-alpha channel. The stable release requires the campaign and
+distribution acceptance gates in Validation.
 
 ## Physical boxing
 

@@ -6,6 +6,13 @@
 namespace cojvr::games::call_of_juarez {
 inline constexpr double kCoJManualGripInsertionRadiusM = 0.18;
 enum class CoJManualReloadPhase { ready, opening, manual_load, closing };
+enum class CoJReloadRefusal { none, reserve_full, native_guard };
+struct CoJSchofieldMotionSample {
+    const char* state="inactive";
+    std::uint64_t interval_ms=0;
+    float down_m=0,back_m=0,aim_y=0,pitch_delta=0,step_m=0,progress_m=0,peak_mps=0;
+    bool classified=false;
+};
 struct CoJWinchesterReceiverInput {
     runtime::Vec3 centre{}, lever{}; // Current tracking-space capture.
     float outside_cm=0, alignment=0;
@@ -37,6 +44,8 @@ struct CoJManualReloadGestureTarget {
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
     bool schofield_motion=false,unload=false,eject_empty=false;
+    CoJSchofieldMotionSample schofield_sample{};
+    CoJReloadRefusal unload_refusal=CoJReloadRefusal::none;
     std::uint32_t transition_controls=0; // Gameplay digital bits held by the preference transition.
     int selected_index=-1; // Captured at indexed pickup, never inferred at release.
     runtime::MotionReloadGestureOutput gesture{};
@@ -72,7 +81,8 @@ public:
         }
         const bool regression=source_valid&&have_sample_&&(s.sequence<sequence_||s.now<observed_);
         const bool fresh=source_valid&&(!have_sample_||s.sequence>sequence_);
-        const bool gap=source_valid&&have_sample_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
+        const auto sample_elapsed=source_valid&&have_sample_&&s.now>=fresh_at_?s.now-fresh_at_:0;
+        const bool gap=sample_elapsed>250;
         if(fresh&&!regression)observed_=s.now;
         if(fresh&&!regression){have_sample_=true;sequence_=s.sequence;fresh_at_=s.now;}
         const auto prior_trigger_claims=trigger_claims_;
@@ -216,11 +226,14 @@ public:
         const bool waiting=out.tracked&&phase_==CoJManualReloadPhase::manual_load;
         const bool carried=gesture_.stage()==runtime::MotionReloadGestureStage::carrying||
             gesture_.stage()==runtime::MotionReloadGestureStage::replenished_carrying;
-        if(!waiting||!out.schofield_motion||s.raw.fire_left||s.raw.fire_right||
-            carried)
+        out.schofield_sample.interval_ms=sample_elapsed;
+        if(!waiting||!out.schofield_motion||s.raw.fire_left||s.raw.fire_right||carried){
+            if(out.schofield_motion)out.schofield_sample.state=!waiting?
+                (out.cancel?out.reason:phase_==CoJManualReloadPhase::opening?"opening":"not_waiting"):
+                carried?"cartridge_carried":"trigger_held";
             schofield_sweep_={};
-        else if(fresh){
-            const auto sweep=UpdateSchofieldSweep(s);
+        }else if(fresh){
+            const auto sweep=UpdateSchofieldSweep(s,out.schofield_sample);
             if(sweep==SchofieldFlick::close){
                 out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_rearward_close";
             }else if(sweep==SchofieldFlick::eject){
@@ -231,7 +244,7 @@ public:
                     schofield_chambers_cleared_=true;
                 }
             }
-        }
+        }else out.schofield_sample.state="duplicate_sample";
         if(!waiting||!s.winchester_receiver||carried||s.raw.fire_left||s.raw.fire_right||
             !s.receiver.lever_valid)lever_stroke_={};
         else if(fresh&&UpdateWinchesterLever(s)){
@@ -354,11 +367,12 @@ private:
         return lever_stroke_.depth>=.04F;
     }
     enum class SchofieldFlick { none, eject, close };
-    SchofieldFlick UpdateSchofieldSweep(const CoJManualReloadInput& s) noexcept {
+    SchofieldFlick UpdateSchofieldSweep(const CoJManualReloadInput& s,CoJSchofieldMotionSample& sample) noexcept {
         const auto& grip=hand_==0?s.right:s.left;
         const auto position=runtime::Vec3{grip.position.x-s.head.position.x,
             grip.position.y-s.head.position.y,grip.position.z-s.head.position.z};
         if(!Valid(s.armed_aim)){
+            sample.state="aim_unavailable";
             schofield_sweep_={};return SchofieldFlick::none;
         }
         const auto aim=runtime::RotateVector(runtime::NormalizeQuaternion(s.armed_aim.orientation),{0,0,-1});
@@ -367,9 +381,15 @@ private:
         const auto prior=schofield_sweep_;
         schofield_sweep_.last=s.now;schofield_sweep_.position=position;schofield_sweep_.aim=aim;
         const auto dt=s.now-prior.last;
-        const auto lock_until_rest=[&]{schofield_sweep_.locked=true;schofield_sweep_.rest_since=0;};
+        sample.aim_y=aim.y;
+        sample.interval_ms=prior.last?dt:0;
+        const auto lock_until_rest=[&]{
+            schofield_sweep_={.position=position,.aim=aim,.last=s.now,.locked=true};
+        };
         if(!prior.last||!dt||dt>90){
-            if(prior.direction!=SchofieldFlick::none)lock_until_rest();
+            sample.state=prior.last?"sweep_gap":"baseline";
+            schofield_sweep_={.position=position,.aim=aim,.last=s.now};
+            if(prior.locked||prior.direction!=SchofieldFlick::none)lock_until_rest();
             return SchofieldFlick::none;
         }
         const runtime::Vec3 step{position.x-prior.position.x,position.y-prior.position.y,position.z-prior.position.z};
@@ -377,29 +397,46 @@ private:
         const float velocity_scale=1000.F/static_cast<float>(dt);
         const auto speed=distance*velocity_scale;
         const float pitch=aim.y-prior.aim.y;
-        if(distance>.12F||speed>4.F){lock_until_rest();return SchofieldFlick::none;}
+        const float back=horizontal>=.12F?(step.x*head_rear.x+step.z*head_rear.z)/horizontal:0.F;
+        sample.down_m=-step.y;sample.back_m=back;sample.pitch_delta=pitch;sample.step_m=distance;
+        if(distance>.12F||speed>4.F){
+            sample.state="pose_jump";lock_until_rest();return SchofieldFlick::none;
+        }
+        // Small returns below the speed floor still reduce net travel.
+        const bool wrist_only=speed<=.55F;
+        const float reverse=prior.direction==SchofieldFlick::eject?
+            std::max(step.y,wrist_only?pitch*.14F:0.F):
+            std::max(-back,wrist_only?-pitch*.14F:0.F);
+        if(prior.start&&reverse>0.F)
+            schofield_sweep_.distance=std::max(0.F,prior.distance-reverse);
+        sample.progress_m=schofield_sweep_.distance;
         if(speed<=.20F&&std::abs(pitch)*velocity_scale<=.9F){
+            sample.state=prior.locked?"settling":"rest";
             if(!prior.rest_since)schofield_sweep_.rest_since=prior.last;
             else if(s.now-prior.rest_since>=110)schofield_sweep_={.position=position,.aim=aim,.last=s.now};
             return SchofieldFlick::none;
         }
         schofield_sweep_.rest_since=0;
-        if(prior.locked)return SchofieldFlick::none;
-        const float back=horizontal>=.12F?(step.x*head_rear.x+step.z*head_rear.z)/horizontal:0.F;
+        if(prior.locked){sample.state="locked_until_rest";return SchofieldFlick::none;}
         // A tilted downward shake ejects. Pulling back or pitching the muzzle
         // up in place closes. Large translation owns the sample over pitch.
-        const bool wrist_only=speed<=.55F;
         const float eject=aim.y<=-.28F?std::max(-step.y>=.65F*distance?-step.y:0.F,
             wrist_only?-pitch*.14F:0.F):0.F;
         const float close=std::max(back>=.72F*distance?back:0.F,wrist_only?pitch*.14F:0.F);
         const auto direction=eject>=close?SchofieldFlick::eject:SchofieldFlick::close;
         const float progress=std::max(eject,close);
         const float axial_speed=progress*velocity_scale;
-        if(axial_speed<.22F)return SchofieldFlick::none;
-        if(prior.start&&(prior.direction!=direction||s.now-prior.start>180)){
-            // A return stroke cannot turn one gesture into a second operation.
-            lock_until_rest();return SchofieldFlick::none;
+        if(prior.start){
+            // Apply the speed floor to opposition even when it cannot issue
+            // either command on its own.
+            if(reverse*velocity_scale>=.22F||(axial_speed>=.22F&&prior.direction!=direction)){
+                sample.state="rebound";lock_until_rest();return SchofieldFlick::none;
+            }
+            if(s.now-prior.start>180){
+                sample.state="stroke_timeout";lock_until_rest();return SchofieldFlick::none;
+            }
         }
+        if(axial_speed<.22F){sample.state="below_axis_speed";return SchofieldFlick::none;}
         if(!prior.start){
             schofield_sweep_.start=prior.last;schofield_sweep_.distance=0;
             schofield_sweep_.peak_speed=0;
@@ -407,9 +444,12 @@ private:
         schofield_sweep_.direction=direction;
         schofield_sweep_.distance+=progress;
         schofield_sweep_.peak_speed=std::max(axial_speed,schofield_sweep_.peak_speed);
+        sample.progress_m=schofield_sweep_.distance;
+        sample.peak_mps=schofield_sweep_.peak_speed;
+        sample.state=direction==SchofieldFlick::close?"rearward":"downward";
         if(schofield_sweep_.distance<(direction==SchofieldFlick::close?.08F:.065F)||
             schofield_sweep_.peak_speed<.43F)return SchofieldFlick::none;
-        lock_until_rest();return direction;
+        sample.classified=true;lock_until_rest();return direction;
     }
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
         return owner.valid&&owner.SupportsManual()&&native.valid&&native.probe_valid&&

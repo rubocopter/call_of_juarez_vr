@@ -511,6 +511,9 @@ void EmitReloadTrace(bool enabled, const CoJReloadTraceSample& sample) noexcept 
                << ";gesture_after=" << static_cast<int>(sample.gesture)
                << ";cartridge_before=" << event.before.cartridge << ";cartridge_after=" << sample.cartridge
                << ";legacy_grip_zone_before=" << event.before.in_zone << ";legacy_grip_zone_after=" << sample.in_zone
+               << ";insertion_target=" << (sample.winchester_receiver?"winchester_receiver":"legacy_grip_zone")
+               << ";receiver_contact_before=" << event.before.receiver_contact
+               << ";receiver_contact_after=" << sample.receiver_contact
                << ";reload_intent=" << sample.request << ";same_owner_delta=" << event.comparable;
         for (int h=0;h<2;++h) {
             detail << ";h" << h << "_states_before=";
@@ -6969,7 +6972,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const bool manual_reload_enabled=reload_mode==CoJReloadMode::manual&&snapshot.command.independent_hands_enabled;
     CoJManualReloadInput manual_input{};
     manual_input.enabled=manual_reload_enabled;
-    manual_input.schofield_motion=snapshot.command.schofield_motion;
+    manual_input.schofield_motion=snapshot.command.schofield_motion&&manual_reload_enabled&&
+        g_java_player_bridge.HasLoadedSchofieldMotionCapability();
     if((!manual_reload_enabled&&!legacy_motion_reload)||g_manual_reload.native_cleanup_pending()) {
         manual_input.native_cleanup_pending=!g_java_player_bridge.CancelManualReload(nullptr,true)||
             !g_java_player_bridge.ClearSingleRoundReload();
@@ -7029,7 +7033,35 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             manual_input.receiver=WinchesterReceiverInput(capture);
     }
     auto manual_result=g_manual_reload.Update(gameplay_input,manual_input);
-    if(snapshot.command.reload_trace_enabled&&manual_result.tracked&&!manual_result.cancel){
+    if(snapshot.command.reload_trace_enabled&&manual_result.schofield_motion){
+        const auto& motion=manual_result.schofield_sample;
+        static std::uint64_t last_motion_sample_ms=0;
+        if(motion.classified||manual_result.start||manual_result.cancel||manual_before!=g_manual_reload.phase()||
+            reload_now_ms<last_motion_sample_ms||reload_now_ms-last_motion_sample_ms>=50){
+            last_motion_sample_ms=reload_now_ms;
+            try{
+                std::ostringstream detail;
+                detail<<"frame_sequence="<<frame_sequence<<";pose_sequence="<<manual_input.sequence
+                    <<";sample_ms="<<reload_now_ms<<";interval_ms="<<motion.interval_ms
+                    <<";weapon_id="<<manual_input.native.weapon_id<<";armed_hand="<<manual_input.native.armed_hand
+                    <<";player_generation="<<manual_input.player<<";native_context="<<manual_input.context
+                    <<";input_generation="<<raw_reload_input.input_context_generation
+                    <<";phase_before="<<static_cast<int>(manual_before)
+                    <<";phase_after="<<static_cast<int>(g_manual_reload.phase())
+                    <<";probe_status="<<manual_input.native.probe_status
+                    <<";trigger_available_mask="<<(raw_reload_input.digital_available&3U)
+                    <<";fire_left="<<raw_reload_input.fire_left<<";fire_right="<<raw_reload_input.fire_right
+                    <<";square="<<raw_reload_input.reload<<";carried="<<carried_before
+                    <<";state="<<motion.state<<";down_m="<<motion.down_m<<";back_m="<<motion.back_m
+                    <<";aim_y="<<motion.aim_y<<";pitch_delta="<<motion.pitch_delta<<";step_m="<<motion.step_m
+                    <<";progress_m="<<motion.progress_m<<";peak_mps="<<motion.peak_mps
+                    <<";intent="<<(motion.classified?manual_result.reason:"none");
+                EmitEvent("schofield_motion",motion.classified?"classified":"sampled",detail.str());
+            }catch(...){}
+        }
+    }
+    const bool lever_close_requested=std::string_view(manual_result.reason)=="winchester_lever_close";
+    if(snapshot.command.reload_trace_enabled&&((manual_result.tracked&&!manual_result.cancel)||lever_close_requested)){
         const auto& gesture=manual_result.gesture;
         const bool carrying=gesture.cartridge_held&&gesture.claimed_hand==gesture.cartridge_hand;
         const bool release=carried_before&&gesture.claimed_hand<2&&
@@ -7037,16 +7069,26 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
              g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
         if(manual_input.winchester_receiver&&manual_input.native.probe_status==2&&!carrying&&
-            ShouldObserveBodyFrame(frame_sequence))try{
+            (lever_close_requested||ShouldObserveBodyFrame(frame_sequence)))try{
             const auto a=manual_input.left.position,b=manual_input.receiver.lever;
             const float distance=manual_input.receiver.lever_valid?std::hypot(a.x-b.x,a.y-b.y,a.z-b.z):-1.F;
             EmitEvent("winchester_lever_position","sampled",
-                "frame_sequence="+std::to_string(frame_sequence)+";support_distance_m="+std::to_string(distance));
+                "frame_sequence="+std::to_string(frame_sequence)+
+                ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                ";weapon_class="+manual_input.native.weapon_class+
+                ";close_requested="+std::to_string(lever_close_requested)+
+                ";lever_valid="+std::to_string(manual_input.receiver.lever_valid)+
+                ";support_distance_m="+std::to_string(distance)+
+                ";support_offset_x_m="+std::to_string(a.x-b.x)+
+                ";support_offset_y_m="+std::to_string(a.y-b.y)+
+                ";support_offset_z_m="+std::to_string(a.z-b.z));
         }catch(...){}
         if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence))){
             if(manual_input.winchester_receiver){
                 try{EmitEvent("winchester_receiver_contact",manual_result.insert?"release_admitted":"sampled",
                     "frame_sequence="+std::to_string(frame_sequence)+";release="+std::to_string(release)+
+                    ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                    ";weapon_class="+manual_input.native.weapon_class+
                     ";mouth_valid="+std::to_string(manual_input.receiver.mouth_valid)+
                     ";tip_valid="+std::to_string(manual_input.receiver.tip_valid)+
                     ";outside_cm="+std::to_string(manual_input.receiver.outside_cm)+
@@ -7070,8 +7112,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
         const bool schofield_close=std::string_view(manual_result.reason)=="schofield_rearward_close";
-        const bool lever_close=std::string_view(manual_result.reason)=="winchester_lever_close";
-        if(schofield_close||lever_close){
+        if(schofield_close||lever_close_requested){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return g_java_player_bridge.CancelManualReload(&manual_error);
@@ -7082,9 +7123,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 after.valid&&after.probe_valid&&after.weapon_id==manual_input.native.weapon_id&&
                 after.armed_hand==manual_input.native.armed_hand;
             try{
-                EmitEvent(lever_close?"winchester_lever_close":"schofield_close","requested",
+                EmitEvent(lever_close_requested?"winchester_lever_close":"schofield_close","requested",
                     "frame_sequence="+std::to_string(frame_sequence)+
                     ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                    ";weapon_class="+manual_input.native.weapon_class+
+                    ";armed_hand="+std::to_string(manual_input.native.armed_hand)+
                     ";close_completed="+std::to_string(completed)+
                     ";state_observed="+std::to_string(observed)+
                     ";probe_status_after="+std::to_string(observed?after.probe_status:0)+
@@ -7103,12 +7146,14 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
     if(manual_result.eject_empty&&snapshot.command.reload_trace_enabled)try{
         EmitEvent("schofield_empty_eject","visual", "frame_sequence="+std::to_string(frame_sequence)+
-            ";weapon_id="+std::to_string(manual_input.native.weapon_id)+";ammo_write=false");
+            ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+            ";armed_hand="+std::to_string(manual_input.native.armed_hand)+";ammo_write=false");
     }catch(...){}
     if(manual_result.unload){
-        bool accepted=false,context_restored=true;
+        auto unload=CoJSchofieldUnloadResult::fault;
+        bool context_restored=true;
         const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
-            return g_java_player_bridge.TryUnloadSchofield(accepted,&manual_error);
+            return g_java_player_bridge.TryUnloadSchofield(unload,&manual_error);
         },context_restored);
         if(!context_restored){reject_render_input_context();return;}
         const auto& before=manual_input.native;
@@ -7120,9 +7165,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             std::string_view(after.weapon_class)=="WeaponPistolSchofield";
         auto reserve=before.reserves;
         const auto expected_reserve=static_cast<std::int64_t>(reserve[0])+before.ammo_readback;
-        const bool confirmed=completed&&accepted&&same&&after.loaded==std::array<int,2>{}&&
+        const bool confirmed=completed&&unload==CoJSchofieldUnloadResult::returned_to_reserve&&
+            same&&after.loaded==std::array<int,2>{}&&
             after.reserves[0]==expected_reserve&&after.reserves[1]==reserve[1]&&after.reserves[2]==reserve[2];
-        const bool declined=completed&&!accepted&&same&&after.loaded==before.loaded&&after.reserves==reserve;
+        const bool reserve_full=unload==CoJSchofieldUnloadResult::reserve_full;
+        const bool declined=completed&&(reserve_full||unload==CoJSchofieldUnloadResult::guard_declined)&&
+            same&&after.loaded==before.loaded&&after.reserves==reserve;
         if(!confirmed&&!declined){
             (void)g_manual_reload.Cancel();(void)g_java_player_bridge.CancelManualReload();
             g_manual_reload_presentation=false;manual_result.tracked=false;manual_result.cancel=true;
@@ -7133,12 +7181,22 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             insertion_pose_native=after;
             schofield_ejected_rounds=static_cast<unsigned>(before.ammo_readback);
         }
+        if(declined){
+            manual_result.unload_refusal=reserve_full?CoJReloadRefusal::reserve_full:CoJReloadRefusal::native_guard;
+            manual_feedback.unload_refused=true;
+            manual_feedback.hand=static_cast<std::uint8_t>(before.armed_hand);
+            manual_feedback.event_sequence=frame_sequence;
+        }
+        const char* reason=confirmed?"returned_to_reserve":declined?(reserve_full?"reserve_full":"native_guard"):
+            !completed?"dispatch_failed":unload==CoJSchofieldUnloadResult::fault?"native_fault":"readback_mismatch";
         try{
             EmitEvent("schofield_unload",confirmed?"accepted":declined?"declined":"uncertain",
                 "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(before.weapon_id)+
+                ";armed_hand="+std::to_string(before.armed_hand)+";reason="+reason+
                 ";loaded_before="+std::to_string(before.ammo_readback)+";loaded_after="+std::to_string(after.ammo_readback)+
                 ";reserve_before="+std::to_string(before.reserve_readback)+";reserve_after="+std::to_string(after.reserve_readback)+
-                ";native_call_completed="+std::to_string(completed)+";same_wait_owner="+std::to_string(same));
+                ";native_call_completed="+std::to_string(completed)+";same_wait_owner="+std::to_string(same)+
+                ";feedback="+(confirmed?"ejection_qualified":declined?"refusal_qualified":"none"));
         }catch(...){}
     }
     if(manual_result.eject_empty||schofield_ejected_rounds){
@@ -7209,7 +7267,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
             ";hand="+std::to_string(manual_result.gesture.cartridge_hand)+
             ";release_qualified="+std::to_string(manual_result.gesture.insertion_ready)+
-            ";geometry=legacy_grip_zone;ammo_write=false");}catch(...){}
+            ";geometry="+(manual_input.winchester_receiver?"winchester_receiver":"legacy_grip_zone")+
+            ";ammo_write=false");}catch(...){}
     }
     if (manual_result.cancel || !g_manual_reload_presentation)
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -7261,7 +7320,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if (motion_reload_context && !g_java_player_bridge.TryObserveReloadTrace(
                 trace.native,snapshot.command.reload_wait_probe_installed||manual_reload_enabled))
             trace.reason="native_observation_unavailable";
-        if (trace.cartridge && motion_reload.cartridge_hand<2) {
+        trace.winchester_receiver=manual_input.winchester_receiver;
+        trace.receiver_contact=trace.winchester_receiver&&carried_before&&manual_input.receiver.mouth_valid&&
+            manual_input.receiver.tip_valid&&manual_input.receiver.within_capture&&
+            (manual_result.insert||manual_result.gesture.insertion_ready);
+        if (!trace.winchester_receiver && trace.cartridge && motion_reload.cartridge_hand<2) {
             const auto& support=motion_reload.cartridge_hand==0?relative_right_controller:relative_left_controller;
             const auto& gun=motion_reload.cartridge_hand==0?relative_left_controller:relative_right_controller;
             const auto a=support.position, b=gun.position;
@@ -7317,6 +7380,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         try{
             EmitEvent("schofield_open",schofield_opened?"accepted":"rejected",
                 "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(reload_owner.weapon_id)+
+                ";armed_hand="+std::to_string(reload_owner.armed_hand)+
                 ";loaded="+std::to_string(manual_input.native.ammo_readback)+
                 ";reserve="+std::to_string(manual_input.native.reserve_readback)+
                 ";call_completed="+std::to_string(completed)+";detail="+
@@ -7407,6 +7471,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         ordinary_input.turn_available = false;
     }
     const bool cleanup_release=manual_input.native_cleanup_pending;
+    const bool native_reload_edge=ordinary_input.reload&&!manual_result.start&&!single_round_request&&
+        !g_java_player_bridge.AppliedGameplayCommands().reload;
     bool input_context_restored=true;
     const bool dispatched = snapshot.command.vr_gameplay_input_enabled &&
         (cleanup_release||(duel_input_ok&&reload_ticket_ready)) && DispatchWithRenderLevelContext(owner,[&]() noexcept {
@@ -7421,6 +7487,14 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         },input_context_restored);
     bool gameplay_input_ok=dispatched&&!cleanup_release;
     if(!input_context_restored) { reject_render_input_context();return; }
+    if(snapshot.command.reload_trace_enabled&&native_reload_edge)try{
+        const bool applied=gameplay_input_ok&&g_java_player_bridge.AppliedGameplayCommands().reload;
+        EmitEvent("native_reload_dispatch",applied?"applied":"withheld",
+            "frame_sequence="+std::to_string(frame_sequence)+
+            ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+            ";manual_enabled="+std::to_string(manual_input.enabled)+
+            ";owner_reason="+CoJMotionReloadRejectReasonName(reload_diagnostic.reason));
+    }catch(...){}
     if (!duel_input_ok && gameplay_input_error.empty()) gameplay_input_error = duel_error;
     if (ShouldObserveBodyFrame(frame_sequence) || !duel_input_ok) {
         EmitEvent("duel_input", duel_input_ok ? "observed" : "failed",
@@ -9014,8 +9088,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 // Optional text deadlines are consumed on the presenter's
                 // GetTickCount64 clock; retain QPC only for gesture continuity.
                 auto coaching_input=manual_input;coaching_input.now=GetTickCount64();
-                (void)g_reload_context_hints.Append(coaching_input,manual_result,manual_feedback.owner_token,
+                const bool reload_notice=g_reload_context_hints.Append(coaching_input,manual_result,manual_feedback.owner_token,
                     runtime::CurrentActionPrompts(),g_java_player_bridge.GetUiLanguage(),holster_guides_enabled,hud_text);
+                if(snapshot.command.reload_trace_enabled&&manual_feedback.unload_refused)
+                    EmitEvent("schofield_refusal_notice",reload_notice&&hud_text.reload_result_notice?"queued":"unavailable",
+                        "frame_sequence="+std::to_string(frame_sequence)+
+                        ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                        ";armed_hand="+std::to_string(manual_input.native.armed_hand));
             }else g_reload_context_hints.Reset();
             duel_tutorial_sample.hud_observed=observed;
             duel_tutorial_sample.presentation_time_ms=GetTickCount64();

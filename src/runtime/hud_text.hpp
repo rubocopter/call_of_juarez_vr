@@ -69,6 +69,7 @@ struct ReloadInsertionFeedback {
     bool zone_entered = false;
     ReloadInsertionPulse pulse = ReloadInsertionPulse::standard;
     bool ejected = false;
+    bool unload_refused = false;
 };
 
 enum class BowDrawFeedbackKind : std::uint8_t { none, grab, tension, release };
@@ -104,6 +105,7 @@ struct StereoHudTextOverlay {
     ReloadInsertionFeedback reload_feedback{};
     BowDrawFeedback bow_feedback{};
     bool reload_instruction = false; // Low-priority interaction text, bound to reload_feedback.owner_token.
+    bool reload_result_notice = false; // Transaction feedback is independent of optional guides.
     std::uint64_t reload_instruction_until_ms = 0;
     // Independent low-priority tutorial interaction owner and GetTickCount64 deadline.
     std::uint64_t tutorial_owner_token = 0, tutorial_until_ms = 0;

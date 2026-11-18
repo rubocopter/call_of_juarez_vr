@@ -231,8 +231,6 @@ def _append_unload(player: bytes) -> bytes:
     c.emit(0x15, 6); c.branch(0x9b, 'decline')
     get_max(); c.emit(0x36, 7)
     c.emit(0x15, 7, 0x15, 6); c.branch(0xa1, 'decline')
-    c.emit(0x15, 7, 0x15, 6, 0x64, 0x15, 5); c.branch(0xa1, 'decline')
-
     def check_storage(label, *, unloaded=False):
         find_pistol_counter()
         c.emit(0x19, 4); c.branch(0xa6, label)
@@ -249,6 +247,7 @@ def _append_unload(player: bytes) -> bytes:
         c.branch(0xa0, label)
 
     check_storage('decline')
+    c.emit(0x15, 7, 0x15, 6, 0x64, 0x15, 5); c.branch(0xa1, 'reserve_full')
     c.emit(0x2a, 0x2b, 0x03)
     call('PawnInventory', 'AddAmmo', '(LWeapon;Z)Z')
     c.branch(0x99, 'fault')
@@ -256,13 +255,16 @@ def _append_unload(player: bytes) -> bytes:
     c.label('try_end')
     set_flag('cojvrClipBusy', False)
     c.emit(0x04, 0xac)
-    c.label('fault'); set_flag('cojvrClipFaulted', True)
+    c.label('reserve_full'); set_flag('cojvrClipBusy', False)
+    c.emit(0x05, 0xac)
+    c.label('fault'); set_flag('cojvrClipFaulted', True); set_flag('cojvrClipBusy', False)
+    c.emit(0x02, 0xac)
     c.label('decline'); set_flag('cojvrClipBusy', False)
     c.emit(0x03, 0xac)
     c.label('catch'); c.emit(0x3a, 8)
     set_flag('cojvrClipFaulted', True)
     set_flag('cojvrClipBusy', False)
     c.emit(0x19, 8, 0xbf)
-    e.helper('cojvrUnloadSchofield', '()Z', c.finish(), 9,
+    e.helper('cojvrUnloadSchofield', '()I', c.finish(), 9,
              exception_table=((c.labels['try'], c.labels['try_end'], c.labels['catch'], 0),))
     return e.finish()

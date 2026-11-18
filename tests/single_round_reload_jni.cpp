@@ -368,9 +368,13 @@ void* JNI_CALL CapabilityLookup(void*,void* cls,const char* name,const char* sig
     ++capability_lookups;
     const bool cancel=!std::strcmp(name,"cojvrCancelReloadProbe");
     const bool indexed=!std::strcmp(name,"cojvrInsertManualIndexedRound");
-    Require(cancel||indexed||!std::strcmp(name,"cojvrKeepManualReloadAlive")||
+    const bool schofield_open=!std::strcmp(name,"cojvrOpenSchofield");
+    const bool schofield_unload=!std::strcmp(name,"cojvrUnloadSchofield");
+    Require(cancel||indexed||schofield_open||schofield_unload||!std::strcmp(name,"cojvrInsertSchofieldBundle")||
+        !std::strcmp(name,"cojvrKeepManualReloadAlive")||
         !std::strcmp(name,"cojvrInsertManualRound"),"unexpected capability method");
-    Require(!std::strcmp(signature,cancel?"()V":indexed?"(I)Z":"()Z"),"wrong capability descriptor");
+    Require(!std::strcmp(signature,cancel?"()V":indexed||schofield_open?"(I)Z":schofield_unload?"()I":"()Z"),
+        "wrong capability descriptor");
     if(Fail()||capability_profile==1||(capability_profile==2&&!cancel)||
         (fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
     if(capability_mutation==1)capability_bridge->vm_=&capability_vm_holder;
@@ -393,9 +397,14 @@ void ManualReloadCapabilityTests(JavaPlayerBridge& bridge){
             "capability proof leaked JNI or changed reload ownership");
     };
     reset();bridge.manual_reload_owned_=false;check(true);
-    Require(capability_lookups==4,"manual capability did not prove every endpoint");
+    Require(capability_lookups==7&&bridge.HasLoadedSchofieldMotionCapability(),
+        "manual capability did not prove every endpoint");
     const int proven_steps=step;check(true);
-    Require(step==proven_steps&&capability_lookups==4,"stable player repeated capability lookup");
+    Require(step==proven_steps&&capability_lookups==7,"stable player repeated capability lookup");
+    for(const char* missing:{"cojvrOpenSchofield","cojvrInsertSchofieldBundle","cojvrUnloadSchofield"}){
+        reset();fail_lookup=missing;check(true);
+        Require(!bridge.HasLoadedSchofieldMotionCapability(),"legacy archive enabled Schofield motion");
+    }
     for(int profile:{1,2}){
         reset();capability_profile=profile;check(false);const int lookups=capability_lookups;check(false);
         Require(capability_lookups==lookups,"nonmanual profile repeated missing-method exceptions");
@@ -418,7 +427,10 @@ void ManualReloadCapabilityTests(JavaPlayerBridge& bridge){
         for(bool null_only:{false,true}){reset();fail_lookup=missing;null_failure=null_only;check(false);}
     }
     for(int fault=1;fault<=proven_steps;++fault){
-        for(bool null_only:{false,true}){reset();fail_step=fault;null_failure=null_only;check(false);}
+        for(bool null_only:{false,true}){
+            reset();fail_step=fault;null_failure=null_only;check(fault>proven_steps-3);
+            Require(!bridge.HasLoadedSchofieldMotionCapability(),"fault admitted Schofield motion");
+        }
     }
     for(int slot:{15,17,23,31,33}){
         reset();check(true);const auto fn=table[slot];table[slot]=nullptr;check(false);table[slot]=fn;

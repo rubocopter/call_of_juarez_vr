@@ -95,7 +95,7 @@ def append_runtime_families(player:bytes)->bytes:
         ('cojvrInsertManualIndexedRound','(I)Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertManualClip','()Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertSchofieldBundle','()Z'):RUNTIME_GUARD_FIELDS,
-        ('cojvrUnloadSchofield','()Z'):RUNTIME_GUARD_FIELDS,
+        ('cojvrUnloadSchofield','()I'):RUNTIME_GUARD_FIELDS,
         ('cojvrOpenSchofield','(I)Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertManualNativeCycleRound','()Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrKeepManualReloadAlive','()Z'):RUNTIME_GUARD_FIELDS,

@@ -64,7 +64,7 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — campaign gameplay and reloads | Diagnose unreliable Schofield gestures at the input, transaction and feedback boundaries. Preserve the exercised Winchester insertion and verify early lever closure after an intermediate cartridge. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 1 — campaign gameplay and reloads | Use the bounded Schofield classifier and native-result traces to measure remaining misses on both hands. Preserve the exercised Winchester insertion and verify early lever closure after an intermediate cartridge. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
 | 2 — rendering stability | Isolate translucent flicker under capture pressure. Keep temporal reconstruction in the experimental track. | Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
@@ -326,11 +326,14 @@ exercised campaign. Preserve those paths during the end-to-end playthrough.
 Temporally reconstructed output, DLSS and DLAA remain experimental and outside
 this gate.
 See the [campaign acceptance checklist](VALIDATION.md#pending-headset-checks).
-The public package workflow currently drafts pre-alpha releases. A stable
-release candidate still needs explicit stable-version packaging, a declared
-default reload policy and clean install/update/recovery on a player PC before
-publication. Qualify pacing with a representative gameplay run and record the
-active transport, display mode and resolution.
+The package workflow accepts stable and pre-alpha versions and creates drafts.
+The planned public configuration uses the existing manual routes on by default
+for new installs, retains installed choices and offers native reload via Off.
+The Schofield motion and Winchester receiver development options remain
+outside this configuration until their physical gates and the campaign support
+including them. Clean install/update/recovery on a player PC remains required
+before publication. Qualify pacing with a representative gameplay run and
+record the active transport, display mode, resolution and enabled probes.
 
 Keep published .5 artifacts and verdicts unchanged. Future distributions retain
 reversible installation, saved resolution/reload choices, local-only diagnostics,

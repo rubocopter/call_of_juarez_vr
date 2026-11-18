@@ -687,6 +687,7 @@ CoJReloadTraceEvent CoJReloadTraceEvents::Update(bool enabled, const CoJReloadTr
         previous_.player!=sample.player || previous_.context!=sample.context ||
         previous_.gesture!=sample.gesture || previous_.cartridge!=sample.cartridge ||
         previous_.in_zone!=sample.in_zone || previous_.native.valid!=sample.native.valid ||
+        previous_.winchester_receiver!=sample.winchester_receiver || previous_.receiver_contact!=sample.receiver_contact ||
         std::strcmp(previous_.reason?previous_.reason:"unknown",sample.reason?sample.reason:"unknown")!=0 ||
         (sample.native.valid && (previous_.native.weapon_id!=sample.native.weapon_id ||
         previous_.native.armed_hand!=sample.native.armed_hand || previous_.native.states!=sample.native.states ||

@@ -280,7 +280,7 @@ struct HudTextCompositor::Impl {
     std::uint64_t text_generation=0,text_reload_owner=0,text_until_ms=0;
     std::uint64_t text_tutorial_owner=0,text_tutorial_until_ms=0;
     std::uint64_t text_glyph_sample_ms=0,text_glyph_until_ms=0;
-    bool text_reload=false,text_tutorial=false;
+    bool text_reload=false,text_reload_result_notice=false,text_tutorial=false;
     // One value-only capture for refreshing controlled text when optional icon
     // art expires between fresh world frames. Native HUD is used for layout,
     // never drawn twice over the restored controlled-text preimages.
@@ -289,7 +289,7 @@ struct HudTextCompositor::Impl {
     void DiscardText() noexcept {
         for(auto& patch:text_patches){patch.saved=false;patch.rectangle={};}
         text_context.Reset();text_targets={};
-        text_generation=text_reload_owner=text_until_ms=0;text_reload=false;
+        text_generation=text_reload_owner=text_until_ms=0;text_reload=false;text_reload_result_notice=false;
         text_tutorial_owner=text_tutorial_until_ms=0;text_tutorial=false;
         text_glyph_sample_ms=text_glyph_until_ms=0;
         text_replay_valid=false;
@@ -438,7 +438,7 @@ void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext
     const bool stale_generation=(impl_->text_generation||impl_->text_tutorial)&&
         impl_->text_generation!=runtime::CurrentActionPrompts().binding_generation;
     const auto now=GetTickCount64();
-    const bool stale_reload=impl_->text_reload&&(!show_holster_guides||!reload_owner_token||
+    const bool stale_reload=impl_->text_reload&&((!show_holster_guides&&!impl_->text_reload_result_notice)||!reload_owner_token||
         reload_owner_token!=impl_->text_reload_owner||!impl_->text_until_ms||
         now>=impl_->text_until_ms);
     const bool stale_tutorial=impl_->text_tutorial&&(!show_holster_guides||!tutorial_owner_token||
@@ -576,7 +576,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             tutorial_owner_token!=overlay.tutorial_owner_token||!overlay.tutorial_owner_token||
             !overlay.tutorial_until_ms||now>=overlay.tutorial_until_ms||
             overlay.text.controller_prompt_generation!=current_generation||!overlay.text.hint.view().empty());
-        const bool stale_reload=overlay.reload_instruction&&(!show_holster_guides||!reload_owner_token||
+        const bool stale_reload=overlay.reload_instruction&&((!show_holster_guides&&!overlay.reload_result_notice)||!reload_owner_token||
             reload_owner_token!=overlay.reload_feedback.owner_token||!overlay.reload_instruction_until_ms||
             now>=overlay.reload_instruction_until_ms||!overlay.text.hint.view().empty());
         const auto coaching_glyph=!stale_bindings&&!stale_reload&&!stale_tutorial?
@@ -847,6 +847,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     }
                     if(part==1&&overlay.reload_instruction){
                         impl_->text_reload=true;impl_->text_reload_owner=overlay.reload_feedback.owner_token;
+                        impl_->text_reload_result_notice=overlay.reload_result_notice;
                         impl_->text_until_ms=overlay.reload_instruction_until_ms;
                         if(coaching_glyph.kind!=runtime::PromptGlyphKind::none){
                             impl_->text_glyph_sample_ms=overlay.control_hint_prompts.glyph_sample_ms;

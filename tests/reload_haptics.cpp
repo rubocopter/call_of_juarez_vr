@@ -43,6 +43,12 @@ int main(){
     Require(shake&&UiHapticPulseValid(*shake)&&shake->hand==UiHapticHand::right&&
         shake->frequency_hz<ordinary->frequency_hz,"ejection has a distinct armed-hand pulse");
     Require(!eject.policy.Observe(event,2,1,1,Time(1010),Time(1100),3),"ejection pulse replayed");
+    Fixture refused;
+    auto refusal=Event(false,1,2,1);refusal.unload_refused=true;
+    const auto warning=refused.policy.Observe(refusal,2,1,1,Time(1010),Time(1010),3);
+    Require(warning&&UiHapticPulseValid(*warning)&&warning->hand==UiHapticHand::left&&
+        warning->frequency_hz<shake->frequency_hz,"refusal needs a distinct armed-hand cue");
+    Require(!refused.policy.Observe(refusal,2,1,1,Time(1010),Time(1100),3),"refusal pulse replayed");
     Fixture zone;
     auto entry=zone.Frame(false,2,1010,1,0,true);
     Require(entry&&UiHapticPulseValid(*entry),"qualified zone entry gives a discrete support-hand cue");

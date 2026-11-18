@@ -35,6 +35,35 @@ def trace(frame, status=2, **extra):
     return event('reload_trace', **fields)
 
 
+class GestureEvidenceTests(unittest.TestCase):
+    def test_same_frame_gesture_native_and_feedback_keep_separate_receipts(self):
+        inputs = [
+            dict(event='schofield_motion', result='sampled',
+                 fields=dict(frame_sequence='81', armed_hand='1', state='rebound')),
+            dict(event='schofield_motion', result='classified',
+                 fields=dict(frame_sequence='90', armed_hand='1', intent='schofield_downward_eject')),
+            dict(event='schofield_unload', result='declined',
+                 fields=dict(frame_sequence='90', armed_hand='1', reason='reserve_full')),
+            dict(event='openvr_reload_haptic', result='submitted',
+                 fields=dict(frame_sequence='90', hand='left', event='unload_refused')),
+            dict(event='schofield_refusal_notice', result='queued',
+                 fields=dict(frame_sequence='90', armed_hand='1')),
+            dict(event='schofield_motion', result='sampled',
+                 fields=dict(frame_sequence='100', armed_hand='0', state='sample_gap', interval_ms='1264')),
+            dict(event='winchester_receiver_contact', result='release_admitted',
+                 fields=dict(frame_sequence='150', weapon_class='WeaponRifleWinchester')),
+            dict(event='manual_reload_insertion', result='accepted',
+                 fields=dict(frame_sequence='150', ammo_before='10', ammo_after='11')),
+        ]
+        observations = analysis.reload_gesture_observations(inputs)
+        self.assertEqual([r['frame_sequence'] for r in observations], [81, 90, 100, 150])
+        self.assertEqual(observations[0]['samples'][0]['fields']['state'], 'rebound')
+        self.assertEqual(observations[1]['native'][0]['fields']['reason'], 'reserve_full')
+        self.assertEqual([r['result'] for r in observations[1]['feedback']], ['submitted', 'queued'])
+        self.assertEqual(observations[2]['native'], [])
+        self.assertEqual(observations[3]['native'][0]['fields']['ammo_after'], '11')
+
+
 def insertion(frame=3, result='accepted', **extra):
     fields = dict(frame_sequence=frame, weapon_id=42, ammo_before=2, ammo_after=3,
                   reserve_before=10, reserve_after=9, after_valid=1,

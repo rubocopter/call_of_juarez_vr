@@ -288,6 +288,10 @@ private:
 // state does not expose an unambiguous player being. Multiplayer discovery
 // uses Session/NetPlayer; the exact single-player campaign fallback uses
 // LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer().
+enum class CoJSchofieldUnloadResult : std::int32_t {
+    fault=-1, guard_declined=0, returned_to_reserve=1, reserve_full=2
+};
+
 class JavaPlayerBridge final {
 public:
     void SetUiLanguage(CoJUiLanguage language) noexcept {
@@ -451,9 +455,10 @@ public:
         manual_reload_request_pending_=true;
     }
     [[nodiscard]] bool HasLoadedManualReloadCapability(std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool HasLoadedSchofieldMotionCapability() const noexcept;
     [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryOpenSchofield(int hand,bool& accepted,std::string* error=nullptr) noexcept;
-    [[nodiscard]] bool TryUnloadSchofield(bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryUnloadSchofield(CoJSchofieldUnloadResult& result,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertSchofieldBundle(bool& accepted,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr,
         int selected_index=-1) noexcept;
@@ -714,11 +719,13 @@ private:
         void* vm=nullptr;
         void* player=nullptr;
         std::uint64_t generation=0;
-        bool checked=false, available=false;
+        bool checked=false, available=false, schofield_motion=false;
     } manual_reload_capability_;
     bool manual_reload_retirement_pending_ = false;
     [[nodiscard]] bool CallManualReloadBoolean(const char* name,bool& result,std::string* error,
         int selected_index=-1) noexcept;
+    [[nodiscard]] bool CallManualReloadHelper(const char* name,std::int32_t& result,std::string* error,
+        int selected_index,bool returns_int) noexcept;
 
     [[nodiscard]] bool ReadObjectElementFrame(
         void* object, int element, JavaPlayerPosition& position,

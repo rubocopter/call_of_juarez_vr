@@ -1823,15 +1823,40 @@ bool JavaPlayerBridge::HasLoadedManualReloadCapability(std::string* error) noexc
         const bool exception=ClearException(env,error,"manual capability method unavailable");
         if(exception||!id||!current()){available=false;break;}
     }
+    constexpr Method schofield_methods[]{
+        {"cojvrOpenSchofield","(I)Z"},
+        {"cojvrInsertSchofieldBundle","()Z"},
+        {"cojvrUnloadSchofield","()I"}
+    };
+    bool schofield_motion=available;
+    if(schofield_motion)for(const auto& method:schofield_methods){
+        void* id=lookup(env,cls,method.name,method.signature);
+        if(ClearException(env,nullptr,"Schofield motion capability unavailable")||!id||!current()){
+            schofield_motion=false;break;
+        }
+    }
     DeleteLocal(env,cls);
     if(!current())return revoke();
-    manual_reload_capability_={vm,player,generation,true,available};
+    manual_reload_capability_={vm,player,generation,true,available,schofield_motion};
     return available;
+}
+
+bool JavaPlayerBridge::HasLoadedSchofieldMotionCapability() const noexcept {
+    const auto& cached=manual_reload_capability_;
+    return cached.checked&&cached.available&&cached.schofield_motion&&
+        cached.vm==vm_&&cached.player==being_&&cached.generation==being_generation_;
 }
 
 bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error,
     const int selected_index) noexcept {
     result=false;
+    std::int32_t value=0;
+    if(!CallManualReloadHelper(name,value,error,selected_index,false))return false;
+    result=value!=0;return true;
+}
+
+bool JavaPlayerBridge::CallManualReloadHelper(const char* name,std::int32_t& result,std::string* error,
+    const int selected_index,const bool returns_int) noexcept {
     if(!being_)return false;
     void* const player=being_;
     const auto generation=being_generation_;
@@ -1840,24 +1865,24 @@ bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std
         SetError(error,"manual reload player changed during native helper");return false;
     };
     void* env=Environment(error);
-    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
-        kGetObjectClass,kGetMethodId,kCallBooleanMethodA};
+    const std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kGetObjectClass,kGetMethodId,returns_int?kCallIntMethodA:kCallBooleanMethodA};
     for(auto slot:required)if(!EnvFunction<void*>(env,slot)){
         SetError(error,"required manual reload JNI functions are unavailable");return false;
     }
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
     const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
-    const auto call=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
-    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual reload entry")||!same_owner())return false;
+    if(ClearException(env,error,"manual reload entry")||!same_owner())return false;
     void* cls=cls_fn(env,player);
     if(ClearException(env,error,"manual reload class")||!cls){DeleteLocal(env,cls);return false;}
-    void* method=lookup(env,cls,name,selected_index>=0?"(I)Z":"()Z");
+    void* method=lookup(env,cls,name,returns_int?"()I":selected_index>=0?"(I)Z":"()Z");
     const bool failed=ClearException(env,error,"manual reload helper unavailable")||!method;
     DeleteLocal(env,cls);if(failed||!same_owner())return false;
     JValue index{};index.i=selected_index;
-    const bool accepted=call(env,player,method,selected_index>=0?&index:nullptr)!=0;
+    const std::int32_t value=returns_int?EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA)(env,player,method,nullptr):
+        EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA)(env,player,method,selected_index>=0?&index:nullptr);
     if(ClearException(env,error,"manual reload helper failed")||!same_owner())return false;
-    result=accepted;return true;
+    result=value;return true;
 }
 
 bool JavaPlayerBridge::TryKeepManualReloadAlive(std::string* error) noexcept {
@@ -1880,9 +1905,12 @@ bool JavaPlayerBridge::TryOpenSchofield(int hand,bool& accepted,std::string* err
         CallManualReloadBoolean("cojvrOpenSchofield",accepted,error,hand);
 }
 
-bool JavaPlayerBridge::TryUnloadSchofield(bool& accepted,std::string* error) noexcept {
-    accepted=false;
-    return manual_reload_owned_&&CallManualReloadBoolean("cojvrUnloadSchofield",accepted,error);
+bool JavaPlayerBridge::TryUnloadSchofield(CoJSchofieldUnloadResult& result,std::string* error) noexcept {
+    result=CoJSchofieldUnloadResult::fault;
+    std::int32_t value=0;
+    if(!manual_reload_owned_||!CallManualReloadHelper("cojvrUnloadSchofield",value,error,-1,true))return false;
+    if(value < -1 || value > 2){SetError(error,"unknown Schofield unload result");return false;}
+    result=static_cast<CoJSchofieldUnloadResult>(value);return true;
 }
 
 bool JavaPlayerBridge::TryInsertSchofieldBundle(bool& accepted,std::string* error) noexcept {

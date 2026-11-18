@@ -21,13 +21,17 @@ STRICT_OBSERVATION_EVENT = re.compile(
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
 END = re.compile(r'run_end: run_id=(\S+)(?:\s|$)')
 RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$')
+GESTURE_SAMPLES = {'schofield_motion', 'winchester_receiver_contact', 'winchester_lever_position'}
+GESTURE_NATIVE = {'schofield_open', 'schofield_unload', 'schofield_close', 'winchester_lever_close',
+                  'native_reload_dispatch', 'manual_reload_insertion'}
+GESTURE_FEEDBACK = {'schofield_refusal_notice', 'schofield_empty_eject', 'schofield_ejection_mesh'}
 RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
             'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
             'rifle_support_reference', 'winchester_native_reload', 'indexed_native_reload',
             'winchester_loading_geometry', 'remington_loading_geometry', 'manual_reload_mouth_preview',
-            'physical_bow_draw', 'physical_bow_reset'}
+            'physical_bow_draw', 'physical_bow_reset'} | GESTURE_SAMPLES | GESTURE_NATIVE | GESTURE_FEEDBACK
 
 
 def digest(path):
@@ -1331,6 +1335,27 @@ def family_readback_reported(f):
     except (ValueError,TypeError,IndexError):return False
 
 
+def reload_gesture_observations(events):
+    """Group reported receipts by capture frame without inferring a later outcome."""
+    frames = {}
+    for entry in events:
+        name, fields = entry['event'], entry['fields']
+        frame = integer(fields, 'frame_sequence')
+        if frame is None or frame <= 0:
+            continue
+        if name in GESTURE_SAMPLES:
+            layer = 'samples'
+        elif name in GESTURE_NATIVE:
+            layer = 'native'
+        elif name in GESTURE_FEEDBACK or (name == 'openvr_reload_haptic' and
+                                          fields.get('event') in ('ejected', 'unload_refused')):
+            layer = 'feedback'
+        else:
+            continue
+        frames.setdefault(frame, dict(frame_sequence=frame, samples=[], native=[], feedback=[]))[layer].append(entry)
+    return [frames[frame] for frame in sorted(frames)]
+
+
 def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
@@ -1578,6 +1603,7 @@ def analyze_evidence(directory):
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 rifle_support_observations=rifle_samples,
+                reload_gesture_observations=reload_gesture_observations(events),
                 winchester_reload_observations=winchester_samples,
                 winchester_loading_observations=loading_samples,
                 remington_loading_observations=remington_samples,

@@ -287,7 +287,7 @@ class OfflineClipTests(unittest.TestCase):
                                                           original_archive.read(info.filename)))
                 result = verify(target)
                 self.assertEqual(result.returncode, 0, variant + ': ' + result.stdout + result.stderr)
-                signatures = (('cojvrOpenSchofield', '(I)Z'), ('cojvrUnloadSchofield', '()Z'),
+                signatures = (('cojvrOpenSchofield', '(I)Z'), ('cojvrUnloadSchofield', '()I'),
                               ('cojvrInsertSchofieldBundle', '()Z')) if variant == 'SchofieldMotion' else (
                                   (('cojvrInsertManualClip', '()Z'),) if variant == clips.CLIP_WEAPONS[0] else ())
                 for signature in signatures:
@@ -359,7 +359,7 @@ class SchofieldVM(FamilyVM):
         return super()._native(owner, name, args)
 
     def unload(self):
-        return self.boolean('cojvrUnloadSchofield')
+        return self.run('ArmedPlayerBeing', 'cojvrUnloadSchofield', '()I', self.player) == 1
 
     def open(self, hand=None):
         return self.run('ArmedPlayerBeing', 'cojvrOpenSchofield', '(I)Z',
@@ -483,6 +483,18 @@ class SchofieldMotionTests(unittest.TestCase):
 
 
 class OfflineUnloadTests(unittest.TestCase):
+    def test_native_unload_result_distinguishes_capacity_guard_and_commit(self):
+        for hand in (0, 1):
+            for reserve, result in ((93, 1), (94, 2), (97, 2), (99, 2)):
+                with self.subTest(hand=hand, reserve=reserve):
+                    vm = SchofieldVM(loaded=6, reserve=reserve, hand=hand)
+                    self.assertEqual(vm.run('ArmedPlayerBeing', 'cojvrUnloadSchofield', '()I',
+                                            vm.player), result)
+                    expected = ((0, 0), (10, 10, 99)) if result == 1 else ((6, 0), (10, 10, reserve))
+                    self.assertEqual(vm.vector(), expected)
+                    self.assertEqual(vm.unload_calls, int(result == 1))
+                    self.assertTrue(vm.boolean('cojvrKeepManualReloadAlive'))
+
     def test_original_native_unload_and_reload_conserve_ammo(self):
         for loaded in range(1, 7):
             with self.subTest(loaded=loaded):

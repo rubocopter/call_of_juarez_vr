@@ -10,24 +10,33 @@ public:
     bool Append(const CoJManualReloadInput& s,const CoJManualReloadOutput& r,
         std::uint64_t owner,const runtime::ActionPromptSnapshot& prompts,
         CoJUiLanguage language,bool enabled,runtime::StereoHudTextOverlay& out) noexcept {
-        if(!enabled||!s.enabled||!s.allowed||!s.raw.active||s.recentered||!s.player||!s.context||!s.sequence||
+        if(!s.enabled||!s.allowed||!s.raw.active||s.recentered||!s.player||!s.context||!s.sequence||
             !r.tracked||r.cancel||r.insert||!owner||
             out.reload_feedback.owner_token!=owner||!s.native.valid||!s.native.probe_valid||
             s.native.probe_status!=2||s.native.reserve_readback<0||s.native.armed_hand<0||s.native.armed_hand>1){Reset();return false;}
         const bool regression=have_&&(s.sequence<sequence_||s.now<now_);
         const bool gap=have_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
-        const bool changed=have_&&(owner!=owner_||prompts.binding_generation!=binding_||s.player!=player_||
+        const bool changed_owner=have_&&(owner!=owner_||s.player!=player_||
             s.context!=context_||s.raw.input_context_generation!=input_||s.native.weapon_id!=weapon_||s.native.armed_hand!=hand_);
         if(regression||gap){Reset();return false;}
-        if(changed){Reset();Remember(s,owner,prompts.binding_generation);return false;}
         const bool fresh=!have_||s.sequence>sequence_;
+        const bool changed_binding=have_&&prompts.binding_generation!=binding_;
+        if(changed_owner||(changed_binding&&(!fresh||r.unload_refusal==CoJReloadRefusal::none))){
+            Reset();Remember(s,owner,prompts.binding_generation);return false;
+        }
         now_=s.now;
         if(fresh){
-            const auto next=InstructionFor(s,r);
-            if(!have_||next!=instruction_){instruction_=next;started_=s.now;}
+            if(r.unload_refusal!=CoJReloadRefusal::none){
+                instruction_=r.unload_refusal==CoJReloadRefusal::reserve_full?
+                    Instruction::reserve_full:Instruction::unload_refused;
+                started_=s.now;
+            }else if(!IsRefusal()||s.now-started_>=3000||r.unload||r.eject_empty){
+                const auto next=enabled?InstructionFor(s,r):Instruction::none;
+                if(!have_||next!=instruction_){instruction_=next;started_=s.now;}
+            }
             Remember(s,owner,prompts.binding_generation);
         }
-        if(instruction_==Instruction::none||s.now<started_||s.now-started_>=3000||
+        if((!enabled&&!IsRefusal())||instruction_==Instruction::none||s.now<started_||s.now-started_>=3000||
             !out.text.hint.view().empty()||!out.text.interaction.view().empty())return false;
         runtime::HudText text{};const bool es=language==CoJUiLanguage::spanish;
         const auto add=[&](std::u16string_view part){
@@ -37,6 +46,13 @@ public:
         const auto support=s.native.armed_hand==0?runtime::PromptAction::left_fire:runtime::PromptAction::right_fire;
         const auto label=runtime::ResolveActionPrompt(prompts,support,es);
         switch(instruction_){
+        case Instruction::reserve_full:
+        case Instruction::unload_refused:
+            if(instruction_==Instruction::reserve_full)
+                add(es?u"No hay espacio en la reserva. Pulsa ":u"No room in reserve. Press ");
+            else add(es?u"El tambor sigue cargado. Pulsa ":u"Cylinder still loaded. Press ");
+            add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
+            add(es?u" para cerrar.":u" to close.");break;
         case Instruction::empty_reserve:
             add(es?u"Sin munición de reserva. Pulsa ":u"No reserve ammunition. Press ");
             add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
@@ -50,14 +66,18 @@ public:
         }
         out.text.interaction=text;out.text.controller_prompt_generation=prompts.binding_generation;
         out.reload_instruction=true;
+        out.reload_result_notice=IsRefusal();
         out.reload_instruction_until_ms=started_>UINT64_MAX-3000?UINT64_MAX:started_+3000;
-        out.control_hint_action=instruction_==Instruction::empty_reserve?runtime::PromptAction::reload:support;
+        out.control_hint_action=instruction_==Instruction::empty_reserve||IsRefusal()?runtime::PromptAction::reload:support;
         out.control_hint_prompts=prompts;
         return true;
     }
     void Reset() noexcept {have_=false;instruction_=Instruction::none;}
 private:
-    enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve};
+    enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve,reserve_full,unload_refused};
+    bool IsRefusal() const noexcept {
+        return instruction_==Instruction::reserve_full||instruction_==Instruction::unload_refused;
+    }
     static Instruction InstructionFor(const CoJManualReloadInput& s,const CoJManualReloadOutput& r) noexcept {
         if(s.native.reserve_readback==0)return Instruction::empty_reserve;
         const auto& g=r.gesture;

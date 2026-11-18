@@ -165,6 +165,8 @@ void WinchesterReceiverSession(){
         f.s.winchester_receiver=true;
         f.s.native.weapon_class="WeaponRifleWinchester";
         f.s.native.capacities[0]=12;
+        f.s.native.loaded[0]=f.s.native.ammo_readback=10;
+        f.s.native.native_body_cycle=true;
         f.Open();
     };
     Fixture grip;
@@ -182,7 +184,28 @@ void WinchesterReceiverSession(){
     Check(ready.gesture.insertion_ready&&ready.target.valid&&ready.target.position.x==r.centre.x,
         "nearby tip without a prescribed angle or stroke did not qualify the measured guide");
     port.s.raw.fire_left=false;
-    Check(port.Poll().insert,"valid near-receiver release outside the old grip zone could not load");
+    auto loaded=port.Poll();
+    Check(loaded.insert,"valid near-receiver release outside the old grip zone could not load");
+    port.session.CompleteInsertion(true,true,loaded);
+    ++port.s.native.loaded[0];++port.s.native.ammo_readback;--port.s.native.reserve_readback;
+    port.s.native.probe_status=1;
+    r.lever_valid=true;r.lever=port.s.left.position;
+    (void)port.Poll();port.s.left.position.y-=.05F;
+    Check(!port.Poll().cancel,"lever cannot close during the native intermediate replay");
+    port.s.native.probe_status=2;
+    r.lever=port.s.left.position;
+    (void)port.Poll();
+    port.s.left.position.y-=.022F;
+    Check(!port.Poll().cancel,"first lever step should stay below the closure threshold");
+    port.s.left.position.y-=.022F;
+    Check(port.Poll().cancel,"lever should close early after the native replay returned to wait");
+    port.s.native.probe_status=4;
+    (void)port.Poll();
+    port.s.native.probe_status=0;
+    (void)port.Poll();
+    port.s.raw.fire_right=true;
+    (void)port.Poll();
+    Check(port.mapped.fire_right,"fresh shot after early lever close was swallowed");
 
     Fixture miss;
     open(miss);miss.Claim();miss.s.receiver=r;
@@ -204,6 +227,58 @@ void WinchesterReceiverSession(){
     const auto close=lever.Poll();
     Check(close.cancel&&!close.insert&&std::strcmp(close.reason,"winchester_lever_close")==0,
         "free-hand lever stroke did not close the rifle");
+}
+void SchofieldInterruptedStroke(){
+    for(int hand:{0,1}){
+        Fixture f;
+        f.s.schofield_motion=true;
+        f.s.native.armed_hand=f.s.admission.armed_hand=f.s.recovery.armed_hand=hand;
+        f.s.native.states[hand]={1,1,1,1};
+        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+        f.s.native.capacities[0]=6;
+        f.s.native.ammo_readback=f.s.native.loaded[0]=6;
+        f.s.native.reserve_readback=97;
+        auto& grip=hand==0?f.s.right:f.s.left;
+        f.s.armed_aim=grip;
+        f.s.armed_aim.orientation={-.2F,0,0,std::sqrt(.96F)};
+        (void)f.Poll();
+        f.s.raw.reload=true;
+        Check(f.Poll().start,"either armed hand can open a full Schofield");
+        f.session.NoteStart(true);
+        f.s.raw.reload=false;
+        f.s.native.probe_status=1;
+        (void)f.Poll();
+        f.s.native.probe_status=2;
+        (void)f.Poll();
+        const auto down=[&](float amount,unsigned ms){
+            grip.position.y-=amount;
+            return f.Poll(ms);
+        };
+        Check(!down(.035F,62).unload,"first irregular sample cannot unload");
+        Check(!down(-.035F,55).unload,"upward rebound cannot unload");
+        Check(!down(.035F,61).unload,"two partial dips with a rebound cannot sum to an unload");
+        Check(!down(.04F,108).unload,"a sample gap cannot finish a stroke");
+        for(int i=0;i<4;++i)(void)f.Poll();
+        Check(!down(.036F,50).unload&&!down(-.009F,50).unload&&!down(.036F,50).unload,
+            "a return below the speed floor must subtract from net travel");
+        for(int i=0;i<4;++i)(void)f.Poll();
+        Check(!down(.031F,53).unload&&down(.039F,72).unload,
+            "a fresh deliberate stroke works on either arm with irregular samples");
+        // Native capacity refusal leaves counts and wait unchanged.
+        f.s.raw.reload=true;
+        const auto close=f.Poll();
+        Check(close.cancel&&!close.unload&&!f.mapped.reload&&
+            std::strcmp(close.reason,"reload_button")==0,"Square closes after a refused unload");
+        f.s.native.probe_status=4;
+        (void)f.Poll();
+        f.s.raw.reload=false;
+        f.s.native.probe_status=0;
+        (void)f.Poll();
+        (hand==0?f.s.raw.fire_right:f.s.raw.fire_left)=true;
+        (void)f.Poll();
+        Check(hand==0?f.mapped.fire_right:f.mapped.fire_left,"fresh fire recovers after retirement");
+    }
 }
 void ManualReloadCapability() {
     using Mode=CoJReloadMode;
@@ -896,6 +971,7 @@ int main(){
         Check(x.Poll().start,"fresh Square recovers after admission failure");
     }
     SchofieldMotionSession();
+    SchofieldInterruptedStroke();
     WinchesterReceiverSession();
     std::cout<<"manual reload session passed\n";
 }

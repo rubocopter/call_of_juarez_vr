@@ -124,6 +124,7 @@ struct CoJReloadTraceSample {
     std::uint64_t player = 0, context = 0, sequence = 0;
     runtime::MotionReloadGestureStage gesture = runtime::MotionReloadGestureStage::awaiting_release;
     bool allowed = false, cartridge = false, in_zone = false, request = false;
+    bool winchester_receiver=false,receiver_contact=false;
     bool manual_session = false, vr_presentation_requested = false;
     // A literal supplied by the caller: policy/context evidence, not guessed state.
     const char* reason = "none";
