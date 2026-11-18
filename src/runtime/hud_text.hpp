@@ -58,6 +58,7 @@ struct ReloadCartridgeSurface {
 
 // One capture's native-confirmed insertion or qualified zone-entry event.
 // Zone entry grants no ammunition. Neither event has a retry queue.
+enum class ReloadInsertionPulse : std::uint8_t { standard, crisp, firm };
 struct ReloadInsertionFeedback {
     bool accepted = false;
     std::uint8_t hand = 2; // Native convention: 0 right, 1 left, 2 absent.
@@ -66,6 +67,7 @@ struct ReloadInsertionFeedback {
     bool diagnostics = false;
     std::uint64_t owner_token = 0; // Opaque game-owned epoch; 0 is unobserved.
     bool zone_entered = false;
+    ReloadInsertionPulse pulse = ReloadInsertionPulse::standard;
 };
 
 enum class BowDrawFeedbackKind : std::uint8_t { none, grab, tension, release };

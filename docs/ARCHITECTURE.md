@@ -1192,6 +1192,12 @@ body rejects replay/close authority; a separate exact-body completion lease fenc
 late ammunition transfer on the retained hand/machine until natural retirement.
 Indexed empty-trigger preparation is
 disabled until native firing-index ownership is proven; Square prepares normally.
+The verified reserve family selects the ammunition shown at the existing
+finger-pad anchor. Rifle rounds use an elongated textured mesh and shotgun
+rounds use a red hull with a brass base. The held index fixes the choice on
+LeMat. The measured-mouth observers use the nose offset of the rendered mesh.
+After a confirmed native insertion, rifle and shell profiles use distinct
+pulses on the loading hand through the existing event and ownership guards.
 Schofield base/A/B use one original whole-clip authority call with exact
 `min(6-loaded,pistol reserve)` readback and immediate retained native close. A
 bundle depicts that many rounds using repeated copies of the imported textured

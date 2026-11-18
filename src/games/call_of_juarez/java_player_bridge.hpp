@@ -490,7 +490,7 @@ public:
     [[nodiscard]] bool TryObserveRemingtonLoadingGeometry(int hand,CoJRemingtonLoadingGeometry& geometry,
         CoJReloadGeometrySource source,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveRemingtonLoadingSample(int hand,CoJReloadGeometrySource source,
-        std::uint64_t frame,std::uint64_t context,bool physical_cartridge,
+        std::uint64_t frame,std::uint64_t context,int retained_cartridge_index,
         CoJRemingtonLoadingSample& out,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;

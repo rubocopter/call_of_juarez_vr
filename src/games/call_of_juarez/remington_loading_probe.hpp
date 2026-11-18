@@ -96,7 +96,7 @@ inline bool BuildCoJRemingtonLoadingSample(const CoJRemingtonLoadingGeometry& ge
     sample.geometry=geometry;sample.native=after;
     sample.frame_sequence=frame;sample.player_generation=generation;sample.native_context=context;
     if(geometry.source==CoJReloadGeometrySource::post_overlay&&current_pinch.valid){
-        sample.tip=BuildCoJTexturedReloadNoseFrame(current_pinch);
+        sample.tip=BuildCoJTexturedReloadNoseFrame(current_pinch,runtime::ReloadCartridgeAppearance::shotgun);
         if(!sample.tip.valid)return false;
     }
     sample.valid=true;out=sample;return true;

@@ -873,6 +873,19 @@ def loading_axis_unit(axis):
     return abs(math.hypot(*axis)-1) <= .001
 
 
+def remington_firing_slot_reference(mouth, tip):
+    # Original FireL/FireR FX associate slots 0/1 with the barrel's +X/-X rims.
+    # This firing reference grants no loading clearance or admission.
+    up, forward = mouth['up'], mouth['forward']
+    right = [up[1]*forward[2]-up[2]*forward[1], up[2]*forward[0]-up[0]*forward[2],
+             up[0]*forward[1]-up[1]*forward[0]]
+    delta = [a-b for a, b in zip(tip['position'], mouth['position'])]
+    cosine = sum(a*b for a, b in zip(forward, tip['forward'])) / (
+        math.hypot(*forward)*math.hypot(*tip['forward']))
+    return dict(tip_offset_cm=[sum(a*b for a, b in zip(delta, axis)) for axis in (right, up, forward)],
+                tip_axis_cosine=max(-1.0, min(1.0, cosine)))
+
+
 def rendered_loading_observations(events, runtime_complete, event_name):
     """Copy restored-pair geometry; clocks and numeric owners grant no lease.
 
@@ -974,11 +987,14 @@ def rendered_loading_observations(events, runtime_complete, event_name):
         tip = None
         if numbers['tip_valid'] == 1:
             problems.extend('missing_field:'+key for key in sorted(tip_keys-f.keys()))
-            if source != 'post_overlay' or f.get('tip_source') != 'displayed_textured_mesh':
+            tip_source = f.get('tip_source')
+            queued_source = 'queued_shotgun_mesh' if shotgun else 'queued_rifle_mesh'
+            if (source != 'post_overlay' or tip_source not in ('displayed_textured_mesh', queued_source) or
+                    (tip_source == 'queued_shotgun_mesh' and numbers['native_status'] != 2)):
                 problems.append('invalid_tip_source')
             vectors.update({key: vector(key) for key in tip_vectors})
             rigid('tip')
-            tip = dict(position=vectors['tip'], up=vectors['tip_up'], forward=vectors['tip_forward'])
+            tip = dict(position=vectors['tip'], up=vectors['tip_up'], forward=vectors['tip_forward'], source=tip_source)
             if not shotgun:
                 axis = vectors['tip_axis_body_local']
                 if axis is not None and not loading_axis_unit(axis):
@@ -1008,6 +1024,10 @@ def rendered_loading_observations(events, runtime_complete, event_name):
             if shotgun:
                 row['mouths'] = [vectors['mouth_plus_x'], vectors['mouth_minus_x']]
                 row['ammo_slot_mapping_proven'] = False
+                if tip is not None and tip['source'] == 'queued_shotgun_mesh':
+                    mouth = ('plus_x', 'minus_x')[numbers['selected_index']]
+                    row['firing_slot_reference'] = dict(mouth=mouth, **remington_firing_slot_reference(
+                        row['frames']['mouth_'+mouth], tip))
             else:
                 row['lip'] = [vectors[key] for key in lips]
         else:

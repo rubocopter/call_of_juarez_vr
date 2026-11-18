@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/reload_cartridge_appearance.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/revolver_profile.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
@@ -3088,7 +3089,9 @@ bool JavaPlayerBridge::TryPreviewManualReloadMouths(const CoJReloadTraceSnapshot
         {barrel.x,barrel.y,barrel.z},grip,direction,up);
     auto preview=BuildCoJReloadMouthPreview(before,root,mouth,plan);
     if(!preview.count)return false;
-    if(support_socket.valid){
+    const auto appearance=CoJHeldReloadCartridgeAppearance(before,
+        before.kind==CoJManualReloadKind::indexed?before.selected_index:-1);
+    if(support_socket.valid&&appearance){
         const int support=1-hand;
         auto support_weapon=r.Get(player,active,support);
         CoJHandFrames natural{},rigid{},curled{};
@@ -3101,7 +3104,7 @@ bool JavaPlayerBridge::TryPreviewManualReloadMouths(const CoJReloadTraceSnapshot
             ElementWorldBasisTarget pinch{};
             if(BuildCoJFingerTargets(support,natural,rigid,CoJCartridgePinchFingers(),curled)&&
                 BuildCoJReloadPinchFrame(curled,support,pinch))
-                preview.tip_cm=BuildCoJTexturedReloadNoseFrame(pinch);
+                preview.tip_cm=BuildCoJTexturedReloadNoseFrame(pinch,*appearance);
         }
         auto support_after=r.Get(player,active,support);
         if(!r.ok||!current()||((support_weapon.value==nullptr)!=(support_after.value==nullptr))||
@@ -3540,7 +3543,7 @@ bool JavaPlayerBridge::TryObserveRemingtonLoadingGeometry(const int hand,
 }
 
 bool JavaPlayerBridge::TryObserveRemingtonLoadingSample(const int hand,const CoJReloadGeometrySource source,
-    const std::uint64_t frame,const std::uint64_t context,const bool physical_cartridge,
+    const std::uint64_t frame,const std::uint64_t context,const int retained_cartridge_index,
     CoJRemingtonLoadingSample& out,std::string* error) noexcept {
     out={};SetError(error,"");
     const auto reject=[&](const char* reason) noexcept {SetError(error,reason);return false;};
@@ -3596,15 +3599,16 @@ bool JavaPlayerBridge::TryObserveRemingtonLoadingSample(const int hand,const CoJ
     if(!same)return reject("Remington sample actual weapon differs from retained overlay");
     CoJReloadTraceSnapshot before{},after{};CoJRemingtonLoadingGeometry geometry{};
     ElementWorldBasisTarget pinch{};
-    if(!ReadCoJReloadTrace(env,player,before,true,-1,locals.weapon) || !current())
+    if(!ReadCoJReloadTrace(env,player,before,true,retained_cartridge_index,locals.weapon) || !current())
         return reject("Remington sample initial native trace or owner is unavailable");
     if(!TryObserveRemingtonLoadingGeometry(hand,geometry,source,error))return false;
     if(!current())return reject("Remington sample owner changed after geometry");
-    if(physical_cartridge && applied){
-        if(!TryReadReloadPinchFrame(1-hand,pinch) || !current())
+    if(retained_cartridge_index>=0 && applied){
+        if(CoJHeldReloadCartridgeAppearance(before,retained_cartridge_index)!=runtime::ReloadCartridgeAppearance::shotgun ||
+            !TryReadReloadPinchFrame(1-hand,pinch) || !current())
             return reject("Remington sample displayed pinch or owner is unavailable");
     }
-    if(!ReadCoJReloadTrace(env,player,after,true,-1,locals.weapon) || !current())
+    if(!ReadCoJReloadTrace(env,player,after,true,retained_cartridge_index,locals.weapon) || !current())
         return reject("Remington sample final native trace or owner is unavailable");
     // Catch a replacement in a trace's final count/owner callback as well.
     for(auto method:methods){

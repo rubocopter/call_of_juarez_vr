@@ -43,6 +43,10 @@ and restored native desktop output after rejecting the earlier black-window
 candidate. The source adds paired native color/depth/optics diagnostics and an
 opt-in bounded consecutive source capture, but no integrated game DLSS/DLAA.
 These revisions have host tests and await their relevant headset checks.
+Current source also gives rifle rounds a longer silhouette and shotgun shells
+a red hull and brass base. LeMat shows the type selected at pickup. A native
+insertion triggers a distinct vibration for rifle rounds and shells. Physical
+appearance, handling and exact loading contact still need a headset check.
 Published ZIPs retain the behavior documented inside their own README and
 immutable release notes.
 

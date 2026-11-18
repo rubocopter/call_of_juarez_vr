@@ -1,5 +1,6 @@
 #include "backends/openvr/gameplay_ui_raster.hpp"
 #include "backends/openvr/reload_cartridge_texture.hpp"
+#include "runtime/reload_ammunition_visual.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
@@ -304,6 +305,13 @@ const HudTextPanel& GameplayUiRaster::Cartridge() noexcept {
         // obtained from the original game or from the downloadable model.
         for(int y=104;y<116;++y)for(int x=19;x<30;++x)
             panel.pixels[y*48+x]=0xFFB3A28BU;
+        // A separate red hull swatch leaves the brass, copper and primer
+        // sample points intact. The border supports linear filtering.
+        using runtime::reload_ammunition_visual_detail::shotgun_hull_texel_x;
+        using runtime::reload_ammunition_visual_detail::shotgun_hull_texel_y;
+        for(int y=shotgun_hull_texel_y-1;y<=shotgun_hull_texel_y+1;++y)
+            for(int x=shotgun_hull_texel_x-1;x<=shotgun_hull_texel_x+1;++x)
+                panel.pixels[y*panel.width+x]=0xFFB63129U;
         cartridge_pixels_=std::move(panel);
     }catch(...){cartridge_pixels_={};}
     return cartridge_pixels_;

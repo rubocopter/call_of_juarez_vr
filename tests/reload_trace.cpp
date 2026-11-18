@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/reload_trace.hpp"
+#include "games/call_of_juarez/reload_cartridge_appearance.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -28,6 +29,43 @@ int armed = 0;
 std::int32_t fixture_identity=123;
 void Require(bool value, const char* why) {
     if (!value) { std::cerr << why << '\n'; std::exit(1); }
+}
+void CartridgeAppearances() {
+    using cojvr::runtime::ReloadCartridgeAppearance;
+    for (const auto& profile : kCoJRevolvers) {
+        CoJReloadTraceSnapshot trace{};
+        trace.valid=trace.probe_valid=true;
+        trace.probe_status=2;trace.armed_hand=0;trace.weapon_id=123;
+        trace.weapon_class=profile.class_name;trace.kind=profile.kind;
+        trace.index_count=profile.index_count;trace.capacities=profile.capacities;
+        trace.reserve_kinds={profile.reserve,profile.secondary_reserve};
+        trace.reserves={4,8,12};
+        for (int slot=0;slot<profile.index_count;++slot)
+            trace.reserve_indices[slot]=CoJReloadReserveSlot(trace.reserve_kinds[slot]);
+        for (int slot=0;slot<profile.index_count;++slot) {
+            trace.selected_index=slot;trace.reserve_kind=trace.reserve_kinds[slot];
+            trace.reserve_readback=trace.reserves[trace.reserve_indices[slot]];
+            const auto expected=trace.reserve_kind==CoJReloadReserveKind::shotgun?
+                ReloadCartridgeAppearance::shotgun:trace.reserve_kind==CoJReloadReserveKind::rifle?
+                ReloadCartridgeAppearance::rifle:ReloadCartridgeAppearance::pistol;
+            const auto retained=profile.kind==CoJManualReloadKind::indexed?slot:-1;
+            Require(CoJHeldReloadCartridgeAppearance(trace,retained)==expected,
+                "manual cartridge appearance did not follow its exact native ammo family");
+            if (profile.kind==CoJManualReloadKind::indexed) {
+                Require(!CoJHeldReloadCartridgeAppearance(trace,1-slot),
+                    "cartridge adopted the appearance of another observed slot");
+                Require(!CoJHeldReloadCartridgeAppearance(trace,-1),
+                    "indexed cartridge appearance used an unclaimed native slot");
+            }
+        }
+        auto wrong=trace;wrong.reserve_kind=static_cast<CoJReloadReserveKind>(9);
+        const auto retained=profile.kind==CoJManualReloadKind::indexed?trace.selected_index:-1;
+        Require(!CoJHeldReloadCartridgeAppearance(wrong,retained),"invalid ammo family yielded a cartridge");
+        wrong=trace;wrong.probe_status=3;
+        Require(!CoJHeldReloadCartridgeAppearance(wrong,retained),"closing yielded a held cartridge");
+        wrong=trace;wrong.weapon_class="Unrecognized";
+        Require(!CoJHeldReloadCartridgeAppearance(wrong,retained),"unknown weapon yielded a cartridge");
+    }
 }
 bool Fail() {
     Require(!pending, "JNI call after pending exception");
@@ -479,6 +517,7 @@ int main() {
     IndexedNativeCycleFeedback();
     IndexedAndClipReadback();
     NativeBodyProfileReadback();
+    CartridgeAppearances();
     for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
         Reset();armed=hand;fixture_identity=static_cast<std::int32_t>(id);Check(true,true);
         Reset();armed=hand;fixture_identity=static_cast<std::int32_t>(id);fail_at=-2;Check(false,true);

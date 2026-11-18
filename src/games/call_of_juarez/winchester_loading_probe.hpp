@@ -1,25 +1,20 @@
 #pragma once
 #include "games/call_of_juarez/winchester_loading_geometry.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
-#include "runtime/textured_cartridge_mesh.hpp"
+#include "runtime/reload_ammunition_visual.hpp"
 #include <cstring>
 
 namespace cojvr::games::call_of_juarez {
 
-// Native centimetres. The imported mesh's front plane lies along local -Z;
-// its centre (not the mesh origin) meets the displayed finger-pad frame.
-// This is the axial centre of that front plane, not a controller-tip proxy.
+// Native centimetres. The rendered nose lies along local -Z from the
+// displayed pad frame. Use the same shape offset as the compositor.
 inline ElementWorldBasisTarget BuildCoJTexturedReloadNoseFrame(
-    const ElementWorldBasisTarget& pinch) noexcept {
+    const ElementWorldBasisTarget& pinch,
+    runtime::ReloadCartridgeAppearance appearance=runtime::ReloadCartridgeAppearance::pistol) noexcept {
     const ElementWorldBasisTarget identity{{},{0,1,0},{0,0,1},true};
     CoJReloadLocalFrame checked{};
     if(!BuildCoJReloadLocalFrame(identity,pinch,checked))return {};
-    constexpr float nose_z=[]() constexpr {
-        float z=runtime::textured_reload_mesh::vertices[0].z;
-        for(const auto p:runtime::textured_reload_mesh::vertices)if(p.z<z)z=p.z;
-        return z;
-    }();
-    constexpr float offset_cm=(nose_z-runtime::textured_reload_mesh::centre_z)*100.F;
+    const float offset_cm=runtime::ReloadCartridgeNoseOffsetM(appearance)*100.F;
     ElementWorldBasisTarget result{
         {pinch.position.x+pinch.forward.x*offset_cm,
          pinch.position.y+pinch.forward.y*offset_cm,
@@ -83,7 +78,7 @@ inline bool BuildCoJWinchesterLoadingSample(const CoJWinchesterLoadingGeometry& 
     sample.geometry=geometry;sample.native=after;
     sample.frame_sequence=frame;sample.player_generation=generation;sample.native_context=context;
     if(geometry.source==CoJReloadGeometrySource::post_overlay&&current_pinch.valid){
-        sample.tip=BuildCoJTexturedReloadNoseFrame(current_pinch);
+        sample.tip=BuildCoJTexturedReloadNoseFrame(current_pinch,runtime::ReloadCartridgeAppearance::rifle);
         if(!sample.tip.valid)return false;
         sample.tip_observation=ObserveCoJWinchesterLoadingTip(geometry,sample.tip,true);
         if(!sample.tip_observation.valid)return false;

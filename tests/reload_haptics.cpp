@@ -14,16 +14,29 @@ struct Fixture {
     std::uint64_t input=1,token=3,resource=1,device=1;
     Fixture(){policy.UpdateOwner(1);policy.UpdateContext(true,input,token,Time(1000));(void)Frame(false,1,1000);}
     std::optional<UiHapticPulse> Frame(bool accepted,std::uint64_t seq,std::int64_t ms,
-        std::uint8_t hand=1,std::int64_t captured=0,bool zone=false){
+        std::uint8_t hand=1,std::int64_t captured=0,bool zone=false,
+        ReloadInsertionPulse style=ReloadInsertionPulse::standard){
         policy.UpdateContext(true,input,token,Time(ms));
         ReloadInsertionFeedback event{accepted,hand,seq,input,false};event.owner_token=1;
         event.zone_entered=zone;
+        event.pulse=style;
         return policy.Observe(event,seq,resource,device,
             Time(captured?captured:ms),Time(ms),token);
     }
 };
 }
 int main(){
+    Fixture rifle,shell,pistol,rejected;
+    const auto light_click=rifle.Frame(true,2,1010,1,0,false,ReloadInsertionPulse::crisp);
+    const auto shell_seat=shell.Frame(true,2,1010,0,0,false,ReloadInsertionPulse::firm);
+    const auto ordinary=pistol.Frame(true,2,1010);
+    Require(light_click&&shell_seat&&ordinary&&UiHapticPulseValid(*light_click)&&UiHapticPulseValid(*shell_seat),
+        "new accepted insertion pulses must be playable");
+    Require(light_click->duration_seconds<ordinary->duration_seconds&&
+        shell_seat->duration_seconds>ordinary->duration_seconds&&shell_seat->hand==UiHapticHand::right,
+        "cartridge and shell must provide distinct accepted feedback on their support hand");
+    Require(!rejected.Frame(false,2,1010,1,0,false,ReloadInsertionPulse::firm),
+        "pulse selection must not manufacture native insertion acceptance");
     Fixture zone;
     auto entry=zone.Frame(false,2,1010,1,0,true);
     Require(entry&&UiHapticPulseValid(*entry),"qualified zone entry gives a discrete support-hand cue");

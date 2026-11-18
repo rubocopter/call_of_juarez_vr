@@ -21,6 +21,9 @@ int main(){
     n.reserve_indices={2,2};n.reserves={0,0,10};n.reserve_readback=10;
     CoJRemingtonLoadingSample s{};
     Check(BuildCoJRemingtonLoadingSample(g,n,n,10,7,5,f,s)&&s.tip.valid,"valid sample rejected");
+    Check(Near(s.tip.position.x,f.position.x+100.F*cojvr::runtime::ReloadCartridgeNoseOffsetM(
+        cojvr::runtime::ReloadCartridgeAppearance::shotgun)),
+        "shotgun observation did not track the displayed shell nose");
     for(int fault=0;fault<15;++fault){
         auto a=n;auto shape=g;
         switch(fault){

@@ -1,7 +1,7 @@
 #pragma once
 #include "runtime/hud_text.hpp"
+#include "runtime/reload_ammunition_visual.hpp"
 #include "runtime/vr_math.hpp"
-#include "runtime/textured_cartridge_mesh.hpp"
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -28,6 +28,15 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
         std::isfinite(p.position.y)&&std::isfinite(p.position.z)&&
         std::isfinite(n)&&std::abs(n-1.F)<=.001F;
 }
+inline void ClearCartridge(StereoHudTextOverlay& out) noexcept {
+    out.reload_cartridge_visible=false;
+    out.reload_cartridge_textured=false;
+    out.reload_cartridge_instance_count=0;
+    out.reload_cartridge_instance_offsets={};
+    out.reload_cartridge_head_corners={};
+    out.reload_cartridge_surface_count=0;
+    out.reload_cartridge_surfaces={};
+}
 }
 
 // Tracking-space tip position matches the geometry below exactly. Its local +Z
@@ -47,25 +56,16 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     return tip;
 }
 
-// Capture with the eye images' head/support poses. Six case faces, six tapered
-// bullet faces, two base quads and two primer quads: fixed storage, no allocations.
-// This is an authored 16-surface approximation of a CC0 model's dimensions,
-// rather than an imported copy of the original mesh or materials.
-// The color-only compositor cannot occlude this cartridge against scene depth.
-[[nodiscard]] inline bool BuildReloadCartridgeProxyOverlay(const Pose& head,
-    const Pose& support, bool visible, StereoHudTextOverlay& out) noexcept {
-    out.reload_cartridge_visible=false;
-    out.reload_cartridge_textured=false;
-    out.reload_cartridge_instance_count=0;
-    out.reload_cartridge_instance_offsets={};
-    out.reload_cartridge_head_corners={}; // Legacy sprite only; new captures use surfaces.
-    out.reload_cartridge_surface_count=0;
-    out.reload_cartridge_surfaces={};
-    using namespace reload_visual_detail;
+namespace reload_visual_detail {
+// Both authored proxies share a hexagonal ring, two base quads and two primer
+// quads. The shell adds a flat nose cap and uses the shared pinch centre.
+[[nodiscard]] inline bool BuildProxyOverlay(const Pose& head, const Pose& support,
+    bool visible, StereoHudTextOverlay& out, bool shotgun) noexcept {
+    ClearCartridge(out);
     if(!visible||!Valid(head)||!Valid(support))return false;
     const auto q=head.orientation;
     const Quaternion inverse{-q.x,-q.y,-q.z,q.w};
-    std::array<ReloadCartridgeSurface,StereoHudTextOverlay::reload_cartridge_max_surfaces> faces{};
+    std::array<ReloadCartridgeSurface,18> faces{};
     std::uint32_t count=0;
     const auto capture=[&](std::array<Vec3,4> local,Vec2 uv,float shade){
         auto& face=faces[count++];face.material_uv=uv;face.shade=shade;
@@ -75,40 +75,58 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
                 support.position.y-head.position.y+p.y,support.position.z-head.position.z+p.z});
         }
     };
-    const auto vertex=[](std::size_t i,float z){auto p=ring[i];p.z=z;return p;};
+    using namespace reload_ammunition_visual_detail;
+    constexpr Vec2 brass{.5F,80.F/140.F},copper{.5F,24.F/140.F},primer{.5F,108.F/140.F};
+    constexpr Vec2 hull{(shotgun_hull_texel_x+.5F)/48.F,(shotgun_hull_texel_y+.5F)/140.F};
+    constexpr float centre=textured_reload_mesh::centre_z;
+    const float nose=shotgun?centre-shotgun_half_length_m:tip_z;
+    const float rear=shotgun?centre+shotgun_half_length_m:base_z;
+    const float seam=shotgun?rear-.010F:shoulder_z;
+    const float width=shotgun?1.32F:1.F;
+    const auto vertex=[width](std::size_t i,float z){return Vec3{ring[i].x*width,ring[i].y*width,z};};
     for(std::size_t i=0;i<6;++i){
         const auto j=(i+1)%6;
         const float shade=.65F+.35F*(ring[i].y/radius+1.F)*.5F;
-        capture({vertex(i,shoulder_z),vertex(j,shoulder_z),vertex(i,base_z),vertex(j,base_z)},
-            {.5F,80.F/140.F},shade);
-        // A degenerate quad is a triangle; its shared apex is the exported tip.
-        capture({vertex(j,shoulder_z),vertex(i,shoulder_z),Vec3{0,0,tip_z},Vec3{0,0,tip_z}},
-            {.5F,24.F/140.F},shade);
+        capture({vertex(i,seam),vertex(j,seam),vertex(i,rear),vertex(j,rear)},brass,shade);
+        if(shotgun){
+            capture({vertex(i,nose),vertex(j,nose),vertex(i,seam),vertex(j,seam)},hull,shade);
+        }else{
+            // A degenerate quad is a triangle with its apex at the exported tip.
+            capture({vertex(j,seam),vertex(i,seam),Vec3{0,0,nose},Vec3{0,0,nose}},copper,shade);
+        }
     }
-    capture({vertex(0,base_z),vertex(1,base_z),vertex(3,base_z),vertex(2,base_z)},
-        {.5F,80.F/140.F},.65F);
-    capture({vertex(0,base_z),vertex(3,base_z),vertex(5,base_z),vertex(4,base_z)},
-        {.5F,80.F/140.F},.65F);
+    if(shotgun){
+        capture({vertex(0,nose),vertex(3,nose),vertex(1,nose),vertex(2,nose)},hull,.75F);
+        capture({vertex(0,nose),vertex(5,nose),vertex(3,nose),vertex(4,nose)},hull,.75F);
+    }
+    capture({vertex(0,rear),vertex(1,rear),vertex(3,rear),vertex(2,rear)},brass,.65F);
+    capture({vertex(0,rear),vertex(3,rear),vertex(5,rear),vertex(4,rear)},brass,.65F);
     // Rear primer, overlaid on the base. This is intentionally coplanar:
     // the cartridge uses ordered compositor quads and no scene depth buffer.
-    const auto primer_vertex=[](std::size_t i){
-        auto p=ring[i];p.x*=.35F;p.y*=.35F;p.z=base_z;return p;
+    const auto primer_vertex=[&](std::size_t i){
+        auto p=vertex(i,rear);p.x*=.35F;p.y*=.35F;return p;
     };
-    capture({primer_vertex(0),primer_vertex(1),primer_vertex(3),primer_vertex(2)},
-        {.5F,108.F/140.F},.88F);
-    capture({primer_vertex(0),primer_vertex(3),primer_vertex(5),primer_vertex(4)},
-        {.5F,108.F/140.F},.88F);
+    capture({primer_vertex(0),primer_vertex(1),primer_vertex(3),primer_vertex(2)},primer,.88F);
+    capture({primer_vertex(0),primer_vertex(3),primer_vertex(5),primer_vertex(4)},primer,.88F);
     for(std::size_t i=0;i<count;++i)for(const auto p:faces[i].head_corners)
         if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||p.z>=-.05F)return false;
-    out.reload_cartridge_surfaces=faces;
+    std::copy_n(faces.begin(),count,out.reload_cartridge_surfaces.begin());
     out.reload_cartridge_surface_count=count;
     out.reload_cartridge_visible=true;
     out.reload_cartridge_instance_count=1;
     return true;
 }
+}
+
+// The original low-poly CC0-profile proxy and its insertion tip.
+[[nodiscard]] inline bool BuildReloadCartridgeProxyOverlay(const Pose& head,
+    const Pose& support, bool visible, StereoHudTextOverlay& out) noexcept {
+    return reload_visual_detail::BuildProxyOverlay(head,support,visible,out,false);
+}
 
 [[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
-    const Pose& anchor,bool visible,StereoHudTextOverlay& out) noexcept;
+    const Pose& anchor,bool visible,StereoHudTextOverlay& out,
+    ReloadCartridgeAppearance appearance=ReloadCartridgeAppearance::pistol) noexcept;
 
 // Repeat the imported loose cartridge, retaining UVs/normals and materials.
 // This is presentation of the caller's transaction count, not a measured clip
@@ -116,14 +134,8 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
 // offsets avoids enlarging every frame and exceeding D3D11 constant-buffer size.
 [[nodiscard]] inline bool BuildReloadCartridgeBundleOverlay(const Pose& head,
     const Pose& anchor,unsigned count,bool visible,StereoHudTextOverlay& out) noexcept {
-    out.reload_cartridge_visible=false;
-    out.reload_cartridge_textured=false;
-    out.reload_cartridge_instance_count=0;
-    out.reload_cartridge_instance_offsets={};
-    out.reload_cartridge_head_corners={};
-    out.reload_cartridge_surface_count=0;
-    out.reload_cartridge_surfaces={};
     using namespace reload_visual_detail;
+    ClearCartridge(out);
     if(!visible||count<1||count>6||!Valid(head)||!Valid(anchor))return false;
     constexpr float spacing=2.F*radius+.002F;
     const unsigned rows=(count+2)/3;
@@ -149,24 +161,32 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     return true;
 }
 
-// One imported CC0 loose cartridge, with its original UVs and albedo crop.
+// Pistol and rifle share the imported CC0 cartridge's UVs and albedo crop.
 // All capture data stays value-only. Far-to-near ordering provides bounded
 // self overlap; no native scene depth or ammunition object is claimed.
 [[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
-    const Pose& anchor,bool visible,StereoHudTextOverlay& out) noexcept {
-    out.reload_cartridge_visible=false;out.reload_cartridge_surface_count=0;
-    out.reload_cartridge_textured=false;
-    out.reload_cartridge_instance_count=0;out.reload_cartridge_instance_offsets={};
-    out.reload_cartridge_head_corners={};out.reload_cartridge_surfaces={};
+    const Pose& anchor,bool visible,StereoHudTextOverlay& out,ReloadCartridgeAppearance appearance) noexcept {
     using namespace reload_visual_detail;
+    if(appearance==ReloadCartridgeAppearance::shotgun)return BuildProxyOverlay(head,anchor,visible,out,true);
+    ClearCartridge(out);
     if(!visible||!Valid(head)||!Valid(anchor))return false;
     const auto q=head.orientation;
     const Quaternion inverse{-q.x,-q.y,-q.z,q.w};
     namespace mesh=textured_reload_mesh;
+    const bool rifle=appearance==ReloadCartridgeAppearance::rifle;
+    constexpr float stretch=reload_ammunition_visual_detail::rifle_axial_scale;
     std::array<Vec3,mesh::vertices.size()> captured{},normals{};
     for(std::size_t i=0;i<captured.size();++i){
-        const auto p=RotateVector(anchor.orientation,mesh::vertices[i]);
-        normals[i]=RotateVector(inverse,RotateVector(anchor.orientation,mesh::normals[i]));
+        auto vertex=mesh::vertices[i],normal=mesh::normals[i];
+        if(rifle){
+            vertex.z=mesh::centre_z+(vertex.z-mesh::centre_z)*stretch;
+            // Inverse-transpose of the axial stretch, before rigid pose transforms.
+            normal.z/=stretch;
+            const float length=std::sqrt(normal.x*normal.x+normal.y*normal.y+normal.z*normal.z);
+            normal={normal.x/length,normal.y/length,normal.z/length};
+        }
+        const auto p=RotateVector(anchor.orientation,vertex);
+        normals[i]=RotateVector(inverse,RotateVector(anchor.orientation,normal));
         captured[i]=RotateVector(inverse,{anchor.position.x-head.position.x+p.x,
             anchor.position.y-head.position.y+p.y,anchor.position.z-head.position.z+p.z});
         const auto v=captured[i];

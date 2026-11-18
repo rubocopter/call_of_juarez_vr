@@ -874,9 +874,11 @@ wait. Exact typed Status1 feedback, fresh pickup and cancellation/release have
 host regressions. Schofield base/A/B deliberately load the native
 remaining clip amount once, with a matching textured cartridge bundle, then
 close. Base Schofield has scoped functional evidence as described above; the
-textured replacement remains a source candidate. There is no broad physical
-manual validation for these extensions, qualified
-per-barrel port, shell/calibre visual or per-unit indexed mechanical animation.
+textured replacement remains a source candidate. Rifle and shotgun profiles
+have host-tested shape, pinch anchoring, stereo appearance and acceptance-pulse
+selection. LeMat holds the appearance for the selected reserve through the
+gesture. Physical appearance, per-barrel loading contact and per-unit indexed
+mechanical animation still require a headset run.
 Keep support slots empty; release the long-gun support grip for loading and
 freshly regrip after closing. Indexed weapons require Square preparation, since
 empty-trigger index ownership is not established. Existing revolver acceptance
@@ -919,7 +921,10 @@ blocks a late automatic transfer until the replayed body retires. The archived
 JVM verifier and interpreted callback cases cover the production derivative.
 The bounded read-only mouth/tip prediction is host-tested for Winchester,
 scoped Winchester, Remington and SawOff. It awaits live comparison with the
-rendered geometry and clearance. The actual gesture still uses the grip zone.
+rendered geometry and clearance. Remington reports can compare the queued
+shell tip and axis with the rear rim indicated by the original firing scripts.
+During a focused loading check, collect both selected indices where possible.
+The actual gesture still uses the grip zone.
 Host settings fixtures cover migration to the install default, rejection of
 missing or mismatched archive provenance, lookup of all manual endpoints on
 the loaded player class, preservation by native menu edits, and per-channel

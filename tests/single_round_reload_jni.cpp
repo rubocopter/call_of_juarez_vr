@@ -1355,6 +1355,27 @@ void WinchesterLoadingSampleTests(JavaPlayerBridge& bridge) {
     bridge.manual_reload_owned_=false;Set(24,Same);Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
     Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
 }
+void RemingtonLoadingSampleRetainsPickupIndex(JavaPlayerBridge& bridge) {
+    for(const bool held:{false,true}){
+        const auto source=CoJReloadGeometrySource::post_overlay;
+        SampleReset(bridge,false,source,held);
+        weapon_class=&remington_class;
+        const auto setup_writes=pinch_writes;
+        CoJRemingtonLoadingSample sample{};std::string error;
+        const bool observed=bridge.TryObserveRemingtonLoadingSample(0,source,42,1,held?1:-1,sample,&error);
+        if(!observed)std::cerr<<"Remington retained-index fixture failed: "<<error<<'\n';
+        Require(observed&&sample.valid&&sample.native.loaded==std::array<int,2>{0,0}&&
+            sample.native.selected_index==(held?1:0)&&sample.tip.valid==held,
+            "shotgun observer discarded retained index while the first slot was eligible");
+        Require(refs==0&&!pending&&writes==0&&pinch_writes==setup_writes&&global_creates==0&&global_deletes==0,
+            "shotgun aggregate sample mutated state or leaked JNI ownership");
+        if(held)Require(bridge.hand_overlays_[1].frames.Restore({},nullptr,PinchRead,PinchWrite),
+            "shotgun sample fixture finger restoration failed");
+    }
+    bridge.weapon_overlays_={};bridge.hand_overlays_={};bridge.being_=nullptr;bridge.vector_class_=nullptr;
+    bridge.manual_reload_owned_=false;Set(24,Same);Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
+    Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
+}
 void* JNI_CALL PreviewLookup(void* env,void* cls,const char* name,const char* desc) {
     if(!std::strcmp(name,"GetElementID")||!std::strcmp(name,"GetBarrelElement")||
         !std::strcmp(name,"GetBarrelOrigin")||!std::strcmp(name,"GetBarrelDir"))
@@ -1668,6 +1689,7 @@ int main() {
     ReloadGeometryTests(bridge);
     WinchesterLoadingGeometryTests(bridge);
     WinchesterLoadingSampleTests(bridge);
+    RemingtonLoadingSampleRetainsPickupIndex(bridge);
     ReloadMouthPreviewTests(bridge);
     RemingtonLoadingGeometryTests(bridge);
     ManualPinchBridgeTests(bridge);

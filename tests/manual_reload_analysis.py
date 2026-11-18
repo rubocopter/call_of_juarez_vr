@@ -358,6 +358,30 @@ class ReloadAnalysisTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assert_loading_rejected(winchester_loading_sample(**change))
 
+    def test_remington_firing_reference_measures_only_the_queued_shell_in_wait(self):
+        tip = dict(tip_valid=1, tip_source='queued_shotgun_mesh', tip='(1,2,3)',
+                   tip_up='(0,1,0)', tip_forward='(0,0,-1)', native_status=2)
+        for index, mouth, offset in ((0, 'plus_x', (0, 2, 3)), (1, 'minus_x', (2, 2, 1))):
+            with self.subTest(index=index):
+                line = remington_loading_sample(selected_index=index, **tip)
+                report = self.evidence([line])
+                row, = report['remington_loading_observations']
+                reference = row['firing_slot_reference']
+                self.assertEqual(reference['mouth'], mouth)
+                self.assertEqual(tuple(reference['tip_offset_cm']), offset)
+                self.assertEqual(reference['tip_axis_cosine'], -1)
+                self.assertFalse(row['ammo_slot_mapping_proven'])
+                self.assertFalse(row['socket_admitted'])
+        for line in (remington_loading_sample(native_status=2),
+                     remington_loading_sample(**dict(tip, tip_source='displayed_textured_mesh'))):
+            report = self.evidence([line])
+            row, = report['remington_loading_observations']
+            self.assertEqual(row['status'], 'observed')
+            self.assertNotIn('firing_slot_reference', row)
+        report = self.evidence([remington_loading_sample(**dict(tip, native_status=1))])
+        row, = report['remington_loading_observations']
+        self.assertEqual(row['status'], 'rejected')
+
     def test_winchester_loading_rejects_stale_schema_and_promotion_claims(self):
         changes = [dict(schema=0), dict(schema=2), dict(source='natural'), dict(units='m'),
                    dict(weapon_class='WeaponHenry1863'), dict(weapon_class='DerivedWinchester'),

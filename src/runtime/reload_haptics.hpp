@@ -70,6 +70,8 @@ public:
         if(event.accepted){
             if(have_pulse_&&(now<last_pulse_||now-last_pulse_<minimum_interval))return {};
             have_pulse_=true;last_pulse_=now;
+            if(event.pulse==ReloadInsertionPulse::crisp)return UiHapticPulse{hand,.014F,145.F,.22F};
+            if(event.pulse==ReloadInsertionPulse::firm)return UiHapticPulse{hand,.020F,105.F,.25F};
             return UiHapticPulse{hand,.018F,120.F,.25F};
         }
         // Independent cadence: entering the zone must never suppress an

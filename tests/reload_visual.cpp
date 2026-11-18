@@ -1,3 +1,4 @@
+#include "runtime/reload_ammunition_visual.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/reload_gesture.hpp"
 #include "backends/openvr/gameplay_ui_raster.hpp"
@@ -30,11 +31,102 @@ bool SameSurface(const ReloadCartridgeSurface& a,const ReloadCartridgeSurface& b
 void RequireClearedCartridge(const StereoHudTextOverlay& out){
     Require(!out.reload_cartridge_visible&&!out.reload_cartridge_textured&&
         out.reload_cartridge_surface_count==0&&out.reload_cartridge_instance_count==0,
-        "rejected bundle retained visible/count/material state");
-    for(auto p:out.reload_cartridge_instance_offsets)Require(Near(p,{}),"rejected bundle retained offsets");
-    for(auto p:out.reload_cartridge_head_corners)Require(Near(p,{}),"rejected bundle retained legacy sprite");
+        "rejected cartridge retained visible/count/material state");
+    for(auto p:out.reload_cartridge_instance_offsets)Require(Near(p,{}),"rejected cartridge retained offsets");
+    for(auto p:out.reload_cartridge_head_corners)Require(Near(p,{}),"rejected cartridge retained legacy sprite");
     for(const auto& surface:out.reload_cartridge_surfaces)
-        Require(SameSurface(surface,{}),"rejected bundle retained partial or stale surfaces");
+        Require(SameSurface(surface,{}),"rejected cartridge retained partial or stale surfaces");
+}
+
+static_assert(ReloadCartridgeNoseOffsetM(ReloadCartridgeAppearance::rifle)<
+    ReloadCartridgeNoseOffsetM(ReloadCartridgeAppearance::pistol));
+static_assert(ReloadCartridgeNoseOffsetM(ReloadCartridgeAppearance::shotgun)<0.F);
+
+void CartridgeAppearanceGeometry(){
+    using Appearance=ReloadCartridgeAppearance;
+    Pose head{};head.position_valid=head.orientation_valid=true;
+    auto anchor=head;anchor.position={.1F,-.1F,-.4F};
+    StereoHudTextOverlay pistol{},out{};
+    Require(BuildReloadCartridgeOverlay(head,anchor,true,pistol),"default pistol rejected");
+    out.frame_sequence=123;out.text.hint.characters[0]=u'H';out.text.hint.length=1;
+
+    Require(BuildReloadCartridgeBundleOverlay(head,anchor,6,true,out),"variant stale-state seed rejected");
+    for(const auto appearance:{Appearance::rifle,Appearance::shotgun,Appearance::pistol}){
+        Require(BuildReloadCartridgeOverlay(head,anchor,true,out,appearance),"cartridge appearance rejected");
+        Require(out.reload_cartridge_visible&&out.reload_cartridge_instance_count==1&&
+            out.reload_cartridge_textured==(appearance!=Appearance::shotgun),"cartridge appearance metadata mismatch");
+        Require(out.frame_sequence==123&&out.text.hint.view()==u"H","cartridge rebuild touched other HUD state");
+        for(auto p:out.reload_cartridge_instance_offsets)Require(Near(p,{}),"variant inherited bundle offsets");
+        for(auto p:out.reload_cartridge_head_corners)Require(Near(p,{}),"variant inherited sprite corners");
+        for(std::size_t i=out.reload_cartridge_surface_count;i<out.reload_cartridge_surfaces.size();++i)
+            Require(SameSurface(out.reload_cartridge_surfaces[i],{}),"variant inherited unused mesh faces");
+
+        float nose=1.F,rear=-1.F;
+        for(unsigned i=0;i<out.reload_cartridge_surface_count;++i)
+            for(auto p:out.reload_cartridge_surfaces[i].head_corners){
+                nose=std::min(nose,p.z-anchor.position.z);
+                rear=std::max(rear,p.z-anchor.position.z);
+            }
+        constexpr float centre=textured_reload_mesh::centre_z;
+        Require(Near(nose-centre,ReloadCartridgeNoseOffsetM(appearance)),"nose offset disagrees with emitted vertices");
+        Require(Near((nose+rear)*.5F,centre),"cartridge moved its pinch centre");
+
+        if(appearance==Appearance::rifle){
+            const float stretch=(nose-centre)/ReloadCartridgeNoseOffsetM(Appearance::pistol);
+            Require(stretch>1.5F&&out.reload_cartridge_surface_count==pistol.reload_cartridge_surface_count,
+                "rifle must elongate the imported mesh");
+            std::array<bool,StereoHudTextOverlay::reload_cartridge_max_surfaces> matched{};
+            for(unsigned i=0;i<pistol.reload_cartridge_surface_count;++i){
+                auto expected=pistol.reload_cartridge_surfaces[i];
+                for(unsigned j=0;j<4;++j){
+                    auto& p=expected.head_corners[j];
+                    p.z=anchor.position.z+centre+(p.z-anchor.position.z-centre)*stretch;
+                    auto& n=expected.corner_normal[j];
+                    n.z/=stretch;
+                    const float length=std::sqrt(Dot(n,n));
+                    n={n.x/length,n.y/length,n.z/length};
+                }
+                bool found=false;
+                for(unsigned j=0;j<out.reload_cartridge_surface_count;++j){
+                    if(matched[j])continue;
+                    expected.corner_shade=out.reload_cartridge_surfaces[j].corner_shade;
+                    if(!SameSurface(expected,out.reload_cartridge_surfaces[j]))continue;
+                    matched[j]=true;found=true;break;
+                }
+                Require(found,"rifle changed mesh topology, UVs, radial fit or transformed normals");
+            }
+        }else if(appearance==Appearance::shotgun){
+            unsigned nose_caps=0,base_caps=0,hull_sides=0;
+            for(unsigned i=0;i<out.reload_cartridge_surface_count;++i){
+                const auto& corners=out.reload_cartridge_surfaces[i].head_corners;
+                const auto at=[&](float z){return std::count_if(corners.begin(),corners.end(),
+                    [&](Vec3 p){return Near(p.z-anchor.position.z,z);});};
+                if(at(nose)==4){
+                    const auto a=Sub(corners[1],corners[0]),b=Sub(corners[2],corners[0]);
+                    Require(a.x*b.y-a.y*b.x<0.F,"shotgun nose must face outwards");
+                    ++nose_caps;
+                }else if(at(nose)==2)++hull_sides;
+                if(at(rear)==4)++base_caps;
+            }
+            Require(nose_caps>=2&&base_caps>=2&&hull_sides>=6,"shotgun needs a flat cap, full hull and closed base");
+        }else{
+            Require(out.reload_cartridge_surface_count==pistol.reload_cartridge_surface_count,
+                "explicit pistol lost faces after switching appearances");
+            for(unsigned i=0;i<pistol.reload_cartridge_surface_count;++i)
+                Require(SameSurface(out.reload_cartridge_surfaces[i],pistol.reload_cartridge_surfaces[i]),
+                    "explicit pistol differs from the default after switching appearances");
+        }
+    }
+
+    for(const auto appearance:{Appearance::rifle,Appearance::shotgun,Appearance::pistol}){
+        Require(BuildReloadCartridgeOverlay(head,anchor,true,out,appearance),"hidden variant seed rejected");
+        Require(!BuildReloadCartridgeOverlay(head,anchor,false,out,appearance),"hidden variant accepted");
+        RequireClearedCartridge(out);
+        Require(BuildReloadCartridgeOverlay(head,anchor,true,out,appearance),"variant near-clip seed rejected");
+        auto clipped=anchor;clipped.position.z=-.053F;
+        Require(!BuildReloadCartridgeOverlay(head,clipped,true,out,appearance),"partially clipped variant accepted");
+        RequireClearedCartridge(out);
+    }
 }
 
 // Catch single-proxy substitution, lost faces/materials, overlapping rounds,
@@ -216,6 +308,7 @@ void RenderedTipInsertionJourneys(){
     }
 }
 int main(){
+    CartridgeAppearanceGeometry();
     CartridgeBundleGeometry();
     {
         Pose head{}, hand{};
@@ -352,7 +445,7 @@ int main(){
     ComPtr<ID3D11Texture2D> readback;
     Require(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&readback)),"readback creation failed");
     std::array<std::uint64_t,2> sum_x{},fingerprint{};
-    std::array<unsigned,2> copper_pixels{},primer_pixels{},lead_pixels{},brass_pixels{};
+    std::array<unsigned,2> copper_pixels{},primer_pixels{},lead_pixels{},brass_pixels{},red_hull_pixels{};
     const auto primer_rgb=panel.pixels[108*48+24];
     const auto primer_shade=out.reload_cartridge_surfaces[14].shade;
     const auto expected_primer=[&](int shift){
@@ -363,6 +456,7 @@ int main(){
         Require(SUCCEEDED(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped)),"readback map failed");
         unsigned count=0;
         sum_x[eye]=fingerprint[eye]=0;copper_pixels[eye]=primer_pixels[eye]=lead_pixels[eye]=brass_pixels[eye]=0;
+        red_hull_pixels[eye]=0;
         for(unsigned y=0;y<1024;++y){auto* row=reinterpret_cast<const std::uint32_t*>(
             static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch);
             for(unsigned x=0;x<1024;++x)if(row[x]){
@@ -372,6 +466,7 @@ int main(){
                 const unsigned red=(row[x]>>16)&255,green=(row[x]>>8)&255,blue=row[x]&255;
                 if(std::max({red,green,blue})-std::min({red,green,blue})<5&&red>40)++lead_pixels[eye];
                 if(red>60&&green>red*.72F&&blue<green*.7F)++brass_pixels[eye];
+                if(red>90&&green<red*.35F&&blue<red*.3F)++red_hull_pixels[eye];
                 if(std::abs(static_cast<int>((row[x]>>16)&255)-expected_primer(16))<=2&&
                     std::abs(static_cast<int>((row[x]>>8)&255)-expected_primer(8))<=2&&
                     std::abs(static_cast<int>(row[x]&255)-expected_primer(0))<=2)
@@ -478,6 +573,19 @@ int main(){
         Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
             "invalid optional cartridge UV must suppress both eyes");
         out=imported;
+    }
+    grip.orientation={0,.70710678F,0,.70710678F};
+    for(const auto appearance:{ReloadCartridgeAppearance::rifle,ReloadCartridgeAppearance::shotgun}){
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(BuildReloadCartridgeOverlay(head,grip,true,out,appearance)&&
+            compositor.Draw(device.Get(),context.Get(),out,123,raw)&&
+            coverage(0)>0&&coverage(1)>0&&fingerprint[0]!=fingerprint[1],
+            "cartridge variant must render distinct stereo pixels");
+        Require(brass_pixels[0]>0&&brass_pixels[1]>0,"variant brass base is missing");
+        if(appearance==ReloadCartridgeAppearance::shotgun)
+            Require(red_hull_pixels[0]>0&&red_hull_pixels[1]>0,"shotgun hull red swatch is missing");
+        else
+            Require(lead_pixels[0]>0&&lead_pixels[1]>0,"rifle lost the imported lead material");
     }
     std::array<unsigned,3> bundle_coverage{};
     std::array<std::uint64_t,3> bundle_hash{};

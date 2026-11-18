@@ -37,6 +37,11 @@ int main(){
         "same-frame retained rifle sample rejected");
     Check(sample.valid&&sample.tip.valid&&sample.native.weapon_id==0x80000042U,
         "high-bit owner or actual tip lost");
+    Check(Near(sample.tip.position.z,pinch.position.z+100.F*cojvr::runtime::ReloadCartridgeNoseOffsetM(
+        cojvr::runtime::ReloadCartridgeAppearance::rifle))&&
+        !Near(sample.tip.position.z,pinch.position.z+100.F*cojvr::runtime::ReloadCartridgeNoseOffsetM(
+            cojvr::runtime::ReloadCartridgeAppearance::pistol)),
+        "rifle observation did not track the displayed rifle nose");
     Check(CoJWinchesterLoadingSampleCanPublish(sample,10,7,5,true,true,true),"restored frame rejected");
     auto publication=QualifyCoJWinchesterLoadingPublication(sample,10,7,5,true,true,true,true,true,true);
     Check(publication.valid&&publication.tip.valid,"accepted drawn mesh lost nose observation");
