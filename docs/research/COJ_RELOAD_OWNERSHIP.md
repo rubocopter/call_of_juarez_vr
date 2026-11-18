@@ -920,7 +920,7 @@ The original public `ReloadWeapon()` only dispatches a hand when the
 transferable reload count is positive. The motion candidate uses the existing
 protected hand request when the exact idle owner and its pending ticket
 agree. A bundle accepted by the separate motion endpoint keeps the native
-body alive. A rearward flick or Square requests the same native close while
+body alive. A forward flick or Square requests the same native close while
 the retained body veto prevents a second transfer. Returning live rounds
 needs reserve headroom for the entire unload. Player installs use the
 ordinary whole-bundle completion path by default. The opt-in gameplay

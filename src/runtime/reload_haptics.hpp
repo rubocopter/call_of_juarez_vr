@@ -65,11 +65,12 @@ public:
         }
         last_capture_=captured;
         const bool had_baseline=baseline_;baseline_=true;
-        if(!had_baseline||(!event.accepted&&!event.zone_entered)||event.hand>=2||event.event_sequence!=sequence)return {};
+        if(!had_baseline||(!event.accepted&&!event.zone_entered&&!event.ejected)||event.hand>=2||event.event_sequence!=sequence)return {};
         const auto hand=event.hand==0?UiHapticHand::right:UiHapticHand::left;
-        if(event.accepted){
+        if(event.accepted||event.ejected){
             if(have_pulse_&&(now<last_pulse_||now-last_pulse_<minimum_interval))return {};
             have_pulse_=true;last_pulse_=now;
+            if(event.ejected)return UiHapticPulse{hand,.020F,72.F,.25F};
             if(event.pulse==ReloadInsertionPulse::crisp)return UiHapticPulse{hand,.014F,145.F,.22F};
             if(event.pulse==ReloadInsertionPulse::firm)return UiHapticPulse{hand,.020F,105.F,.25F};
             return UiHapticPulse{hand,.018F,120.F,.25F};

@@ -183,7 +183,7 @@ public:
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
             kind_=s.native.kind;cartridge_index_=-1;
-            schofield_motion_=schofield;schofield_inserted_=false;schofield_chambers_cleared_=false;
+            schofield_motion_=schofield;schofield_chambers_cleared_=false;
             schofield_sweep_={};
             replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
@@ -212,10 +212,11 @@ public:
             gesture_.stage()==runtime::MotionReloadGestureStage::carrying)
             schofield_sweep_={};
         else if(fresh){
-            if(UpdateSchofieldSweep(s,schofield_inserted_)){
-                if(schofield_inserted_){
-                    out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_rear_flick";
-                }else if(s.native.ammo_readback>0)out.unload=true;
+            const auto sweep=UpdateSchofieldSweep(s);
+            if(sweep==SchofieldFlick::forward){
+                out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_forward_flick";
+            }else if(sweep==SchofieldFlick::backward){
+                if(s.native.ammo_readback>0)out.unload=true;
                 else if(!schofield_chambers_cleared_){
                     out.eject_empty=true;
                     schofield_chambers_cleared_=true;
@@ -231,7 +232,7 @@ public:
             IndexedAvailable(s.native,offered_index):s.native.reserve_readback>0);
         if(!round_available)replenish_=false;
         gesture.valid=gesture.eligible=out.tracked&&phase_==CoJManualReloadPhase::manual_load&&round_available&&
-            (!out.schofield_motion||(!schofield_inserted_&&s.native.ammo_readback==0));
+            (!out.schofield_motion||s.native.ammo_readback==0);
         gesture.player_identity=player_;gesture.weapon_identity=weapon_;
         gesture.armed_hand=static_cast<std::uint8_t>(hand_);
         gesture.head=s.head;gesture.left_grip=s.left;gesture.right_grip=s.right;
@@ -286,7 +287,7 @@ public:
             cartridge_index_=-1;
             if(kind_!=CoJManualReloadKind::unit)replenish_=false;
             if(kind_==CoJManualReloadKind::clip&&schofield_motion_){
-                schofield_inserted_=true;schofield_sweep_={};
+                schofield_sweep_={};
                 out.gesture={};out.reason="schofield_bundle_inserted";
             }else if(kind_==CoJManualReloadKind::clip){
                 phase_=CoJManualReloadPhase::closing;out.supervise=false;
@@ -312,47 +313,52 @@ public:
     int selected_index() const noexcept {return cartridge_index_;}
     runtime::MotionReloadGestureStage gesture_stage() const noexcept {return gesture_.stage();}
 private:
-    bool UpdateSchofieldSweep(const CoJManualReloadInput& s,bool closing) noexcept {
+    enum class SchofieldFlick { none, backward, forward };
+    SchofieldFlick UpdateSchofieldSweep(const CoJManualReloadInput& s) noexcept {
         const auto& grip=hand_==0?s.right:s.left;
-        if(!Valid(s.armed_aim)){schofield_sweep_={};return false;}
+        if(!Valid(s.armed_aim)){schofield_sweep_={};return SchofieldFlick::none;}
         const auto position=runtime::Vec3{grip.position.x-s.head.position.x,
             grip.position.y-s.head.position.y,grip.position.z-s.head.position.z};
         const auto aim=runtime::RotateVector(runtime::NormalizeQuaternion(s.armed_aim.orientation),{0,0,-1});
         const auto head_rear=runtime::RotateVector(runtime::NormalizeQuaternion(s.head.orientation),{0,0,1});
         const float horizontal=std::hypot(head_rear.x,head_rear.z);
-        if(horizontal<.12F){schofield_sweep_={};return false;}
+        if(horizontal<.12F){schofield_sweep_={};return SchofieldFlick::none;}
         const runtime::Vec3 rear{head_rear.x/horizontal,0,head_rear.z/horizontal};
         const auto prior=schofield_sweep_;
         schofield_sweep_.last=s.now;schofield_sweep_.position=position;schofield_sweep_.aim=aim;
         const auto dt=s.now-prior.last;
-        if(!prior.last||!dt||dt>90){
-            schofield_sweep_.start=0;schofield_sweep_.fired=false;return false;
-        }
+        const auto reset_progress=[&]{schofield_sweep_.start=0;schofield_sweep_.rest_since=0;};
+        if(!prior.last||!dt||dt>90){reset_progress();return SchofieldFlick::none;}
         const runtime::Vec3 step{position.x-prior.position.x,position.y-prior.position.y,position.z-prior.position.z};
         const auto dot=[](runtime::Vec3 a,runtime::Vec3 b) {return a.x*b.x+a.y*b.y+a.z*b.z;};
         const float distance=std::hypot(step.x,step.y,step.z);
         const float velocity_scale=1000.F/static_cast<float>(dt);
-        // Reject discontinuous tracking, transport only relative to the HMD,
-        // and require downward pitch when requesting a transfer.
-        if(distance>.12F||distance*velocity_scale>4.F||(!closing&&aim.y>-.30F)){
-            schofield_sweep_.start=0;schofield_sweep_.fired=false;return false;
+        if(distance>.12F||distance*velocity_scale>4.F){reset_progress();return SchofieldFlick::none;}
+        const runtime::Vec3 aim_step{aim.x-prior.aim.x,aim.y-prior.aim.y,aim.z-prior.aim.z};
+        if(prior.fired){
+            // A quick return after a shake is the same action. Require a
+            // brief neutral hold before recognizing either direction again.
+            if(distance*velocity_scale>.20F||std::hypot(aim_step.x,aim_step.y,aim_step.z)*velocity_scale>1.5F){
+                schofield_sweep_.rest_since=0;
+            }else if(!prior.rest_since){
+                schofield_sweep_.rest_since=prior.last;
+            }else if(s.now-prior.rest_since>=110){
+                schofield_sweep_.fired=false;reset_progress();
+            }
+            return SchofieldFlick::none;
         }
-        const float linear=closing?dot(step,rear):-step.y;
-        const float angular=closing?dot({aim.x-prior.aim.x,aim.y-prior.aim.y,aim.z-prior.aim.z},rear):
-            prior.aim.y-aim.y;
-        const float progress=std::max(linear,angular*.14F);
-        const float speed=closing?.6F:.35F;
-        const float alignment=closing?.75F:.45F;
-        if(progress*velocity_scale<speed||(linear<distance*alignment&&angular*velocity_scale<4.3F)){
-            schofield_sweep_.start=0;schofield_sweep_.fired=false;return false;
-        }
-        if(prior.fired)return false;
-        if(!prior.start||s.now-prior.start>150){
+        const float linear=dot(step,rear), angular=dot(aim_step,rear)*.14F;
+        const float signed_progress=std::abs(linear)>=distance*.65F&&std::abs(linear)>=std::abs(angular)?linear:angular;
+        const float progress=std::abs(signed_progress);
+        if(progress*velocity_scale<.55F){reset_progress();return SchofieldFlick::none;}
+        const auto direction=signed_progress>0?SchofieldFlick::backward:SchofieldFlick::forward;
+        if(!prior.start||s.now-prior.start>150||prior.direction!=direction){
             schofield_sweep_.start=prior.last;schofield_sweep_.distance=0;
         }
+        schofield_sweep_.direction=direction;
         schofield_sweep_.distance+=progress;
-        if(schofield_sweep_.distance<(closing?.08F:.065F))return false;
-        schofield_sweep_.fired=true;return true;
+        if(schofield_sweep_.distance<.08F)return SchofieldFlick::none;
+        schofield_sweep_.fired=true;schofield_sweep_.rest_since=0;return direction;
     }
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
         return owner.valid&&owner.SupportsManual()&&native.valid&&native.probe_valid&&
@@ -382,11 +388,12 @@ private:
     CoJManualReloadKind kind_=CoJManualReloadKind::unit;
     struct SchofieldSweep {
         runtime::Vec3 position{},aim{};
-        std::uint64_t last=0,start=0;
+        std::uint64_t last=0,start=0,rest_since=0;
         float distance=0;
+        SchofieldFlick direction=SchofieldFlick::none;
         bool fired=false;
     } schofield_sweep_{};
-    bool schofield_motion_=false,schofield_inserted_=false,schofield_chambers_cleared_=false;
+    bool schofield_motion_=false,schofield_chambers_cleared_=false;
     std::uint8_t trigger_claims_=0;
     std::uint32_t known_controls_=0,transition_release_=0;
     std::array<std::uint64_t,3> trigger_source_{};

@@ -2069,7 +2069,8 @@ struct OpenVrStereoPresenter::Impl {
                                     if(frame.hud_text.reload_feedback.diagnostics)runtime::OptionalUiHapticDiagnostic([&]{
                                         std::ostringstream feedback;
                                         feedback<<"openvr_reload_haptic: event="
-                                            <<(frame.hud_text.reload_feedback.accepted?"insert_accepted":"zone_entered")<<";hand="
+                                            <<(frame.hud_text.reload_feedback.ejected?"ejected":
+                                                frame.hud_text.reload_feedback.accepted?"insert_accepted":"zone_entered")<<";hand="
                                             <<(reload_pulse->hand==runtime::UiHapticHand::left?"left":"right")
                                             <<";status="<<(delivered?"submitted":"dropped")
                                             <<";frame_sequence="<<frame.capture_sequence

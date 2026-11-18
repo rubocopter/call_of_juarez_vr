@@ -6,6 +6,7 @@
 #include <string_view>
 
 namespace cojvr::games::call_of_juarez {
+inline constexpr double kCoJSchofieldRearFaceCm=1.8852;
 namespace schofield_chamber_guide_detail {
 using winchester_loading_detail::Dot;
 using winchester_loading_detail::Vector;
@@ -114,11 +115,10 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
     // the measured 0.546 cm radius and keep the quad in the drum face plane.
     constexpr float half_m=.0064F;
     std::array<runtime::HolsterGuideSurface,6> pending{};
-    constexpr double rear_face_cm=1.8852;
     for (std::size_t i=first;i<ordered.size();++i) {
         auto& surface=pending[i];
         const auto front=Widen(geometry.mouths[ordered[i].index].position);
-        const auto offset=rear_face_cm-Dot(Difference(front,Widen(geometry.drum.position)),outward);
+        const auto offset=kCoJSchofieldRearFaceCm-Dot(Difference(front,Widen(geometry.drum.position)),outward);
         runtime::Vec3 rear{};
         if (!Store({front.x+offset*outward.x,front.y+offset*outward.y,front.z+offset*outward.z},rear) ||
             !loading_mouth_guide_detail::Surface(frame,rear,0.F,surface)) return false;

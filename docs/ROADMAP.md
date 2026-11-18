@@ -81,7 +81,7 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
 - The exact base Schofield has an opt-in development route for opening,
-  downward unloading, one retained bundle insertion and a rearward wrist
+  backward unloading, retained bundle insertion and a forward wrist
   flick to close. Qualify count conservation, closing/recovery, rear-view
   guide visibility and gesture comfort using the combined headset gate.
   Ordinary clips and variants retain automatic close on insertion.

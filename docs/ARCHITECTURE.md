@@ -1211,14 +1211,17 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a downward hand sweep or wrist snap with tilted aim.
-A snap in an already empty drum clears the guide outlines for that wait.
-One verified bundle insertion retains the native wait until a rearward flick or the
-existing close request. The native watchdog and ownership retirement still
+retained wait accepts a backward hand or wrist flick to unload and a forward
+flick to close, independently of the loaded count. After ejection the gesture
+waits for a neutral hold before accepting the return direction. An empty eject
+clears the outlines and pulses the armed hand. Confirmed reserve transfers also
+queue a short 3D cartridge fall from the sampled rear drum face. The renderer
+uses the verified quantity with one shared mesh and bounded stereo instances.
+The native watchdog and ownership retirement still
 control the animation lifecycle. A visual guide projects the six measured
 radial positions onto the positive-Z drum face and shows the aggregate live
 count as brass heads in a non-spinning rear view. Unfilled outlines clear on
-an empty shake or a confirmed transfer to reserve. This guide carries no
+an empty eject or a confirmed transfer to reserve. This guide carries no
 contact or ammunition authority.
 Shared transaction guards prevent cross-family callback reentry.
 All new paths remain source/host candidates with generic grip-zone interaction;

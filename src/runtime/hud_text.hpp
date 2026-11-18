@@ -68,6 +68,7 @@ struct ReloadInsertionFeedback {
     std::uint64_t owner_token = 0; // Opaque game-owned epoch; 0 is unobserved.
     bool zone_entered = false;
     ReloadInsertionPulse pulse = ReloadInsertionPulse::standard;
+    bool ejected = false;
 };
 
 enum class BowDrawFeedbackKind : std::uint8_t { none, grab, tension, release };

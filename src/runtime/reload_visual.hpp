@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <span>
 
 namespace cojvr::runtime {
 namespace reload_visual_detail {
@@ -128,26 +129,21 @@ namespace reload_visual_detail {
     const Pose& anchor,bool visible,StereoHudTextOverlay& out,
     ReloadCartridgeAppearance appearance=ReloadCartridgeAppearance::pistol) noexcept;
 
-// Repeat the imported loose cartridge, retaining UVs/normals and materials.
-// This is presentation of the caller's transaction count, not a measured clip
-// or exact Schofield calibre. One captured mesh plus six bounded head-space
-// offsets avoids enlarging every frame and exceeding D3D11 constant-buffer size.
-[[nodiscard]] inline bool BuildReloadCartridgeBundleOverlay(const Pose& head,
-    const Pose& anchor,unsigned count,bool visible,StereoHudTextOverlay& out) noexcept {
+// One captured mesh plus bounded tracking offsets stays within the original
+// stereo constant-buffer budget. Both the held bundle and the falling rounds
+// use the same immutable cartridge geometry.
+[[nodiscard]] inline bool BuildReloadCartridgeInstancesOverlay(const Pose& head,
+    const Pose& anchor,std::span<const Vec3> instances,StereoHudTextOverlay& out) noexcept {
     using namespace reload_visual_detail;
     ClearCartridge(out);
-    if(!visible||count<1||count>6||!Valid(head)||!Valid(anchor))return false;
-    constexpr float spacing=2.F*radius+.002F;
-    const unsigned rows=(count+2)/3;
+    if(instances.empty()||instances.size()>out.reload_cartridge_instance_offsets.size()||
+        !Valid(head)||!Valid(anchor))return false;
     StereoHudTextOverlay component{};
     if(!BuildReloadCartridgeOverlay(head,anchor,true,component))return false;
     const auto q=head.orientation;const Quaternion inverse{-q.x,-q.y,-q.z,q.w};
     std::array<Vec3,StereoHudTextOverlay::reload_cartridge_max_instances> offsets{};
-    for(unsigned i=0;i<count;++i){
-        const unsigned row=i/3,column=i%3,columns=std::min(3U,count-row*3);
-        const Vec3 local{(static_cast<float>(column)-static_cast<float>(columns-1)*.5F)*spacing,
-            (static_cast<float>(rows-1)*.5F-static_cast<float>(row))*spacing,0};
-        const auto offset=RotateVector(inverse,RotateVector(anchor.orientation,local));
+    for(std::size_t i=0;i<instances.size();++i){
+        const auto offset=RotateVector(inverse,instances[i]);
         offsets[i]=offset;
         for(unsigned f=0;f<component.reload_cartridge_surface_count;++f)
             for(const auto p:component.reload_cartridge_surfaces[f].head_corners)
@@ -156,9 +152,48 @@ namespace reload_visual_detail {
     }
     out.reload_cartridge_surfaces=component.reload_cartridge_surfaces;
     out.reload_cartridge_surface_count=component.reload_cartridge_surface_count;
-    out.reload_cartridge_instance_offsets=offsets;out.reload_cartridge_instance_count=count;
+    out.reload_cartridge_instance_offsets=offsets;
+    out.reload_cartridge_instance_count=static_cast<std::uint32_t>(instances.size());
     out.reload_cartridge_textured=out.reload_cartridge_visible=true;
     return true;
+}
+
+[[nodiscard]] inline bool BuildReloadCartridgeBundleOverlay(const Pose& head,
+    const Pose& anchor,unsigned count,bool visible,StereoHudTextOverlay& out) noexcept {
+    using namespace reload_visual_detail;
+    std::array<Vec3,StereoHudTextOverlay::reload_cartridge_max_instances> offsets{};
+    if(!visible||count<1||count>offsets.size()||!Valid(anchor)){ClearCartridge(out);return false;}
+    constexpr float spacing=2.F*radius+.002F;
+    const unsigned rows=(count+2)/3;
+    for(unsigned i=0;i<count;++i){
+        const unsigned row=i/3,column=i%3,columns=std::min(3U,count-row*3);
+        const Vec3 local{(static_cast<float>(column)-static_cast<float>(columns-1)*.5F)*spacing,
+            (static_cast<float>(rows-1)*.5F-static_cast<float>(row))*spacing,0};
+        offsets[i]=RotateVector(anchor.orientation,local);
+    }
+    return BuildReloadCartridgeInstancesOverlay(head,anchor,std::span(offsets).first(count),out);
+}
+
+inline constexpr unsigned kReloadCartridgeFallMs=380;
+[[nodiscard]] inline bool BuildReloadCartridgeFallOverlay(const Pose& head,Pose origin,Vec3 outward,
+    unsigned count,std::uint64_t elapsed_ms,StereoHudTextOverlay& out) noexcept {
+    using namespace reload_visual_detail;
+    std::array<Vec3,StereoHudTextOverlay::reload_cartridge_max_instances> offsets{};
+    if(count<1||count>offsets.size()||elapsed_ms>=kReloadCartridgeFallMs||!Valid(origin)){
+        ClearCartridge(out);return false;
+    }
+    const float t=static_cast<float>(elapsed_ms)*.001F;
+    origin.position.x+=outward.x*.45F*t;
+    origin.position.y+=outward.y*.45F*t-4.905F*t*t;
+    origin.position.z+=outward.z*.45F*t;
+    origin.orientation={std::sin(6.F*t),0,0,std::cos(6.F*t)};
+    for(unsigned i=0;i<count;++i){
+        const auto spoke=ring[i];
+        const float spread=2.F+24.F*t;
+        offsets[i]={spoke.x*spread,spoke.y*(2.F+8.F*t),
+            (static_cast<float>(i)-static_cast<float>(count-1)*.5F)*.05F*t};
+    }
+    return BuildReloadCartridgeInstancesOverlay(head,origin,std::span(offsets).first(count),out);
 }
 
 // Pistol and rifle share the imported CC0 cartridge's UVs and albedo crop.

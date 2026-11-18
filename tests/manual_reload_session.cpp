@@ -67,85 +67,65 @@ struct IndexedFixture:Fixture {
     CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
 };
 void SchofieldMotionSession() {
-    Fixture f;
-    f.s.schofield_motion=true;
-    f.s.native.weapon_class="WeaponPistolSchofield";
-    f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
-    f.s.native.capacities[0]=6;
-    f.s.native.ammo_readback=f.s.native.loaded[0]=6;
-    f.s.native.reserve_readback=0;
-    f.s.armed_aim=At({});
-    f.Open();
-    auto& gun=f.s.right.position;
-    gun.z+=.05F;Check(!f.Poll().cancel,"rearward motion before insertion closed the drum");
-    gun.y-=.05F;Check(!f.Poll().unload,"level pistol admitted unloading");
-    for(int degrees=5;degrees<=45;degrees+=5){
-        const float half_pitch=degrees*.008726646F;
-        f.s.armed_aim.orientation={-std::sin(half_pitch),0,0,std::cos(half_pitch)};
-        Check(!f.Poll().unload,"gradual tilt alone ejected rounds");
+    const auto open=[](Fixture& f,int loaded){
+        f.s.schofield_motion=true;
+        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+        f.s.native.capacities[0]=6;
+        f.s.native.ammo_readback=f.s.native.loaded[0]=loaded;
+        f.s.armed_aim=At({});
+        f.Open();
+    };
+    const auto move=[](Fixture& f,float depth){
+        f.s.right.position.z+=depth;
+        return f.Poll();
+    };
+    for(int loaded:{0,3,6}){
+        Fixture f;
+        open(f,loaded);
+        const auto first=move(f,-.055F);
+        Check(!first.cancel&&!first.unload,"short forward step closed the drum");
+        const auto close=move(f,-.055F);
+        Check(close.cancel&&!close.unload&&!close.supervise&&
+            std::strcmp(close.reason,"schofield_forward_flick")==0,
+            "forward flick must close at every load count");
+        f.s.raw.fire_right=true;f.s.native.probe_status=3;(void)f.Poll();
+        Check(!f.mapped.fire_right,"closing leaked a held fire input");
+        f.s.native.probe_status=4;(void)f.Poll();
+        Check(!f.mapped.fire_right,"native retirement replayed a held fire input");
     }
-    gun.y-=.05F;Check(!f.Poll().unload,"unload accepted a single short step");
-    gun.y-=.05F;Check(f.Poll().unload,"tilted down sweep did not request unloading");
-    gun.y-=.05F;Check(!f.Poll().unload,"unload repeated within the same sweep");
-    f.s.native.ammo_readback=f.s.native.loaded[0]=0;f.s.native.reserve_readback=6;
-    f.Claim();auto insertion=f.Insert();
-    Check(insertion.insert&&insertion.schofield_motion,"experimental bundle did not use its separate insertion route");
-    f.session.CompleteInsertion(true,true,insertion);
-    Check(f.session.phase()==CoJManualReloadPhase::manual_load,"insertion closed before the wrist flick");
-    f.s.native.ammo_readback=f.s.native.loaded[0]=6;f.s.native.reserve_readback=0;
-    f.s.armed_aim.orientation={};
-    (void)f.Poll();
-    gun.x+=.05F;(void)f.Poll();gun.x+=.05F;
-    Check(!f.Poll().cancel,"lateral movement closed the drum");
-    (void)f.Poll();gun.z-=.05F;(void)f.Poll();gun.z-=.05F;
-    Check(!f.Poll().cancel,"a forward sweep closed the drum");
-    (void)f.Poll();gun.z+=.05F;(void)f.Poll();gun.z+=.05F;
-    const auto close=f.Poll();
-    Check(close.cancel&&!close.supervise&&std::strcmp(close.reason,"schofield_rear_flick")==0,
-        "the rearward gesture did not request native close");
-    f.s.raw.fire_right=true;f.s.native.probe_status=3;(void)f.Poll();
-    Check(!f.mapped.fire_right,"closing leaked a held fire input");
-    f.s.native.probe_status=4;(void)f.Poll();
-    Check(!f.mapped.fire_right,"native retirement replayed a held fire input");
-
+    for(int loaded:{0,3,6}){
+        Fixture f;
+        open(f,loaded);
+        f.s.right.position.x+=.055F;Check(!f.Poll().unload,"lateral step requested unload");
+        f.s.right.position.x+=.055F;Check(!f.Poll().unload,"lateral sweep requested unload");
+        Check(!move(f,.055F).unload,"short rearward step unloaded");
+        const auto eject=move(f,.055F);
+        Check(!eject.cancel&&eject.unload==(loaded>0)&&eject.eject_empty==(loaded==0),
+            "backward flick must eject without closing at every load count");
+        if(loaded)f.session.NoteSchofieldUnloadConfirmed();
+        Check(f.session.schofield_chambers_cleared(),"ejection receipt did not clear chamber outlines");
+        f.s.native.ammo_readback=f.s.native.loaded[0]=0;
+        Check(!move(f,-.055F).cancel&&!move(f,-.055F).cancel,
+            "return stroke immediately closed after ejecting");
+        for(int i=0;i<4;++i)(void)f.Poll();
+        (void)move(f,.055F);
+        Check(!move(f,.055F).eject_empty,"empty ejection replayed in the same wait");
+    }
     Fixture wrist;
-    wrist.s.schofield_motion=true;
-    wrist.s.native.weapon_class="WeaponPistolSchofield";
-    wrist.s.native.kind=wrist.s.admission.kind=wrist.s.recovery.kind=CoJManualReloadKind::clip;
-    wrist.s.native.capacities[0]=6;
-    wrist.s.armed_aim=At({});
-    wrist.Open();wrist.Claim();auto bundle=wrist.Insert();
+    open(wrist,0);
+    wrist.Claim();auto bundle=wrist.Insert();
     Check(bundle.insert,"empty drum must permit a bundle");
     wrist.session.CompleteInsertion(true,true,bundle);
+    wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=6;
     (void)wrist.Poll();
-    wrist.s.armed_aim.orientation={.42261827F,0,0,.90630779F};
-    Check(!wrist.Poll().cancel,"small wrist flick closed the drum");
     wrist.s.armed_aim.orientation={.70710678F,0,0,.70710678F};
-    Check(wrist.Poll().cancel,"wrist rotation without arm translation did not close");
-
-    Fixture shake;
-    shake.s.schofield_motion=true;
-    shake.s.native.weapon_class="WeaponPistolSchofield";
-    shake.s.native.kind=shake.s.admission.kind=shake.s.recovery.kind=CoJManualReloadKind::clip;
-    shake.s.native.capacities[0]=6;
-    shake.s.native.ammo_readback=shake.s.native.loaded[0]=4;
-    shake.s.armed_aim=At({});
-    shake.Open();
-    shake.s.armed_aim.orientation={-.08715574F,0,0,.9961947F};
-    Check(!shake.Poll().unload,"a shallow tilt ejected rounds");
-    shake.s.armed_aim.orientation={-.38268343F,0,0,.92387953F};
-    Check(shake.Poll().unload,"a downward wrist snap never reached the native unload route");
-    Check(!shake.Poll().unload,"held tilted pose repeated the unload");
-
-    shake.s.native.ammo_readback=shake.s.native.loaded[0]=0;
-    shake.s.armed_aim.orientation={};(void)shake.Poll();
-    shake.s.armed_aim.orientation={-.5F,0,0,.8660254F};
-    const auto empty=shake.Poll();
-    Check(empty.eject_empty&&!empty.unload&&shake.session.schofield_chambers_cleared(),
-        "empty ejection must clear markers without requesting a reserve transfer");
-    shake.s.armed_aim.orientation={};(void)shake.Poll();
-    shake.s.armed_aim.orientation={-.5F,0,0,.8660254F};
-    Check(!shake.Poll().eject_empty,"repeated empty shake replayed the visual ejection");
+    Check(wrist.Poll().unload,"backward wrist rotation could not eject a newly placed bundle");
+    wrist.session.NoteSchofieldUnloadConfirmed();
+    wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=0;
+    for(int i=0;i<4;++i)(void)wrist.Poll();
+    wrist.s.armed_aim.orientation={};
+    Check(wrist.Poll().cancel,"forward wrist rotation could not close without translation");
 }
 void ManualReloadCapability() {
     using Mode=CoJReloadMode;

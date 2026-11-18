@@ -37,6 +37,12 @@ int main(){
         "cartridge and shell must provide distinct accepted feedback on their support hand");
     Require(!rejected.Frame(false,2,1010,1,0,false,ReloadInsertionPulse::firm),
         "pulse selection must not manufacture native insertion acceptance");
+    Fixture eject;
+    auto event=Event(false,0,2,1);event.ejected=true;
+    const auto shake=eject.policy.Observe(event,2,1,1,Time(1010),Time(1010),3);
+    Require(shake&&UiHapticPulseValid(*shake)&&shake->hand==UiHapticHand::right&&
+        shake->frequency_hz<ordinary->frequency_hz,"ejection has a distinct armed-hand pulse");
+    Require(!eject.policy.Observe(event,2,1,1,Time(1010),Time(1100),3),"ejection pulse replayed");
     Fixture zone;
     auto entry=zone.Frame(false,2,1010,1,0,true);
     Require(entry&&UiHapticPulseValid(*entry),"qualified zone entry gives a discrete support-hand cue");

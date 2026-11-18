@@ -307,9 +307,36 @@ void RenderedTipInsertionJourneys(){
         }
     }
 }
+void CartridgeFallGeometry(){
+    Pose head{},origin{};head.position_valid=head.orientation_valid=true;
+    origin=head;origin.position={0,-.1F,-.6F};
+    StereoHudTextOverlay start{},falling{};
+    const Vec3 rear{0,0,1};
+    Require(BuildReloadCartridgeFallOverlay(head,origin,rear,4,0,start)&&
+        BuildReloadCartridgeFallOverlay(head,origin,rear,4,200,falling),"falling round mesh unavailable");
+    Require(start.reload_cartridge_instance_count==4&&falling.reload_cartridge_instance_count==4&&
+        falling.reload_cartridge_textured&&falling.reload_cartridge_surface_count==92,
+        "falling effect must use the confirmed count and dimensional mesh");
+    const auto highest=[](const StereoHudTextOverlay& out){
+        float y=-10.F;
+        for(unsigned f=0;f<out.reload_cartridge_surface_count;++f)
+            for(const auto& v:out.reload_cartridge_surfaces[f].head_corners)y=std::max(y,v.y);
+        return y;
+    };
+    Require(highest(falling)<highest(start)-.16F&&
+        falling.reload_cartridge_instance_offsets[0].x>start.reload_cartridge_instance_offsets[0].x,
+        "ejected rounds did not drop and spread in tracking space");
+    Require(!BuildReloadCartridgeFallOverlay(head,origin,rear,4,kReloadCartridgeFallMs,falling),
+        "expired ejection retained a mesh");
+    RequireClearedCartridge(falling);
+    Require(!BuildReloadCartridgeFallOverlay(head,origin,rear,0,0,falling)&&
+        !BuildReloadCartridgeFallOverlay(head,origin,rear,7,0,falling),"invalid ejection count produced instances");
+}
+
 int main(){
     CartridgeAppearanceGeometry();
     CartridgeBundleGeometry();
+    CartridgeFallGeometry();
     {
         Pose head{}, hand{};
         head.position_valid=head.orientation_valid=true;

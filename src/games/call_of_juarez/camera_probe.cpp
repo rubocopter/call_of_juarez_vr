@@ -4383,6 +4383,34 @@ struct SchofieldGuideCapture {
     CoJReloadTraceSnapshot native{};
 };
 
+struct SchofieldEjectionCapture {
+    runtime::Pose origin{};
+    runtime::Vec3 outward{};
+    std::uint64_t start_ms=0,owner_token=0;
+    unsigned rounds=0;
+};
+SchofieldEjectionCapture g_schofield_ejection{};
+
+SchofieldEjectionCapture CaptureSchofieldEjection(const SchofieldGuideCapture& guide,
+    std::uint64_t now,std::uint64_t owner_token,unsigned rounds) noexcept {
+    const auto& f=guide.frame;
+    const auto& drum=guide.geometry.drum;
+    using namespace winchester_loading_detail;
+    if(!f.allowed||!guide.geometry.valid||guide.geometry.model!=CoJReloadModel::schofield||
+        !Rigid(drum)||!now||!owner_token||rounds<1||rounds>6)return {};
+    const auto axis=Widen(drum.forward);
+    const auto x=Widen(f.right),y=Widen(f.up),z=Widen(f.forward);
+    const Vector centre{(drum.position.x-f.origin_cm.x+kCoJSchofieldRearFaceCm*axis.x)*.01,
+        (drum.position.y-f.origin_cm.y+kCoJSchofieldRearFaceCm*axis.y)*.01,
+        (drum.position.z-f.origin_cm.z+kCoJSchofieldRearFaceCm*axis.z)*.01};
+    SchofieldEjectionCapture result{};
+    if(!Store(Project(centre,x,y,z),result.origin.position)||
+        !Store(Project(axis,x,y,z),result.outward))return {};
+    result.origin.position_valid=result.origin.orientation_valid=true;
+    result.start_ms=now;result.owner_token=owner_token;result.rounds=rounds;
+    return result;
+}
+
 bool ApplyTrackedWeapons(
     const CameraRenderStateSnapshot& natural,
     const float height_correction,
@@ -6970,10 +6998,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_feedback.diagnostics=snapshot.command.reload_trace_enabled;
     manual_feedback.owner_token=reload_feedback_owner;
     std::string manual_error;
+    unsigned schofield_ejected_rounds=0;
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
-        const bool rear_flick=std::string_view(manual_result.reason)=="schofield_rear_flick";
-        if(rear_flick){
+        const bool forward_flick=std::string_view(manual_result.reason)=="schofield_forward_flick";
+        if(forward_flick){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return g_java_player_bridge.CancelManualReload(&manual_error);
@@ -7033,6 +7062,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if(confirmed){
             g_manual_reload.NoteSchofieldUnloadConfirmed();
             insertion_pose_native=after;
+            schofield_ejected_rounds=static_cast<unsigned>(before.ammo_readback);
         }
         try{
             EmitEvent("schofield_unload",confirmed?"accepted":declined?"declined":"uncertain",
@@ -7041,6 +7071,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 ";reserve_before="+std::to_string(before.reserve_readback)+";reserve_after="+std::to_string(after.reserve_readback)+
                 ";native_call_completed="+std::to_string(completed)+";same_wait_owner="+std::to_string(same));
         }catch(...){}
+    }
+    if(manual_result.eject_empty||schofield_ejected_rounds){
+        manual_feedback.ejected=true;
+        manual_feedback.hand=static_cast<std::uint8_t>(manual_input.native.armed_hand);
+        manual_feedback.event_sequence=frame_sequence;
     }
     if(manual_result.insert){
         bool accepted=false;
@@ -7748,7 +7783,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         pinch.right=relative_right_controller;
         const bool pinch_requested=insertion_pose_hand<0&&
             ApplyCoJReloadPinch(pinch,visual_left_fingers,visual_right_fingers);
-        const bool capture_schofield=manual_result.schofield_motion&&holster_guides_enabled&&
+        const bool capture_schofield=manual_result.schofield_motion&&
+            (holster_guides_enabled||schofield_ejected_rounds)&&
             g_manual_reload_presentation&&g_manual_reload.phase()==CoJManualReloadPhase::manual_load&&
             manual_input.native.armed_hand>=0&&manual_input.native.armed_hand<=1;
         if(capture_schofield){
@@ -8734,6 +8770,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             !g_manual_reload_presentation||!hands_restored||!weapon_restored||g_arm_rotation_faulted) {
             hud_text.reload_feedback.accepted=false;
             hud_text.reload_feedback.zone_entered=false;
+            hud_text.reload_feedback.ejected=false;
             (void)PublishReloadFeedbackOwner(0, 0, {});
         }
         const bool manual_cartridge=manual_reload_enabled;
@@ -8766,6 +8803,23 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 runtime::BuildReloadCartridgeOverlay(relative_head_pose,cartridge_pose,cartridge_visible,hud_text,look):
                 runtime::BuildReloadCartridgeProxyOverlay(relative_head_pose,cartridge_pose,cartridge_visible,hud_text);
         if(drawn&&manual_cartridge&&!clip_bundle)queued_cartridge=look;
+        const bool show_ejection=gameplay_input.active&&!loading_ui_input.suppress_gameplay&&!recentered&&
+            hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&g_manual_reload_presentation&&
+            manual_result.schofield_motion&&!cartridge_visible;
+        if(!show_ejection||g_schofield_ejection.owner_token!=manual_feedback.owner_token||
+            reload_now_ms<g_schofield_ejection.start_ms||
+            reload_now_ms-g_schofield_ejection.start_ms>=runtime::kReloadCartridgeFallMs)
+            g_schofield_ejection={};
+        if(show_ejection&&schofield_ejected_rounds)
+            g_schofield_ejection=CaptureSchofieldEjection(schofield_guide,reload_now_ms,
+                manual_feedback.owner_token,schofield_ejected_rounds);
+        const bool ejection_drawn=g_schofield_ejection.rounds&&runtime::BuildReloadCartridgeFallOverlay(relative_head_pose,
+            g_schofield_ejection.origin,g_schofield_ejection.outward,g_schofield_ejection.rounds,
+            reload_now_ms-g_schofield_ejection.start_ms,hud_text);
+        if(schofield_ejected_rounds&&snapshot.command.reload_trace_enabled)try{
+            EmitEvent("schofield_ejection_mesh",ejection_drawn?"queued":"unavailable",
+                "frame_sequence="+std::to_string(frame_sequence)+";rounds="+std::to_string(schofield_ejected_rounds));
+        }catch(...){}
         if(manual_cartridge&&snapshot.command.reload_trace_enabled&&drawn!=g_reload_cartridge_last_visible){
             EmitEvent("manual_reload_cartridge",drawn?"visible":"hidden",
                 "frame_sequence="+std::to_string(frame_sequence)+
@@ -10259,6 +10313,7 @@ void ShutdownCameraProbe() noexcept {
     g_gameplay_owner={}; g_gameplay_commands={}; g_gameplay_owner_release_pending=false;
     g_motion_reload = {};
     g_manual_reload = {};g_manual_reload_presentation=false;g_manual_reload_geometry_event=false;
+    g_schofield_ejection={};
     g_reload_insertion_pose={};g_reload_insertion_pose_last_hand=-1;
     g_reload_insertion_pose_last_applied=false;
     g_manual_reload_geometry_logging_enabled=false;
