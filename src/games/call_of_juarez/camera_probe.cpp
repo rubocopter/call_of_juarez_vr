@@ -8,6 +8,7 @@
 #include "games/call_of_juarez/gameplay_ui_adapter.hpp"
 #include "games/call_of_juarez/motion_reload_adapter.hpp"
 #include "games/call_of_juarez/manual_reload_session.hpp"
+#include "games/call_of_juarez/schofield_chamber_guide.hpp"
 #include "games/call_of_juarez/manual_reload_settings.hpp"
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
@@ -4370,6 +4371,12 @@ void PublishRemingtonLoadingGeometry(std::uint64_t frame,std::uint64_t generatio
     g_remington_loading_pending={};
 }
 
+struct SchofieldGuideCapture {
+    CoJLoadingMouthGuideFrame frame{};
+    CoJReloadGeometrySnapshot geometry{};
+    CoJReloadTraceSnapshot native{};
+};
+
 bool ApplyTrackedWeapons(
     const CameraRenderStateSnapshot& natural,
     const float height_correction,
@@ -4387,7 +4394,8 @@ bool ApplyTrackedWeapons(
     const std::uint64_t native_context=0,
     const bool publish_gameplay_rays=true,
     const int cartridge_hand=-1,
-    const char* manual_weapon_class=nullptr) noexcept {
+    const char* manual_weapon_class=nullptr,
+    SchofieldGuideCapture* schofield=nullptr) noexcept {
     g_winchester_loading_pending={};
     g_remington_loading_pending={};
     g_reload_cartridge_anchors={};
@@ -4633,6 +4641,24 @@ bool ApplyTrackedWeapons(
                 // frames only once every parent hand/socket frame is final.
                 applied=g_java_player_bridge.ApplyPreparedTrackedWeapon(hand,muzzle,&error);
                 if(applied)emit_reload_geometry(CoJReloadGeometrySource::post_overlay);
+                if(applied&&schofield&&hand==schofield->frame.armed_hand){
+                    auto& guide=schofield->frame;
+                    CoJReloadTraceSnapshot sampled{};
+                    if(g_java_player_bridge.TryObserveReloadTrace(sampled,true)&&
+                        sampled.weapon_id==guide.weapon&&sampled.armed_hand==hand&&
+                        sampled.probe_status==2&&
+                        g_java_player_bridge.TryObserveReloadGeometry(hand,schofield->geometry,
+                            CoJReloadGeometrySource::post_overlay)&&
+                        g_java_player_bridge.being_generation()==generation){
+                        schofield->native=sampled;
+                        guide.head=head;
+                        guide.origin_cm={camera.x,camera.y+height_correction,camera.z};
+                        guide.right={basis.right.x,basis.right.y,basis.right.z};
+                        guide.up={basis.up.x,basis.up.y,basis.up.z};
+                        guide.forward={basis.forward.x,basis.forward.y,basis.forward.z};
+                        guide.allowed=true;
+                    }
+                }
             }
             bool whip=false;
             if (publish_gameplay_rays && hand==0 && hand_applied && !prepared &&
@@ -6873,6 +6899,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const bool manual_reload_enabled=reload_mode==CoJReloadMode::manual&&snapshot.command.independent_hands_enabled;
     CoJManualReloadInput manual_input{};
     manual_input.enabled=manual_reload_enabled;
+    manual_input.schofield_motion=snapshot.command.schofield_motion;
     if((!manual_reload_enabled&&!legacy_motion_reload)||g_manual_reload.native_cleanup_pending()) {
         manual_input.native_cleanup_pending=!g_java_player_bridge.CancelManualReload(nullptr,true)||
             !g_java_player_bridge.ClearSingleRoundReload();
@@ -6912,6 +6939,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_input.head=relative_head_pose;manual_input.left=relative_left_controller;manual_input.right=relative_right_controller;
     if(manual_input.enabled&&motion_reload_context)
         (void)g_java_player_bridge.TryObserveReloadTrace(manual_input.native,true,g_manual_reload.selected_index());
+    manual_input.armed_aim=manual_input.native.armed_hand==0?relative_right_aim:relative_left_aim;
     const auto reload_feedback_owner = PublishReloadFeedbackOwner(
         manual_input.player, manual_input.context, manual_input.native);
     const auto manual_before=g_manual_reload.phase();
@@ -6936,17 +6964,77 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_feedback.owner_token=reload_feedback_owner;
     std::string manual_error;
     auto insertion_pose_native=manual_input.native;
-    if(manual_result.cancel&&manual_reload_enabled)(void)g_java_player_bridge.CancelManualReload(&manual_error);
+    if(manual_result.cancel&&manual_reload_enabled){
+        const bool rear_flick=std::string_view(manual_result.reason)=="schofield_rear_flick";
+        if(rear_flick){
+            bool context_restored=true;
+            const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
+                return g_java_player_bridge.CancelManualReload(&manual_error);
+            },context_restored);
+            if(!context_restored){reject_render_input_context();return;}
+            CoJReloadTraceSnapshot after{};
+            const bool observed=g_java_player_bridge.TryObserveReloadTrace(after,true)&&
+                after.valid&&after.probe_valid&&after.weapon_id==manual_input.native.weapon_id&&
+                after.armed_hand==manual_input.native.armed_hand;
+            try{
+                EmitEvent("schofield_close","requested",
+                    "frame_sequence="+std::to_string(frame_sequence)+
+                    ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                    ";close_completed="+std::to_string(completed)+
+                    ";state_observed="+std::to_string(observed)+
+                    ";probe_status_after="+std::to_string(observed?after.probe_status:0)+
+                    ";ammo_unchanged="+std::to_string(observed&&after.loaded==manual_input.native.loaded&&
+                        after.reserves==manual_input.native.reserves));
+            }catch(...){}
+        }else (void)g_java_player_bridge.CancelManualReload(&manual_error);
+    }
     g_manual_reload_presentation=manual_result.tracked;
     if(manual_result.supervise&&
         !g_java_player_bridge.TryKeepManualReloadAlive(&manual_error)){
         (void)g_manual_reload.Cancel();(void)g_java_player_bridge.CancelManualReload(&manual_error);
-        g_manual_reload_presentation=false;manual_result.insert=false;manual_result.gesture={};
+        g_manual_reload_presentation=false;manual_result.insert=false;manual_result.unload=false;manual_result.gesture={};
         manual_result.cancel=true;manual_result.reason="native_supervision_failed";
+    }
+    if(manual_result.unload){
+        bool accepted=false,context_restored=true;
+        const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
+            return g_java_player_bridge.TryUnloadSchofield(accepted,&manual_error);
+        },context_restored);
+        if(!context_restored){reject_render_input_context();return;}
+        const auto& before=manual_input.native;
+        CoJReloadTraceSnapshot after{};
+        const bool same=g_java_player_bridge.TryObserveReloadTrace(after,true)&&after.valid&&after.probe_valid&&
+            manual_input.player==g_java_player_bridge.being_generation()&&
+            after.probe_status==2&&after.weapon_id==before.weapon_id&&after.armed_hand==before.armed_hand&&
+            after.kind==before.kind&&after.capacities==before.capacities&&after.weapon_class&&
+            std::string_view(after.weapon_class)=="WeaponPistolSchofield";
+        auto reserve=before.reserves;
+        const auto expected_reserve=static_cast<std::int64_t>(reserve[0])+before.ammo_readback;
+        const bool confirmed=completed&&accepted&&same&&after.loaded==std::array<int,2>{}&&
+            after.reserves[0]==expected_reserve&&after.reserves[1]==reserve[1]&&after.reserves[2]==reserve[2];
+        const bool declined=completed&&!accepted&&same&&after.loaded==before.loaded&&after.reserves==reserve;
+        if(!confirmed&&!declined){
+            (void)g_manual_reload.Cancel();(void)g_java_player_bridge.CancelManualReload();
+            g_manual_reload_presentation=false;manual_result.tracked=false;manual_result.cancel=true;
+            manual_result.reason="schofield_unload_uncertain";
+        }
+        if(confirmed)insertion_pose_native=after;
+        try{
+            EmitEvent("schofield_unload",confirmed?"accepted":declined?"declined":"uncertain",
+                "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(before.weapon_id)+
+                ";loaded_before="+std::to_string(before.ammo_readback)+";loaded_after="+std::to_string(after.ammo_readback)+
+                ";reserve_before="+std::to_string(before.reserve_readback)+";reserve_after="+std::to_string(after.reserve_readback)+
+                ";native_call_completed="+std::to_string(completed)+";same_wait_owner="+std::to_string(same));
+        }catch(...){}
     }
     if(manual_result.insert){
         bool accepted=false;
-        const bool completed=g_java_player_bridge.TryInsertManualRound(accepted,&manual_error,manual_result.selected_index);
+        bool context_restored=true;
+        const bool completed=manual_result.schofield_motion?
+            DispatchWithRenderLevelContext(owner,[&]() noexcept {
+                return g_java_player_bridge.TryInsertSchofieldBundle(accepted,&manual_error);
+            },context_restored):g_java_player_bridge.TryInsertManualRound(accepted,&manual_error,manual_result.selected_index);
+        if(!context_restored){reject_render_input_context();return;}
         g_manual_reload.CompleteInsertion(completed,accepted,manual_result);
         if(manual_result.cancel){(void)g_java_player_bridge.CancelManualReload();
             g_manual_reload_presentation=false;}
@@ -6955,7 +7043,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         insertion_pose_native=after;
         manual_feedback.owner_token=PublishReloadFeedbackOwner(
             manual_input.player, manual_input.context, after);
-        if(CoJUnitManualInsertionObserved(completed,accepted,manual_input.native,after,manual_result.selected_index)){
+        if(CoJUnitManualInsertionObserved(completed,accepted,manual_input.native,after,manual_result.selected_index,
+            manual_result.schofield_motion)){
             manual_feedback.accepted=true;
             manual_feedback.hand=static_cast<std::uint8_t>(1-manual_input.native.armed_hand);
             manual_feedback.event_sequence=frame_sequence;
@@ -6974,6 +7063,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             ";capacities="+counts(manual_input.native.capacities)+
             ";reserve_indices="+counts(manual_input.native.reserve_indices)+
             ";native_body_cycle="+std::to_string(manual_input.native.native_body_cycle)+
+            ";schofield_hold_open="+std::to_string(manual_result.schofield_motion)+
             ";probe_status_after="+std::to_string(after.probe_status)+
             ";ammo_before="+std::to_string(manual_input.native.ammo_readback)+";ammo_after="+std::to_string(after.ammo_readback)+
             ";reserve_kind="+std::string(CoJReloadReserveName(manual_input.native.reserve_kind))+";reserve_before="+std::to_string(manual_input.native.reserve_readback)+";reserve_after="+std::to_string(after.reserve_readback)+
@@ -7005,7 +7095,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         g_manual_reload.phase()!=CoJManualReloadPhase::ready)
         g_reload_ready_geometry_reference={};
     g_manual_reload_geometry_event=snapshot.command.reload_trace_enabled&&
-        (manual_before!=g_manual_reload.phase()||manual_result.insert);
+        (manual_before!=g_manual_reload.phase()||manual_result.insert||manual_result.unload);
     if(snapshot.command.reload_trace_enabled&&(g_manual_reload_geometry_event||manual_result.start||manual_result.cancel)){
         try{EmitEvent("manual_reload_session","observed",
             "frame_sequence="+std::to_string(frame_sequence)+";phase_before="+std::to_string(static_cast<int>(manual_before))+
@@ -7091,6 +7181,22 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const bool manual_ticket_ready=manual_result.start&&single_round_request&&reload_ticket_ready;
     if(manual_ticket_ready)g_java_player_bridge.NoteManualReloadRequest();
     if (!reload_ticket_ready||(manual_result.start&&!manual_ticket_ready)) gameplay_input.reload = false;
+    bool schofield_opened=false;
+    if(manual_ticket_ready&&manual_result.schofield_motion){
+        gameplay_input.reload=false;
+        bool accepted=false,context_restored=true;
+        const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
+            return g_java_player_bridge.TryOpenSchofield(reload_owner.armed_hand,accepted,&gameplay_input_error);
+        },context_restored);
+        if(!context_restored){reject_render_input_context();return;}
+        schofield_opened=completed&&accepted;
+        try{
+            EmitEvent("schofield_open",schofield_opened?"accepted":"rejected",
+                "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(reload_owner.weapon_id)+
+                ";loaded="+std::to_string(manual_input.native.ammo_readback)+
+                ";reserve="+std::to_string(manual_input.native.reserve_readback));
+        }catch(...){}
+    }
     const bool interaction_pressed = gameplay_input.active && gameplay_input.interact &&
         !g_java_player_bridge.AppliedGameplayCommands().interact;
     CoJInteractionSelection interaction_before{};
@@ -7225,7 +7331,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (single_round_request)
         g_motion_reload.NoteSingleRoundDispatch(gameplay_input_ok && reload_ticket_cleared);
     if(manual_result.start){
-        const bool delivered=gameplay_input_ok&&reload_ticket_cleared&&manual_ticket_ready;
+        const bool delivered=gameplay_input_ok&&reload_ticket_cleared&&manual_ticket_ready&&
+            (!manual_result.schofield_motion||schofield_opened);
         g_manual_reload.NoteStart(delivered);
         if(!delivered)(void)g_java_player_bridge.CancelManualReload();
     }
@@ -7494,6 +7601,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         } catch (...) {
         }
     }
+    SchofieldGuideCapture schofield_guide{};
     if (gameplay_input_ok || !snapshot.command.vr_gameplay_input_enabled) {
         g_last_gameplay_telemetry = gameplay_input;
         g_gameplay_telemetry_initialized = true;
@@ -7617,6 +7725,16 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         pinch.right=relative_right_controller;
         const bool pinch_requested=insertion_pose_hand<0&&
             ApplyCoJReloadPinch(pinch,visual_left_fingers,visual_right_fingers);
+        const bool capture_schofield=manual_result.schofield_motion&&holster_guides_enabled&&
+            g_manual_reload_presentation&&g_manual_reload.phase()==CoJManualReloadPhase::manual_load&&
+            manual_input.native.armed_hand>=0&&manual_input.native.armed_hand<=1;
+        if(capture_schofield){
+            schofield_guide.frame.frame=frame_sequence;
+            schofield_guide.frame.player=manual_input.player;
+            schofield_guide.frame.context=manual_input.context;
+            schofield_guide.frame.weapon=manual_input.native.weapon_id;
+            schofield_guide.frame.armed_hand=manual_input.native.armed_hand;
+        }
         const bool mapped=ApplyTrackedWeapons(natural_render_state, physical_view_correction,
             relative_head_pose, relative_left_controller, relative_right_controller,
             relative_left_aim, relative_right_aim, frame_sequence, aim_observation,
@@ -7624,7 +7742,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             visual_left_fingers,visual_right_fingers,g_manual_reload_presentation,
             sample.native_gameplay_context_token,true,
             pinch_requested?pinch.cartridge_hand:-1,
-            manual_input.native.valid?manual_input.native.weapon_class:nullptr);
+            manual_input.native.valid?manual_input.native.weapon_class:nullptr,
+            capture_schofield?&schofield_guide:nullptr);
+        if(!mapped)schofield_guide.frame.allowed=false;
         bow_pose_pair_mapped=mapped;
         const bool insertion_pose_applied=insertion_pose_hand>=0&&mapped&&
             g_java_player_bridge.finger_animation_active(insertion_pose_hand);
@@ -8721,6 +8841,17 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&g_manual_reload_presentation&&
                 g_java_player_bridge.being_generation()==manual_input.player){
                 (void)AppendCoJAmmunitionPickupGuide(manual_input,manual_result,holster_guides_enabled,hud_text);
+                auto& guide=schofield_guide.frame;
+                guide.restored=hands_restored&&weapon_restored&&!g_room_scale_body_offset.faulted;
+                const bool chamber_guide_drawn=guide.context==sample.native_gameplay_context_token&&
+                    guide.player==g_java_player_bridge.being_generation()&&
+                    AppendCoJSchofieldChamberGuides(guide,schofield_guide.geometry,
+                        schofield_guide.native,holster_guides_enabled,hud_text);
+                if(chamber_guide_drawn&&snapshot.command.reload_trace_enabled&&ShouldObserveBodyFrame(frame_sequence))
+                    EmitEvent("schofield_chamber_guide","captured",
+                        "frame_sequence="+std::to_string(frame_sequence)+
+                        ";weapon_id="+std::to_string(guide.weapon)+
+                        ";empty_count="+std::to_string(6-schofield_guide.geometry.schofield_loaded));
                 if(!g_room_scale_body_offset.faulted)
                     (void)AppendCoJManualReloadTargetGuide(manual_input,manual_result,frame_sequence,
                         holster_guides_enabled,hud_text);
@@ -9297,6 +9428,10 @@ bool ParseCameraProbeCommand(
     bool manual_present=false;
     if(!ReadBool(text,"manualReloadInstalled",parsed.manual_reload_installed,manual_present)){
         SetError(error,"manualReloadInstalled must be true or false");return false;
+    }
+    bool schofield_motion_present=false;
+    if(!ReadBool(text,"schofieldMotion",parsed.schofield_motion,schofield_motion_present)){
+        SetError(error,"schofieldMotion must be true or false");return false;
     }
     if (!ReadBool(text,"reloadTraceEnabled",parsed.reload_trace_enabled,reload_trace_present)) {
         SetError(error,"reloadTraceEnabled must be true or false"); return false;

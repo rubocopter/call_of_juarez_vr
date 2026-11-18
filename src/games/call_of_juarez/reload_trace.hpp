@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <string_view>
 
 namespace cojvr::games::call_of_juarez {
 // Observation only. No insertion permission, ammunition cache or session state.
@@ -72,7 +73,7 @@ private:
 // surrounding its one native call. Never grants ammunition or insertion intent.
 inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
     const CoJReloadTraceSnapshot& before,const CoJReloadTraceSnapshot& after,
-    int selected_index=-1) noexcept {
+    int selected_index=-1,bool schofield_hold_open=false) noexcept {
     const bool owner=completed&&accepted&&before.valid&&after.valid&&before.probe_valid&&after.probe_valid&&
         before.weapon_id!=0&&before.weapon_id==after.weapon_id&&before.armed_hand>=0&&before.armed_hand<2&&
         before.armed_hand==after.armed_hand&&before.probe_status==2&&before.kind==after.kind;
@@ -87,6 +88,9 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
         static_cast<std::int64_t>(after.reserve_readback)-before.reserve_readback==-1;
     if(before.kind!=CoJManualReloadKind::indexed&&before.kind!=CoJManualReloadKind::clip)return false;
     const bool indexed=before.kind==CoJManualReloadKind::indexed;
+    if(schofield_hold_open&&(indexed||!before.weapon_class||!after.weapon_class||
+        std::string_view(before.weapon_class)!="WeaponPistolSchofield"||
+        std::string_view(after.weapon_class)!=before.weapon_class))return false;
     const int index=indexed?(selected_index>=0?selected_index:before.selected_index):0;
     if((!indexed&&selected_index>0)||index<0||index>=before.index_count||
         before.index_count!=(indexed?2:1)||before.index_count!=after.index_count||
@@ -94,7 +98,7 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
         before.reserve_kinds!=after.reserve_kinds||before.native_body_cycle!=after.native_body_cycle||
         (indexed?!(after.probe_status==2||after.probe_status==3||
             (after.probe_status==1&&before.native_body_cycle&&after.native_body_cycle)):
-            (after.probe_status!=3||before.native_body_cycle||after.native_body_cycle)))return false;
+            (after.probe_status!=(schofield_hold_open?2:3)||before.native_body_cycle||after.native_body_cycle)))return false;
     for(int slot=0;slot<2;++slot){
         if(slot>=before.index_count){if(before.loaded[slot]||after.loaded[slot]||before.capacities[slot])return false;continue;}
         if(before.capacities[slot]<=0||before.loaded[slot]<0||after.loaded[slot]<0||

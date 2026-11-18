@@ -66,6 +66,60 @@ struct IndexedFixture:Fixture {
         Check(Poll().gesture.cartridge_held,"indexed fresh waist pickup missing");}
     CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
 };
+void SchofieldMotionSession() {
+    Fixture f;
+    f.s.schofield_motion=true;
+    f.s.native.weapon_class="WeaponPistolSchofield";
+    f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+    f.s.native.capacities[0]=6;
+    f.s.native.ammo_readback=f.s.native.loaded[0]=6;
+    f.s.native.reserve_readback=0;
+    f.s.armed_aim=At({});
+    f.Open();
+    auto& gun=f.s.right.position;
+    gun.z+=.05F;Check(!f.Poll().cancel,"rearward motion before insertion closed the drum");
+    gun.y-=.05F;Check(!f.Poll().unload,"level pistol admitted unloading");
+    f.s.armed_aim.orientation={-.38268343F,0,0,.92387953F};
+    (void)f.Poll();
+    gun.y-=.05F;Check(!f.Poll().unload,"unload accepted a single short step");
+    gun.y-=.05F;Check(f.Poll().unload,"tilted down sweep did not request unloading");
+    gun.y-=.05F;Check(!f.Poll().unload,"unload repeated within the same sweep");
+    f.s.native.ammo_readback=f.s.native.loaded[0]=0;f.s.native.reserve_readback=6;
+    f.Claim();auto insertion=f.Insert();
+    Check(insertion.insert&&insertion.schofield_motion,"experimental bundle did not use its separate insertion route");
+    f.session.CompleteInsertion(true,true,insertion);
+    Check(f.session.phase()==CoJManualReloadPhase::manual_load,"insertion closed before the wrist flick");
+    f.s.native.ammo_readback=f.s.native.loaded[0]=6;f.s.native.reserve_readback=0;
+    f.s.armed_aim.orientation={};
+    (void)f.Poll();
+    gun.x+=.05F;(void)f.Poll();gun.x+=.05F;
+    Check(!f.Poll().cancel,"lateral movement closed the drum");
+    (void)f.Poll();gun.z-=.05F;(void)f.Poll();gun.z-=.05F;
+    Check(!f.Poll().cancel,"a forward sweep closed the drum");
+    (void)f.Poll();gun.z+=.05F;(void)f.Poll();gun.z+=.05F;
+    const auto close=f.Poll();
+    Check(close.cancel&&!close.supervise&&std::strcmp(close.reason,"schofield_rear_flick")==0,
+        "the rearward gesture did not request native close");
+    f.s.raw.fire_right=true;f.s.native.probe_status=3;(void)f.Poll();
+    Check(!f.mapped.fire_right,"closing leaked a held fire input");
+    f.s.native.probe_status=4;(void)f.Poll();
+    Check(!f.mapped.fire_right,"native retirement replayed a held fire input");
+
+    Fixture wrist;
+    wrist.s.schofield_motion=true;
+    wrist.s.native.weapon_class="WeaponPistolSchofield";
+    wrist.s.native.kind=wrist.s.admission.kind=wrist.s.recovery.kind=CoJManualReloadKind::clip;
+    wrist.s.native.capacities[0]=6;
+    wrist.s.armed_aim=At({});
+    wrist.Open();wrist.Claim();auto bundle=wrist.Insert();
+    Check(bundle.insert,"empty drum must permit a bundle");
+    wrist.session.CompleteInsertion(true,true,bundle);
+    (void)wrist.Poll();
+    wrist.s.armed_aim.orientation={.42261827F,0,0,.90630779F};
+    Check(!wrist.Poll().cancel,"small wrist flick closed the drum");
+    wrist.s.armed_aim.orientation={.70710678F,0,0,.70710678F};
+    Check(wrist.Poll().cancel,"wrist rotation without arm translation did not close");
+}
 void ManualReloadCapability() {
     using Mode=CoJReloadMode;
     using Choice=ManualReloadPreference;
@@ -756,5 +810,6 @@ int main(){
         x.s.raw.reload=false;(void)x.Poll();x.s.raw.reload=true;
         Check(x.Poll().start,"fresh Square recovers after admission failure");
     }
+    SchofieldMotionSession();
     std::cout<<"manual reload session passed\n";
 }

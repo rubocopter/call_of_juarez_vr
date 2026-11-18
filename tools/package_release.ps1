@@ -107,6 +107,7 @@ $Tools = @('coj_executable_identity.ps1', 'deployment_transaction.ps1', 'stage_d
     'inspect_java_bytecode.py', 'coj_loading_ui.py', 'coj_scoped_rifle.py', 'coj_fx_definitions.py',
     'coj_reload_wait_probe.py', 'coj_manual_reload.py', 'coj_reload_cycle.py', 'coj_tutorial_hints.py',
     'coj_manual_families.py', 'coj_indexed_reload.py', 'coj_indexed_reload_session.py', 'coj_clip_reload.py',
+    'coj_schofield_unload.py',
     'coj_physical_punch.py', 'coj_native_settings.py', 'coj_movie_subtitles.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $Temporary = Join-Path $OutputDirectory ('.package-' + [Guid]::NewGuid().ToString('N'))

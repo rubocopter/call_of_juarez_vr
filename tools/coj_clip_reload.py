@@ -47,16 +47,24 @@ def build_offline_clip_lab(original_archive: bytes, weapon: str) -> tuple[bytes,
 
 
 def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertManualClip',
-                      retained_close=False) -> bytes:
+                      retained_close=False, keep_waiting=False) -> bytes:
     profiles=(weapon_class,) if isinstance(weapon_class,str) else tuple(weapon_class)
     if not profiles or any(name not in CLIP_WEAPONS for name in profiles):
         raise ValueError('No exact offline clip profile')
+    if keep_waiting and (not retained_close or profiles != CLIP_WEAPONS[:1]):
+        raise ValueError('Retained bundle wait requires the exact base Schofield')
     e = ClassEdit(player)
     if retained_close:
         from coj_reload_cycle import _retained_completion_veto
-        arm_completion, release_completion = _retained_completion_veto(e,'cojvrClipDebt')
-    busy = e.field('cojvrClipBusy', 'Z')
-    faulted = e.field('cojvrClipFaulted', 'Z')
+        debt = 'cojvrSchofieldBundleDebt' if keep_waiting else 'cojvrClipDebt'
+        arm_completion, release_completion = _retained_completion_veto(e, debt)
+    def clip_field(name):
+        if keep_waiting:
+            return e.ref('ArmedPlayerBeing', name, 'Z', 9)
+        return e.field(name, 'Z')
+
+    busy = clip_field('cojvrClipBusy')
+    faulted = clip_field('cojvrClipFaulted')
 
     def method(name, descriptor):
         return e.ref('ArmedPlayerBeing', name, descriptor)
@@ -131,6 +139,9 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
         number(c,8);c.branch(0x9b,'not_ready')
         number(c,8);c.emit(0x04);c.branch(0xa3,'not_ready')
         _emit_retained_wait(e,c,1,8,7,'not_ready')
+        if keep_waiting:
+            check_class(c, 'not_ready')
+            _emit_retained_wait(e,c,1,8,7,'not_ready')
         arm_completion(c,1,8,7)
     check_wait('not_ready')
     emit_field(c, probe_weapon); c.emit(0x4c)  # retained weapon, local 1
@@ -226,8 +237,7 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
     c.ref(0xb6, e.ref('GameMode', 'OnGameEvent', '(I)V'))
     c.label('after_event')
     readback('fault')
-    # Always close after one whole-clip operation, even when reserve is short.
-    if retained_close:
+    if retained_close and not keep_waiting:
         from coj_indexed_reload_session import _emit_retained_wait
         load(c,7);c.emit(0x10,22)
         c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'))
@@ -242,13 +252,17 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
         c.emit(0x2a,0x06);c.ref(0xb5,probe_status)
         load(c,7);load(c,9)
         c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
-    else:
+    elif not keep_waiting:
         c.emit(0x2a); c.ref(0xb6, method('cojvrCancelReloadProbe', '()V'))
     # End-state callbacks may still mutate ammo or ownership. Publish success
     # only when the same clip delta survives the original native close.
-    readback('fault', closed=True)
-    c.label('accepted'); c.label('try_end')
-    if retained_close:release_completion(c)
+    if not keep_waiting:
+        readback('fault', closed=True)
+    c.label('try_end')
+    # A retained bundle can outlive mutable probe ownership. Its debt retires
+    # with the captured body so native completion cannot add another clip.
+    if retained_close and not keep_waiting:
+        release_completion(c)
     set_field(c, busy, False); c.emit(0x04, 0xac)
     c.label('fault'); set_field(c, faulted, True)
     c.label('not_ready'); set_field(c, busy, False); c.emit(0x03, 0xac)
@@ -272,5 +286,6 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
         prefix = guard.finish()
         return prefix + b'\0' * (-len(prefix) % 4) + original
 
-    e.changes[('cojvrKeepManualReloadAlive', '()Z')] = heartbeat
+    if not keep_waiting:
+        e.changes[('cojvrKeepManualReloadAlive', '()Z')] = heartbeat
     return e.finish()

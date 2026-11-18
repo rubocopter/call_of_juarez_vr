@@ -1873,6 +1873,22 @@ bool JavaPlayerBridge::TryInsertManualRound(bool& accepted,std::string* error,co
         "cojvrInsertManualIndexedRound":"cojvrInsertManualRound",accepted,error,selected_index);
 }
 
+bool JavaPlayerBridge::TryOpenSchofield(int hand,bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return single_round_reload_pending_&&manual_reload_request_pending_&&(hand==0||hand==1)&&
+        CallManualReloadBoolean("cojvrOpenSchofield",accepted,error,hand);
+}
+
+bool JavaPlayerBridge::TryUnloadSchofield(bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return manual_reload_owned_&&CallManualReloadBoolean("cojvrUnloadSchofield",accepted,error);
+}
+
+bool JavaPlayerBridge::TryInsertSchofieldBundle(bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return manual_reload_owned_&&CallManualReloadBoolean("cojvrInsertSchofieldBundle",accepted,error);
+}
+
 bool JavaPlayerBridge::CancelManualReload(std::string* error,bool wait_for_retirement) noexcept {
     if(!manual_reload_owned_)return true;
     manual_reload_retirement_pending_|=wait_for_retirement;

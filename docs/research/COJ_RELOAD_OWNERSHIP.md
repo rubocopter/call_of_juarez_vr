@@ -902,12 +902,12 @@ The original `PawnInventory.AddAmmo(Weapon, boolean)` previews availability
 with `true`. Its write branch caps removal by reserve headroom, subtracts from
 the weapon and credits the matching reserve as two separate writes. The normal
 `Weapon.InvokeAddAmmo` pickup route rejects owned weapons. An explicit unload
-for a held Schofield uses the pinned native transfer once inside an
-offline-only derivative. It checks the retained waiting owner, exact pistol
+for a held Schofield uses the pinned native transfer once in the explicit
+motion candidate. It checks the retained waiting owner, exact pistol
 counter and headroom before entering the call and compares both backing
 counts afterward. With insufficient headroom it declines the entire request.
 An interruption can occur between the two native writes. When a callback or
-readback invalidates the operation, the lab quarantines that instance and
+readback invalidates the operation, the helper quarantines that instance and
 withholds further insertion, keepalive and retries. A retained-body veto
 prevents a late ammunition transfer even after the wait ticket is lost and
 allows an ordinary subsequent native reload after the borrowed body retires.
@@ -915,13 +915,14 @@ The lab exercises the original transfer and storage bytecode with engine
 callbacks modelled.
 
 The original public `ReloadWeapon()` only dispatches a hand when the
-transferable reload count is positive. That excludes a full drum or zero
-reserve. The lab reaches the waiting phase through the existing protected
-hand request with modelled scheduling, including full and zero-reserve cases.
-Gameplay admission needs its own exact opening boundary through both native
-animation and the wait/close lifecycle. The player package retains the
-ordinary whole-bundle completion path. The requested unload gesture, lateral
-close and chamber highlighting await that qualification.
+transferable reload count is positive. The motion candidate uses the existing
+protected hand request when the exact idle owner and its pending ticket
+agree. A bundle accepted by the separate motion endpoint keeps the native
+body alive. A rearward flick or Square requests the same native close while
+the retained body veto prevents a second transfer. Returning live rounds
+needs reserve headroom for the entire unload. Player installs use the
+ordinary whole-bundle completion path by default. The opt-in gameplay
+sequence and its rear-view chamber guide await live qualification.
 
 The displayed-frame observer resolves the drum and gate by native element name,
 checks readback against the current controller-mapped child transaction and

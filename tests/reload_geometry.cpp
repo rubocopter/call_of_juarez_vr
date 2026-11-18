@@ -1,10 +1,123 @@
 #include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/schofield_chamber_guide.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 using namespace cojvr::games::call_of_juarez;
 void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 bool Near(float a,float b){return std::abs(a-b)<1e-4F;}
+
+void CheckSchofieldGuides() {
+    using namespace cojvr::runtime;
+    CoJReloadGeometrySnapshot geometry{};
+    geometry.valid=true;
+    geometry.model=CoJReloadModel::schofield;
+    geometry.source=CoJReloadGeometrySource::post_overlay;
+    geometry.drum={{0,0,50},{0,1,0},{0,0,1},true};
+    geometry.gate=geometry.drum;
+    // Live barrel-local +X is the gate/drum forward, and +Y is gate up.
+    geometry.barrel=geometry.root={{0,0,50},{0,1,0},{-1,0,0},true};
+    Check(BuildCoJReloadMouthFrames(geometry.model,geometry.drum,geometry.mouths),
+        "Schofield fixture has no mouths");
+
+    CoJLoadingMouthGuideFrame frame{};
+    frame.head.position_valid=frame.head.orientation_valid=true;
+    frame.right={-1,0,0};frame.up={0,1,0};frame.forward={0,0,-1};
+    frame.frame=10;frame.player=7;frame.context=5;frame.weapon=0x80000042;
+    frame.armed_hand=0;frame.allowed=frame.restored=true;
+    CoJReloadTraceSnapshot native{};
+    native.valid=native.probe_valid=native.reloading=true;
+    native.probe_status=2;native.weapon_class="WeaponPistolSchofield";
+    native.weapon_id=frame.weapon;native.armed_hand=0;native.kind=CoJManualReloadKind::clip;
+    native.capacities={6,0};native.reserves={10,0,0};native.reserve_readback=10;
+    StereoHudTextOverlay overlay{};
+    overlay.frame_sequence=frame.frame;overlay.reload_feedback.owner_token=17;
+
+    const auto at_mouth=[&](std::size_t slot,std::size_t mouth) {
+        const auto& surface=overlay.holster_guides.zones[slot];
+        Vec3 centre{};
+        for(const auto& p:surface.head_corners) {
+            centre.x+=p.x*.25F;centre.y+=p.y*.25F;centre.z+=p.z*.25F;
+        }
+        const auto expected=geometry.mouths[mouth].position;
+        return surface.kind==GestureGuideKind::loading_mouth&&surface.state==0&&
+            Near(centre.x,-expected.x*.01F)&&Near(centre.y,expected.y*.01F)&&
+            Near(centre.z,-expected.z*.01F);
+    };
+    for(int loaded=0;loaded<=6;++loaded) {
+        geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=loaded;
+        overlay.holster_guides={};
+        const bool appended=AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay);
+        Check(appended==(loaded<6)&&overlay.holster_guides.count==static_cast<unsigned>(6-loaded),
+            "Schofield must publish exactly the aggregate empty count");
+        constexpr std::array<std::size_t,6> clockwise_from_rear{4,3,2,1,0,5};
+        for(std::size_t i=0;i<overlay.holster_guides.count;++i)
+            Check(at_mouth(i,clockwise_from_rear[i]),"Schofield guide did not follow rear-view order");
+    }
+
+    geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=0;
+    overlay.holster_guides.count=2;
+    Check(!AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay)&&
+        overlay.holster_guides.count==2,"six empty rings must append atomically");
+    overlay.holster_guides.count=1;
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay)&&
+        overlay.holster_guides.count==7&&at_mouth(1,4)&&at_mouth(6,5),
+        "all six empty rings must fit after an existing guide");
+
+    geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=5;
+    geometry.native_drum_phase_degrees=native.drum_phase=60;
+    geometry.drum.up={-.8660254F,.5F,0};
+    Check(BuildCoJReloadMouthFrames(geometry.model,geometry.drum,geometry.mouths),
+        "Schofield phase fixture has no mouths");
+    overlay.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay)&&
+        overlay.holster_guides.count==1&&at_mouth(0,5),
+        "a 60-degree drum turn should move a different mouth into the upper-right slot");
+    auto no_reserve=native;
+    no_reserve.reserve_readback=no_reserve.reserves[0]=0;
+    auto empty_reserve_overlay=overlay;
+    empty_reserve_overlay.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,no_reserve,true,empty_reserve_overlay)&&
+        empty_reserve_overlay.holster_guides.count==1,
+        "a current waiting drum's empty count is independent of reserve");
+
+    for(int fault=0;fault<21;++fault) {
+        auto view=frame;
+        auto snapshot=geometry;
+        auto current=native;
+        auto out=overlay;
+        bool enabled=true;
+        switch(fault) {
+        case 0:enabled=false;break;
+        case 1:view.restored=false;break;
+        case 2:view.allowed=false;break;
+        case 3:view.frame++;break;
+        case 4:view.player=0;break;
+        case 5:view.context++;break;
+        case 6:current.weapon_id++;break;
+        case 7:current.armed_hand=1;break;
+        case 8:current.probe_status=3;break;
+        case 9:current.drum_phase=-60;break;
+        case 10:current.loaded[0]=current.ammo_readback=4;break;
+        case 11:snapshot.source=CoJReloadGeometrySource::pre_native;break;
+        case 12:snapshot.mouths[0].position.x+=1;break;
+        case 13:snapshot.gate.forward={1,0,0};break;
+        case 14:out.reload_feedback.owner_token=0;break;
+        case 15:out.holster_guides.count=static_cast<unsigned>(out.holster_guides.zones.size());break;
+        case 16:view.origin_cm={0,0,100};view.right={1,0,0};view.forward={0,0,1};break;
+        case 17:view.origin_cm={-50,0,48};view.right={0,0,1};view.forward={-1,0,0};break;
+        case 18:out.frame_sequence++;break;
+        case 19:current.weapon_class="WeaponPistolSchofield_A";break;
+        case 20:out.eyes[1].eye_to_head.position={.5F,0,0};
+            out.eyes[1].eye_to_head.position_valid=true;break;
+        }
+        const auto count=out.holster_guides.count;
+        Check(!AppendCoJSchofieldChamberGuides(view,snapshot,current,enabled,out)&&
+            out.holster_guides.count==count&&out.holster_guides.zones[0].state==0,
+            "Schofield guide changed output for a foreign, invalid or culled capture");
+    }
+}
+
 int main(){
     // Native mechanical motion must be measured in the weapon root frame.
     const ElementWorldBasisTarget root{{0,0,0},{0,1,0},{0,0,1},true};
@@ -129,5 +242,6 @@ int main(){
     bad=snapshot;bad.root.position.x=std::numeric_limits<float>::infinity();
     Check(RankCoJReloadGatePivotMouths(bad,true).status==CoJReloadPortRankStatus::invalid,
         "non-finite weapon identity frame admitted");
+    CheckSchofieldGuides();
     std::cout<<"exact reload cylinder geometry passed\n";
 }

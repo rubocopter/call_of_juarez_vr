@@ -17,6 +17,7 @@ param(
 
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
+    [switch]$SchofieldMotion,
     [switch]$RenderResourceProbe,
     [switch]$SampledSceneDepth,
     [switch]$TemporalSequence,
@@ -324,6 +325,9 @@ switch ($Action) {
         if ($ManualReload -and ($ReloadWaitProbe -or $StartupOnly -or -not $BodyIkAtStart)) {
             throw 'ManualReload requires full BodyIkAtStart and cannot combine with ReloadWaitProbe.'
         }
+        if ($SchofieldMotion -and -not $ManualReload) {
+            throw 'SchofieldMotion requires ManualReload.'
+        }
         if (Test-Path -LiteralPath $StageStatePath -PathType Leaf) {
             $Existing = Get-Content -LiteralPath $StageStatePath -Raw | ConvertFrom-Json
             throw "A candidate is already staged (run '$($Existing.runId)'). Run 'tools\vr_test.ps1 finish' after closing the game before preparing another one."
@@ -392,7 +396,7 @@ switch ($Action) {
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth -TemporalSequence:$TemporalSequence `
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -SchofieldMotion:$SchofieldMotion -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth -TemporalSequence:$TemporalSequence `
                 -IndependentEyeResolution $IndependentEyeResolution `
                 -NeuralHostPath $NeuralHostPath -NeuralRuntimeDirectory $NeuralRuntimeDirectory
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
@@ -519,6 +523,9 @@ switch ($Action) {
             Write-Host "Combined candidate batch: inspect finger-derived cartridge axis, native-confirmed thumb gesture, soft held-zone cue then stronger accepted-insertion cue, drop/close/fire, held-input recovery and L1 interaction. New changes are host-tested only; compositor still has no hand/scene occlusion. Ordered batch: docs/VALIDATION.md#consolidated-candidate-batch--host-tested-awaiting-runtime-and-visor. Depth diagnostics collect automatically during pickups; no separate physical probe is needed."
         } else {
             Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental exact-profile cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Legacy paced continuation has bounded live evidence; native animation still owns its hands. Persistent manual reload requires -ManualReload. See docs/VALIDATION.md#cartridge-paced-reload-acceptance."
+        }
+        if ($SchofieldMotion) {
+            Write-Host "Base Schofield motion candidate: Square opens with one armed hand. Tilt down and give a short downward shake to return the loaded rounds. Pick up and insert one support-hand bundle. Flick the armed wrist back toward the body to request native closure. Square can also close."
         }
         Write-Host "Drawer/container Action: point the left Sense at the handle/usable part and press L1. A small cyan hand-directed reference appears only while L1 is held; head gaze no longer selects the object. Native reach/permissions remain. Lost left-hand tracking requires release before another Action. The reference is not proof that a target is usable."
         Write-Host "Death/mission failure: corrected visor visibility has operator acceptance. Circle requests native Back/Escape. Native retry/held-control recovery remains pending; successive manual loading has scoped acceptance."

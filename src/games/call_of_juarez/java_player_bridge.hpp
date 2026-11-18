@@ -452,6 +452,9 @@ public:
     }
     [[nodiscard]] bool HasLoadedManualReloadCapability(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryOpenSchofield(int hand,bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryUnloadSchofield(bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryInsertSchofieldBundle(bool& accepted,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr,
         int selected_index=-1) noexcept;
     [[nodiscard]] bool CancelManualReload(std::string* error=nullptr,bool wait_for_retirement=false) noexcept;

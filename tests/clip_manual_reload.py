@@ -277,7 +277,7 @@ class OfflineClipTests(unittest.TestCase):
                                       capture_output=True, text=True, timeout=30)
             from coj_schofield_unload import build_offline_schofield_unload
             variants = {weapon: clips.build_offline_clip_lab(raw, weapon) for weapon in clips.CLIP_WEAPONS}
-            variants['SchofieldUnloadLab'] = build_offline_schofield_unload(raw)
+            variants['SchofieldMotion'] = build_offline_schofield_unload(raw)
             for variant, (player, machine) in variants.items():
                 target = root / (variant + '.pak')
                 with zipfile.ZipFile(source) as original_archive, zipfile.ZipFile(target, 'w') as out:
@@ -287,12 +287,13 @@ class OfflineClipTests(unittest.TestCase):
                                                           original_archive.read(info.filename)))
                 result = verify(target)
                 self.assertEqual(result.returncode, 0, variant + ': ' + result.stdout + result.stderr)
-                if variant in (clips.CLIP_WEAPONS[0], 'SchofieldUnloadLab'):
-                    helper = ('cojvrLabUnloadSchofield' if variant == 'SchofieldUnloadLab'
-                              else 'cojvrInsertManualClip')
+                signatures = (('cojvrOpenSchofield', '(I)Z'), ('cojvrUnloadSchofield', '()Z'),
+                              ('cojvrInsertSchofieldBundle', '()Z')) if variant == 'SchofieldMotion' else (
+                                  (('cojvrInsertManualClip', '()Z'),) if variant == clips.CLIP_WEAPONS[0] else ())
+                for signature in signatures:
                     _, methods = parse_class(player)
                     helper_code = next(m.code for m in methods
-                                       if (m.name, m.descriptor) == (helper, '()Z'))
+                                       if (m.name, m.descriptor) == signature)
                     self.assertEqual(player.count(helper_code), 1)
                     invalid_player = player.replace(helper_code, b'\xfe' + helper_code[1:], 1)
                     invalid_archive = root / 'bad-clip.pak'
@@ -314,21 +315,36 @@ class OfflineClipTests(unittest.TestCase):
         self.assertNotIn('SetAmount', code)
 
 
-class UnloadVM(FamilyVM):
-    def __init__(self, loaded=2, reserve=10):
-        from coj_schofield_unload import build_offline_schofield_unload
-        raw = original_archive()
-        classes = build_offline_schofield_unload(raw)
-        super().__init__('WeaponPistolSchofield', builder=lambda *_: classes)
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+class SchofieldVM(FamilyVM):
+    def __init__(self, loaded=2, reserve=10, *, hand=0, kind='WeaponPistolSchofield', waiting=True):
+        super().__init__(kind, hand)
+        with zipfile.ZipFile(io.BytesIO(original_archive())) as archive:
             pool, methods = parse_class(archive.read('PawnInventory.class'))
         self.classes['PawnInventory'] = pool, {(m.name, m.descriptor): m for m in methods}
         self.unload_calls = 0
+        self.requests = []
+        self.on_request = None
         self.weapon['m_iAmmo0Count'] = loaded
         self.player['nAmmoPistol'] = reserve
-        self.wait()
+        if waiting:
+            self.wait()
+        else:
+            armed = self.player['m_aHandStateMashine'][hand]
+            support = self.player['m_aHandStateMashine'][1-hand]
+            armed['m_cActualState']['m_iState'] = 1
+            support['m_cDesiredState']['m_iState'] = 0
+            self.machine['m_sDestState'] = self.states[1]
+            empty = {'class': 'PlayerState', 'id': 0, 'm_iStateID': 0}
+            self.other.update(m_sCurrentState=empty, m_sDestState=empty)
+            self.player['cojvrManualReloadWeapon'] = self.weapon
 
     def _native(self, owner, name, args):
+        if name == 'ReloadWeapon':
+            self.requests.append((self.special_class, tuple(args)))
+            self.run('ArmedPlayerBeing', name, '(I)V', owner, args)
+            if self.on_request:
+                self.on_request()
+            return None
         if name == 'AddAmmo':
             self.unload_calls += 1
             return VM.run(self, 'PawnInventory', name, '(LWeapon;Z)Z', owner, args)
@@ -337,7 +353,108 @@ class UnloadVM(FamilyVM):
         return super()._native(owner, name, args)
 
     def unload(self):
-        return self.boolean('cojvrLabUnloadSchofield')
+        return self.boolean('cojvrUnloadSchofield')
+
+    def open(self, hand=None):
+        return self.run('ArmedPlayerBeing', 'cojvrOpenSchofield', '(I)Z',
+                        self.player, [self.hand if hand is None else hand])
+
+    def insert_bundle(self):
+        return self.boolean('cojvrInsertSchofieldBundle')
+
+
+class SchofieldMotionTests(unittest.TestCase):
+    def test_opens_full_or_zero_reserve_and_keeps_bundle_waiting_until_native_close(self):
+        for hand in (0, 1):
+            for loaded, reserve in ((6, 3), (2, 0), (6, 0), (0, 0)):
+                with self.subTest(hand=hand, loaded=loaded, reserve=reserve):
+                    vm = SchofieldVM(loaded, reserve, hand=hand, waiting=False)
+                    before = vm.vector()
+                    self.assertTrue(vm.open())
+                    self.assertEqual(vm.requests, [('ArmedPlayerBeing', (hand,))])
+                    self.assertEqual((vm.vector(), vm.events, vm.clip_calls), (before, 0, 0))
+                    self.assertEqual((vm.player['cojvrReloadProbeStatus'], vm.desired_state), (1, 21))
+                    self.assertIs(vm.player['cojvrReloadProbeWeapon'], vm.weapon)
+                    self.assertIsNone(vm.player['cojvrManualReloadWeapon'])
+                    self.assertFalse(vm.open())
+                    vm.machine.update(m_sCurrentState=vm.states[20], m_sDestState=vm.states[21])
+                    vm.update(.31); vm.update(.62)
+                    self.assertEqual((vm.vector(), vm.player['cojvrReloadProbeStatus']), (before, 2))
+                    self.assertEqual(vm.unload(), bool(loaded))
+                    self.assertEqual(vm.vector()[0][0], 0)
+                    self.assertEqual(vm.vector()[1][2], loaded + reserve)
+                    self.assertEqual(vm.insert_bundle(), bool(loaded + reserve))
+                    self.assertEqual((vm.player['cojvrReloadProbeStatus'],
+                                      vm.machine['m_sCurrentState']['id'], vm.desired_state), (2, 21, 21))
+                    self.assertTrue(vm.boolean('cojvrKeepManualReloadAlive'))
+                    self.assertFalse(vm.insert_bundle())
+                    after = vm.vector()
+                    vm.run('ArmedPlayerBeing', 'cojvrCancelReloadProbe', '()V', vm.player)
+                    vm.update(1.0); vm.update(1.4)
+                    self.assertEqual((vm.vector(), vm.clip_calls, vm.events),
+                                     (after, int(bool(loaded + reserve)), int(bool(loaded + reserve))))
+
+    def test_open_requires_exact_publication_and_fresh_local_sole_idle_hand(self):
+        for change in ('null', 'wrong_weapon', 'variant', 'wrong_hand', 'bad_hand', 'busy',
+                       'occupied', 'carrying', 'dead', 'network', 'foreign_owner', 'not_owner',
+                       'current', 'destiny', 'actual_state', 'desired_state', 'old_ticket'):
+            with self.subTest(change=change):
+                vm = SchofieldVM(kind='WeaponPistolSchofield_A' if change == 'variant'
+                                 else 'WeaponPistolSchofield', waiting=False)
+                if change == 'null': vm.player['cojvrManualReloadWeapon'] = None
+                if change == 'wrong_weapon': vm.player['cojvrManualReloadWeapon'] = dict(vm.weapon)
+                if change == 'busy': vm.player['cojvrClipBusy'] = True
+                if change == 'occupied': vm.slots[1][1] = vm.weapon
+                if change == 'carrying': vm.carrying = True
+                if change == 'dead': vm.alive = False
+                if change == 'network': vm.net_game = True
+                if change == 'foreign_owner': vm.weapon['cOwner'] = {}
+                if change == 'not_owner': vm.net_owner = False
+                if change == 'current': vm.machine['m_sCurrentState'] = vm.states[20]
+                if change == 'destiny': vm.machine['m_sDestState'] = vm.states[21]
+                if change == 'actual_state': vm.player['m_aHandStateMashine'][0]['m_cActualState']['m_iState'] = 20
+                if change == 'desired_state': vm.desired_state = 21
+                if change == 'old_ticket': vm.player['cojvrReloadProbeWeapon'] = vm.weapon
+                before = vm.vector()
+                self.assertFalse(vm.open({'wrong_hand': 1, 'bad_hand': -1}.get(change)))
+                self.assertEqual((vm.requests, vm.vector()), ([], before))
+
+    def test_open_reports_success_only_for_exact_status_one_and_unchanged_counts(self):
+        for obj, field, value in (('player', 'cojvrReloadProbeStatus', 2),
+                                  ('player', 'cojvrReloadProbeHand', 1),
+                                  ('player', 'nAmmoPistol', 1),
+                                  ('weapon', 'm_iAmmo0Count', 3)):
+            with self.subTest(field=field):
+                vm = SchofieldVM(reserve=0, waiting=False)
+                reentered = []
+                def change_receipt():
+                    reentered.append(vm.open())
+                    getattr(vm, obj)[field] = value
+                vm.on_request = change_receipt
+                self.assertFalse(vm.open())
+                self.assertEqual(reentered, [False])
+                self.assertEqual(len(vm.requests), 1)
+                self.assertTrue(vm.player['cojvrClipFaulted'])
+                self.assertFalse(vm.player['cojvrClipBusy'])
+
+    def test_bundle_is_base_only_and_lost_ticket_cannot_add_on_native_close(self):
+        for kind in clips.CLIP_WEAPONS[1:]:
+            vm = SchofieldVM(kind=kind)
+            self.assertFalse(vm.insert_bundle())
+            self.assertEqual((vm.clip_calls, vm.events), (0, 0))
+            self.assertTrue(vm.insert_clip())
+            self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+
+        vm = SchofieldVM()
+        vm.player['nAmmoPistol'] = 2
+        self.assertTrue(vm.insert_bundle())
+        before = vm.vector()
+        vm.player['nAmmoPistol'] += 3  # reserve arrives after the gesture
+        vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [vm.hand])
+        vm.update(1.0); vm.update(1.4)
+        self.assertIn(22, vm.transitions)
+        self.assertEqual((vm.vector()[0], vm.vector()[1][2], vm.clip_calls, vm.events),
+                         (before[0], before[1][2]+3, 1, 1))
 
 
 class OfflineUnloadTests(unittest.TestCase):
@@ -345,7 +462,7 @@ class OfflineUnloadTests(unittest.TestCase):
         for loaded in range(1, 7):
             with self.subTest(loaded=loaded):
                 before = 0 if loaded < 6 else 93
-                vm = UnloadVM(loaded, before)
+                vm = SchofieldVM(loaded, before)
                 self.assertEqual(vm.vector(), ((loaded, 0), (10, 10, before)))
                 self.assertTrue(vm.unload())
                 self.assertEqual(vm.vector(), ((0, 0), (10, 10, before+loaded)))
@@ -355,20 +472,21 @@ class OfflineUnloadTests(unittest.TestCase):
                 self.assertTrue(vm.insert_clip())
                 self.assertEqual(sum(vm.vector()[0])+vm.vector()[1][2], before+loaded)
 
-    def test_lab_requires_the_exact_archive_and_is_absent_from_the_player_patch(self):
+    def test_offline_verification_uses_the_pinned_canonical_motion_bytecode(self):
         from coj_schofield_unload import build_offline_schofield_unload
         raw = original_archive()
         with self.assertRaisesRegex(ValueError, 'SHA-256'):
             build_offline_schofield_unload(raw + b'X')
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            player, _ = patch_manual_reload_classes(archive.read('ArmedPlayerBeing.class'),
-                                                     archive.read('StateMashine.class'))
+            player, machine = patch_manual_reload_classes(archive.read('ArmedPlayerBeing.class'),
+                                                           archive.read('StateMashine.class'))
+        self.assertEqual(build_offline_schofield_unload(raw), (player, machine))
         self.assertNotIn('cojvrLabUnloadSchofield', {method.name for method in parse_class(player)[1]})
 
     def test_rejects_invalid_preconditions_without_writes(self):
         for change in ('short_headroom', 'full_reserve', 'bad_count', 'counter', 'wrong_model', 'not_waiting'):
             with self.subTest(change=change):
-                vm = UnloadVM()
+                vm = SchofieldVM()
                 if change == 'short_headroom': vm.player['nAmmoPistol'] = 98
                 if change == 'full_reserve': vm.player['nAmmoPistol'] = 99
                 if change == 'bad_count': vm.weapon['m_iAmmo0Count'] = 7
@@ -381,7 +499,7 @@ class OfflineUnloadTests(unittest.TestCase):
                 self.assertEqual(vm.unload_calls, 0)
 
     def test_reentry_and_interrupted_native_write(self):
-        vm = UnloadVM()
+        vm = SchofieldVM()
         replies = []
         def reenter(when, name, owner, args):
             if when == 'before' and name == 'SetAmount':
@@ -391,7 +509,7 @@ class OfflineUnloadTests(unittest.TestCase):
         self.assertTrue(vm.unload())
         self.assertEqual(replies, [False, False, False])
 
-        vm = UnloadVM()
+        vm = SchofieldVM()
         exception = {'class': 'Throwable', 'point': 'before_reserve_write'}
         def interrupt(when, name, owner, args):
             if when == 'before' and name == 'SetAmount': raise JVMThrown(exception)
@@ -407,7 +525,7 @@ class OfflineUnloadTests(unittest.TestCase):
         self.assertEqual(vm.unload_calls, 1)
 
     def test_completed_native_call_with_wrong_readback_remains_quarantined(self):
-        vm = UnloadVM()
+        vm = SchofieldVM()
         def change_reserve(when, name, owner, args):
             if when == 'after' and name == 'SetAmount':
                 vm.player['nAmmoPistol'] -= 1
@@ -421,7 +539,7 @@ class OfflineUnloadTests(unittest.TestCase):
     def test_loss_of_wait_ticket_does_not_release_the_original_transfer(self):
         for boundary in ('GetAmmoTypeCount', 'SetAmount'):
             with self.subTest(boundary=boundary):
-                vm = UnloadVM()
+                vm = SchofieldVM()
                 exception = {'class': 'Throwable'}
                 def interrupt(when, name, owner, args):
                     if when == 'before' and name == boundary:

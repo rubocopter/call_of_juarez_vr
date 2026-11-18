@@ -80,21 +80,11 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
 - Independent right-stick-back hammer cocking: hammer meshes/fire tracks do not
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
-- Physical whole-bundle reload starts with the exact base Schofield. Qualify
-  button opening with a full or partly loaded weapon, a deliberate downward
-  gesture to unload, one support-hand bundle insertion, and a lateral gesture
-  that requests native close. Opening preserves the loaded count. Qualify
-  native ammunition accounting on unload and insertion, and require native
-  close confirmation before admitting fresh fire input. The current automatic
-  close after insertion remains the baseline for comparison.
-  Live read-only traces now correlate the six measured rear mouths, the native
-  waiting pose and a count-based empty mask in drum space. Order the rendered
-  empty positions from upper-right in a non-spinning rear-view frame and check
-  their visibility. Return all still-loaded rounds to the
-  pistol reserve when it has room for the complete transfer. Host tests
-  exercise that transfer on the exact archive, full-reserve rejection and
-  quarantine after interrupted native writes. The gameplay route, cleared
-  drum view and gesture close remain open. The design has no ground pickup.
+- The exact base Schofield has an opt-in development route for opening,
+  downward unloading, one retained bundle insertion and a rearward wrist
+  flick to close. Qualify count conservation, closing/recovery, rear-view
+  guide visibility and gesture comfort using the combined headset gate.
+  Ordinary clips and variants retain automatic close on insertion.
 - Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
   per-calibre loose ammunition are not implemented by the manual transfer routes.
 - Explicit LeMat mode/port selection, dual-wield manual reload and legacy `_Old`

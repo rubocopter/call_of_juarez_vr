@@ -17,6 +17,7 @@ param(
     [switch]$ExperimentalGog,
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
+    [switch]$SchofieldMotion,
     [switch]$RenderResourceProbe,
     [switch]$SampledSceneDepth,
     [switch]$TemporalSequence,
@@ -28,6 +29,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 if ($TemporalSequence) { $SampledSceneDepth = [switch]$true }
+if ($SchofieldMotion -and (-not $ManualReload -or -not $IndependentHands)) {
+    throw 'SchofieldMotion requires ManualReload and IndependentHands.'
+}
 if ($InteractionRegression -and $ValidationProfile -ne 'full') {
     throw 'InteractionRegression requires the full validation profile.'
 }
@@ -505,6 +509,11 @@ if ($ManualReload) {
         '"movementTraceEnabled": false, "reloadTraceEnabled": true, "manualReloadInstalled": true,')
     $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 }
+if ($SchofieldMotion) {
+    $CameraControlText = $CameraControlText.Replace('"manualReloadInstalled": true,',
+        '"manualReloadInstalled": true, "schofieldMotion": true,')
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
 $CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
 $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
 $JournalAssets = @(
@@ -733,6 +742,7 @@ if ($HadOriginal) {
         codeArchiveManaged = $IsNativeStereo
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
+        schofieldMotion = $SchofieldMotion.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
         sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent
@@ -828,6 +838,7 @@ if ($HadOriginal) {
         validation = [ordered]@{
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
+            schofieldMotion = $SchofieldMotion.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
             sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
             sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent

@@ -1280,6 +1280,10 @@ def family_readback_reported(f):
     if 'native_body_cycle' in f and f['native_body_cycle'] not in ('0','1'):return False
     native_body_cycle=f.get('native_body_cycle')=='1'
     if not indexed and native_body_cycle:return False
+    hold_open=f.get('schofield_hold_open','0')
+    if hold_open not in ('0','1') or (hold_open=='1' and
+            (indexed or f.get('weapon_class')!='WeaponPistolSchofield')):return False
+    allowed_status=(2,3) if indexed else (2,) if hold_open=='1' else (3,)
     def vector(key,size):
         parts=f.get(key,'').split(',')
         if len(parts)!=size or any(not re.fullmatch(r'-?\d+',p) for p in parts):raise ValueError(key)
@@ -1302,7 +1306,7 @@ def family_readback_reported(f):
                 before[index],after[index],reserve[pool],next_reserve[pool]]:return False
         if f.get('reserve_kind')!=('pistol','rifle','shotgun')[pool]:return False
         return (yes(f,'after_valid') and yes(f,'native_call_completed') and yes(f,'feedback_qualified') and
-                (integer(f,'probe_status_after') in ((2,3) if indexed else (3,)) or
+                (integer(f,'probe_status_after') in allowed_status or
                  (indexed and native_body_cycle and integer(f,'probe_status_after')==1)))
     except (ValueError,TypeError,IndexError):return False
 
