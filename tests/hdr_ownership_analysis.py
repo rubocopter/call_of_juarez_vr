@@ -160,6 +160,11 @@ class HdrOwnershipAnalysis(unittest.TestCase):
                      [*self.creates, allocation('fill'), *events[:2], allocation('fill'), *events[2:]]):
             self.assertEqual(report(rows)['pairs'][0]['fillBeforeFirstConsumer']['status'], 'unknown')
 
+    def test_fill_at_reused_address_before_texture_creation_does_not_hide_its_initial_fill(self):
+        result = report([allocation('fill'), *self.creates, allocation('fill'), *stereo()])
+        self.assertEqual(result['pairs'][0]['fillBeforeFirstConsumer'],
+                         dict(status='successful', line=5, result=0))
+
     def test_terminal_writes_withdraw_stability_and_draw_budget_is_validated(self):
         late_write = scope(1, sourceWriteCalls=3, sourceCopyBoundaryCurrent=False)
         self.assertFalse(report([*self.creates, *stereo(right=late_write)])['pairs'])

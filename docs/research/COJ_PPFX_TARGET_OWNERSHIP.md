@@ -308,8 +308,11 @@ Static inspection of the pinned engine distinguishes the private, non-lockable
 HDR producer surface from the private, non-dynamic `DEFAULT` render-target
 texture backing `1B_16`. The engine attempts `ColorFill` on level zero during
 `1B_16` creation, before the native producer resolve. Neither allocation passes
-a shared-handle pointer. These creation arguments and the initialization
-result still need correlation with the objects in a live scope.
+a shared-handle pointer. A bounded live observation correlates both allocation
+arguments and a successful full zero-color fill with ten matched native
+2804×2860 stereo pairs. The analyzer bounds the fill by this texture's
+creation and the earliest observed consumer receipt. A fill at the same
+surface address before that creation belongs outside the bound.
 The opt-in allocation and write observer correlates surface interfaces through
 `IUnknown` while the native caller holds them. An unidentifiable write withdraws
 copy readiness. The fill receipt is bounded by the first observed consumer,

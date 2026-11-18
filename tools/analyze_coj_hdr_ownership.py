@@ -171,9 +171,11 @@ def match_allocations(scopes, consumers, first_use, receipts, all_scopes):
     if any(line > min(r['line'] for r in matched.values()) for line in earlier_epochs):
         return None, 'observed_hook_epoch_change_since_allocation'
 
-    fills = [r for r in candidates[surface] if r['event']['kind'] == 'fill']
-    fill = dict(status='unknown', reason='fill_receipt_unavailable')
     texture_line = matched['texture']['line']
+    # A fill preceding this texture's creation can only refer to an earlier
+    # surface at this address. Keep ambiguity checks for all subsequent fills.
+    fills = [r for r in candidates[surface] if r['event']['kind'] == 'fill' and r['line'] > texture_line]
+    fill = dict(status='unknown', reason='fill_receipt_unavailable')
     # The live hook never queries a destination after a failed native call.
     # A failed, unidentified fill in this window makes a success ambiguous.
     unidentified = [r for r in candidates[0] if r['event']['kind'] == 'fill' and
