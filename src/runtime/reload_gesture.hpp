@@ -47,6 +47,9 @@ struct MotionReloadGestureInput {
     // Recenter/socket-owner changes must invalidate eligibility or change a token.
     std::optional<Pose> insertion_target{};
     std::optional<Pose> cartridge_tip{};
+    // A same-sample game-side contact verdict replaces grip proximity only.
+    // Pickup, trajectory continuity, release and transfer authority are unchanged.
+    std::optional<bool> adapter_insertion_contact{};
     double grip_insertion_radius_m = kDefaultReloadGripRadiusM;
 };
 
@@ -120,13 +123,15 @@ public:
             input.player_identity != 0 && input.weapon_identity != 0 &&
             input.armed_hand < 2 && ValidPose(input.head) &&
             ValidPose(input.left_grip) && ValidPose(input.right_grip) &&
+            !(input.insertion_target&&input.adapter_insertion_contact)&&
             (!input.insertion_target || (ValidPose(*input.insertion_target) &&
                 input.cartridge_tip && ValidPose(*input.cartridge_tip))) &&
             SourceCenter(input, source);
         const bool free_available = input.armed_hand < 2 &&
             input.trigger_available[1U - input.armed_hand];
         const bool insertion_mode_changed = claimed_hand_ < 2 &&
-            explicit_insertion_ != input.insertion_target.has_value();
+            (explicit_insertion_ != input.insertion_target.has_value() ||
+             adapter_contact_ != input.adapter_insertion_contact.has_value());
         const bool carrying = stage_ == MotionReloadGestureStage::carrying ||
             stage_ == MotionReloadGestureStage::replenished_carrying;
         // A duplicate may carry different geometry but is not another motion
@@ -272,6 +277,7 @@ public:
 
 private:
     static bool InGripZone(const MotionReloadGestureInput& input, Vec3 support, Vec3 armed) noexcept {
+        if(input.adapter_insertion_contact)return *input.adapter_insertion_contact;
         const auto radius = input.grip_insertion_radius_m;
         return std::isfinite(radius) && radius > 0 && DistanceSquared(support, armed) <= radius * radius;
     }
@@ -290,7 +296,7 @@ private:
         // A deliberate withdrawal, not millimetre jitter at the acceptance
         // radius, permits a second entry cue on this same physical press.
         const auto exit_radius = input.grip_insertion_radius_m + 0.04;
-        const bool outside=explicit_insertion_?
+        const bool outside=input.adapter_insertion_contact?!*input.adapter_insertion_contact:explicit_insertion_?
             DistanceSquared(input.cartridge_tip->position,input.insertion_target->position)>0.08*0.08:
             DistanceSquared(support,armed)>exit_radius*exit_radius;
         output.insertion_zone_exited=outside&&zone_notified_;
@@ -339,6 +345,7 @@ private:
         grip_ms_ = input.monotonic_ms;
         zone_notified_=false;
         explicit_insertion_ = input.insertion_target.has_value();
+        adapter_contact_ = input.adapter_insertion_contact.has_value();
         approach_ = entered_ = trajectory_fault_ = false;
         inward_travel_ = 0.0;
         if (!explicit_insertion_) return;
@@ -463,6 +470,7 @@ private:
     std::uint64_t grip_ms_ = 0;
     double inward_travel_ = 0.0;
     bool explicit_insertion_ = false;
+    bool adapter_contact_ = false;
     bool approach_ = false;
     bool entered_ = false;
     bool trajectory_fault_ = false;

@@ -370,6 +370,12 @@ class SchofieldVM(FamilyVM):
 
 
 class SchofieldMotionTests(unittest.TestCase):
+    def test_partial_bundle_leaves_the_native_drum_open(self):
+        vm = SchofieldVM(loaded=3, reserve=2)
+        self.assertTrue(vm.insert_bundle())
+        self.assertEqual((vm.vector()[0][0], vm.vector()[1][2], vm.clip_calls), (5, 0, 1))
+        self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+
     def test_opens_full_or_zero_reserve_and_keeps_bundle_waiting_until_native_close(self):
         for hand in (0, 1):
             for loaded, reserve in ((5, 77), (1, 75), (6, 3), (2, 0), (6, 0), (0, 0)):

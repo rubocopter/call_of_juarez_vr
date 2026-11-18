@@ -32,10 +32,10 @@ inline bool AppendCoJManualReloadTargetGuide(const CoJManualReloadInput& s,
             std::strcmp(profile.class_name,s.native.weapon_class)==0;
     });
     if(!exact)return false;
-    const auto armed=target.armed_hand==0?s.right.position:s.left.position;
-    // This receipt describes the actual legacy grip policy. Reject a modified
-    // receipt or poses changed without another session update; never let this
-    // presentation helper silently turn a measured locator into a fake socket.
+    if(s.winchester_receiver&&!s.receiver.mouth_valid)return false;
+    const auto armed=s.winchester_receiver?s.receiver.centre:
+        target.armed_hand==0?s.right.position:s.left.position;
+    // A modified or stale receipt must not select a different input target.
     if(!std::isfinite(target.position.x)||!std::isfinite(target.position.y)||!std::isfinite(target.position.z)||
         target.position.x!=armed.x||target.position.y!=armed.y||target.position.z!=armed.z)return false;
     const auto q=runtime::NormalizeQuaternion(s.head.orientation);

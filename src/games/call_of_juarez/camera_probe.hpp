@@ -93,6 +93,7 @@ struct CameraProbeCommand {
     bool reload_wait_probe_installed = false; // Archive identity marker; observation only.
     bool manual_reload_installed = false; // Explicit exact archive variant; default off.
     bool schofield_motion = false; // Local candidate, enabled by the staging workflow.
+    bool winchester_receiver = false;
     std::string movement_trace_phase = "off";
     bool vr_gameplay_input_enabled = true;
     bool capture_readback_enabled = true;

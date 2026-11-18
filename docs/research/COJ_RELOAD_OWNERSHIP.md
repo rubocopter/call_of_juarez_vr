@@ -1032,10 +1032,8 @@ require same-frame correlation.
 At the lip centroid's YZ, a -X diagnostic inspection ray intersects GunLoader
 triangle 45 behind the outer lip. The bind surface therefore blocks that access
 path; empty cavity geometry cannot admit clearance. LOD1, actual cartridge
-approach, tip/axis and opening phase remain unqualified. The active gesture
-still compares raw support and armed controller grips within 18 cm, independent
-of the displayed lip and textured cartridge tip. No radius/offset adjustment or
-runtime socket has been introduced from these offline measurements.
+approach, tip/axis and opening phase remain unqualified. The default gesture
+still compares raw support and armed controller grips within 18 cm.
 
 The source now implements an optional, bounded `winchester_loading_geometry`
 observer under the existing reload trace. Exact ordinary/scoped profiles copy
@@ -1062,11 +1060,14 @@ Host geometry, JNI fault and sample-qualification fixtures cover these contracts
 The evidence analyzer retains accepted and rejected observation records without
 granting live or physical qualification.
 
-Next collect that same-frame correlation in the game and establish displayed
-gate clearance and actual cartridge approach before admitting insertion
-trajectory or tolerance. Native accounting, miss/retry, close/regrip and
-interruption recovery remain separate gates for each exact class. The rejected
-generic grip-zone ergonomics are not fixed by adding this observer.
+The `-WinchesterReceiver` candidate uses only the exterior of the pinned lip.
+It requires a fresh predicted tip and a held inward hand push before admitting
+release within 3 cm of the exterior lip. It uses the original native transfer
+and checks the displayed gate independently. The stock lever contact reference
+is the LOD0 `GunLever` bounds centre in `GunBody` space, identical across both
+meshes. A downward free-hand stroke there can close an active wait. The
+candidate leaves cavity clearance, insertion in the game scene and physical
+ergonomics open for validation.
 
 ## Persistent-session boundary
 

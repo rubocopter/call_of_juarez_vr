@@ -73,13 +73,21 @@ void SchofieldMotionSession() {
         f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
         f.s.native.capacities[0]=6;
         f.s.native.ammo_readback=f.s.native.loaded[0]=loaded;
-        f.s.armed_aim=At({});
         f.Open();
     };
     const auto move=[](Fixture& f,float depth){
         f.s.right.position.z+=depth;
         return f.Poll();
     };
+    Fixture top_up;
+    open(top_up,3);
+    top_up.Claim();
+    Check(top_up.Insert().insert,"partly loaded drum refused the missing-round bundle");
+    Fixture rebound;
+    open(rebound,3);
+    (void)move(rebound,-.013F);
+    Check(!move(rebound,.055F).unload&&!move(rebound,.055F).unload,
+        "incomplete forward gesture rebounded into an unload");
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);
@@ -119,13 +127,56 @@ void SchofieldMotionSession() {
     wrist.session.CompleteInsertion(true,true,bundle);
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=6;
     (void)wrist.Poll();
-    wrist.s.armed_aim.orientation={.70710678F,0,0,.70710678F};
-    Check(wrist.Poll().unload,"backward wrist rotation could not eject a newly placed bundle");
+    wrist.s.right.orientation={.70710678F,0,0,.70710678F};
+    Check(!wrist.Poll().unload,"wrist twist alone ejected a newly placed bundle");
+    (void)move(wrist,.055F);
+    Check(move(wrist,.055F).unload,"hand displacement could not eject a newly placed bundle");
     wrist.session.NoteSchofieldUnloadConfirmed();
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=0;
     for(int i=0;i<4;++i)(void)wrist.Poll();
-    wrist.s.armed_aim.orientation={};
-    Check(wrist.Poll().cancel,"forward wrist rotation could not close without translation");
+    (void)move(wrist,-.055F);
+    wrist.s.right.orientation={};
+    Check(move(wrist,-.055F).cancel,"opposite wrist rotation stole a forward close");
+}
+
+void WinchesterReceiverSession(){
+    const auto open=[](Fixture& f){
+        f.s.winchester_receiver=true;
+        f.s.native.weapon_class="WeaponRifleWinchester";
+        f.s.native.capacities[0]=12;
+        f.Open();
+    };
+    Fixture grip;
+    open(grip);grip.Claim();
+    Check(!grip.Insert().insert,"receiver mode fell back to the old grip with unavailable geometry");
+
+    Fixture port;
+    open(port);port.Claim();
+    auto& r=port.s.receiver;
+    r.centre={.32F,1.22F,-.62F};r.inward={1,0,0};
+    r.mouth_valid=r.tip_valid=true;r.alignment=.9F;r.outside_cm=8;
+    port.Carry(port.s.left,At({.24F,1.22F,-.62F}));
+    r.tip=port.s.left.position;(void)port.Poll();
+    port.s.left.position.x=.30F;r.tip=port.s.left.position;r.outside_cm=2;r.within_capture=true;
+    const auto ready=port.Poll();
+    Check(ready.gesture.insertion_ready&&ready.target.valid&&ready.target.position.x==r.centre.x,
+        "receiver approach did not qualify the same measured guide");
+    port.s.raw.fire_left=false;
+    Check(port.Poll().insert,"qualified receiver push outside the old grip zone could not load");
+
+    Fixture lever;
+    open(lever);
+    auto& l=lever.s.receiver;
+    l.lever_valid=true;l.lever=lever.s.left.position;
+    (void)lever.Poll();l.lever.y+=.04F;
+    Check(!lever.Poll().cancel,"moving the rifle alone closed it");
+    l.lever=lever.s.left.position;(void)lever.Poll();
+    lever.s.left.position.y-=.034F;
+    Check(!lever.Poll().cancel,"short lever motion closed the rifle");
+    lever.s.left.position.y-=.034F;
+    const auto close=lever.Poll();
+    Check(close.cancel&&!close.insert&&std::strcmp(close.reason,"winchester_lever_close")==0,
+        "free-hand lever stroke did not close the rifle");
 }
 void ManualReloadCapability() {
     using Mode=CoJReloadMode;
@@ -818,5 +869,6 @@ int main(){
         Check(x.Poll().start,"fresh Square recovers after admission failure");
     }
     SchofieldMotionSession();
+    WinchesterReceiverSession();
     std::cout<<"manual reload session passed\n";
 }

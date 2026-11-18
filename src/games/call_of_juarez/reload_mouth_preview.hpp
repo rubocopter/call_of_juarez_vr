@@ -11,6 +11,8 @@ struct CoJReloadMouthPreview {
     std::array<runtime::Vec3,8> points_cm{};
     std::size_t count=0;
     ElementWorldBasisTarget tip_cm{};
+    runtime::Vec3 lever_cm{};
+    bool lever_valid=false;
 };
 
 inline const char* CoJReloadMouthElement(const CoJReloadTraceSnapshot& native) noexcept {
@@ -49,7 +51,17 @@ inline CoJReloadMouthPreview BuildCoJReloadMouthPreview(const CoJReloadTraceSnap
     if(name=="WeaponRifleWinchester"||name=="WeaponRifleWinchesterScope"){
         const auto model=name=="WeaponRifleWinchester"?CoJWinchesterLoadingModel::ordinary:
             CoJWinchesterLoadingModel::scoped;
-        if(BuildCoJWinchesterLoadingLip(model,mouth,out.points_cm))out.count=out.points_cm.size();
+        if(BuildCoJWinchesterLoadingLip(model,mouth,out.points_cm)){
+            out.count=out.points_cm.size();
+            // Centre of the pinned GunLever LOD0 model bounds in GunBody space.
+            // Stock Winchester and Scope have the same authored lever pose.
+            const auto x=winchester_loading_detail::Cross(winchester_loading_detail::Widen(mouth.up),
+                winchester_loading_detail::Widen(mouth.forward));
+            constexpr runtime::Vec3 local{.00495F,-5.84833F,2.93542F};
+            out.lever_valid=winchester_loading_detail::Store({mouth.position.x+x.x*local.x+mouth.up.x*local.y+mouth.forward.x*local.z,
+                mouth.position.y+x.y*local.x+mouth.up.y*local.y+mouth.forward.y*local.z,
+                mouth.position.z+x.z*local.x+mouth.up.z*local.y+mouth.forward.z*local.z},out.lever_cm);
+        }
     }else{
         const auto model=name=="WeaponRifleRemington"?CoJRemingtonLoadingModel::ordinary:
             CoJRemingtonLoadingModel::sawed_off;

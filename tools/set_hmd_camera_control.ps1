@@ -78,6 +78,9 @@ $Control = [ordered]@{
     schofieldMotion = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['schofieldMotion'] -and
         [bool]$ExistingControl.schofieldMotion
+    winchesterReceiver = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['winchesterReceiver'] -and
+        [bool]$ExistingControl.winchesterReceiver
     renderResourceProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['renderResourceProbeEnabled'] -and
         [bool]$ExistingControl.renderResourceProbeEnabled

@@ -1133,8 +1133,16 @@ cartridge nose from current input before transfer. It brackets native reads
 with the same weapon object and waiting phase, borrows resolved render readers
 and keeps all sampled frames local. The diagnostic records held and released
 poses, including misses, for correlation with the independent rendered sample.
-The input policy continues to use the grip receipt while that correlation and
+The default input policy continues to use the grip receipt while that correlation and
 mechanical clearance await live validation.
+
+`-WinchesterReceiver` opts the exact ordinary and scoped Winchester into a
+same-sample exterior contact candidate. A read-only native preview supplies
+the lip, the tracked cartridge tip and the authored lever reference. A held
+inward push and a current exterior contact authorize release through the
+existing native unit transaction. Missing geometry withholds receiver insertion.
+A downward free-hand stroke near the lever requests native closure during the
+waiting phase. Full or reserve-exhausted insertion follows native completion.
 
 The duel coach is read-only presentation from the existing native input capture:
 phase, observed hand occupancy, physical pitch and successful axis delivery.
@@ -1211,9 +1219,10 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a backward hand or wrist flick to unload and a forward
-flick to close, independently of the loaded count. After ejection the gesture
-waits for a neutral hold before accepting the return direction. An empty eject
+retained wait accepts a backward translation of the armed hand to unload and
+forward translation to close, independently of the loaded count. The first
+stroke direction is retained through reversals until a neutral hold. A partial
+drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
 clears the outlines and pulses the armed hand. Confirmed reserve transfers also
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
 uses the verified quantity with one shared mesh and bounded stereo instances.

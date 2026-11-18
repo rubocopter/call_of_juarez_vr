@@ -18,6 +18,7 @@ param(
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$SchofieldMotion,
+    [switch]$WinchesterReceiver,
     [switch]$RenderResourceProbe,
     [switch]$SampledSceneDepth,
     [switch]$TemporalSequence,
@@ -31,6 +32,9 @@ $ErrorActionPreference = "Stop"
 if ($TemporalSequence) { $SampledSceneDepth = [switch]$true }
 if ($SchofieldMotion -and (-not $ManualReload -or -not $IndependentHands)) {
     throw 'SchofieldMotion requires ManualReload and IndependentHands.'
+}
+if ($WinchesterReceiver -and (-not $ManualReload -or -not $IndependentHands)) {
+    throw 'WinchesterReceiver requires ManualReload and IndependentHands.'
 }
 if ($InteractionRegression -and $ValidationProfile -ne 'full') {
     throw 'InteractionRegression requires the full validation profile.'
@@ -514,6 +518,11 @@ if ($SchofieldMotion) {
         '"manualReloadInstalled": true, "schofieldMotion": true,')
     $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 }
+if ($WinchesterReceiver) {
+    $CameraControlText = $CameraControlText.Replace('"manualReloadInstalled": true,',
+        '"manualReloadInstalled": true, "winchesterReceiver": true,')
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
 $CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
 $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
 $JournalAssets = @(
@@ -743,6 +752,7 @@ if ($HadOriginal) {
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
         schofieldMotion = $SchofieldMotion.IsPresent
+        winchesterReceiver = $WinchesterReceiver.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
         sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent
@@ -839,6 +849,7 @@ if ($HadOriginal) {
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
             schofieldMotion = $SchofieldMotion.IsPresent
+            winchesterReceiver = $WinchesterReceiver.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
             sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
             sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent

@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/winchester_loading_probe.hpp"
+#include "games/call_of_juarez/winchester_reload_approach.hpp"
 #include "runtime/reload_visual.hpp"
 #include <cstdlib>
 #include <cstring>
@@ -7,7 +8,84 @@
 using namespace cojvr::games::call_of_juarez;
 void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 bool Near(float a,float b){return std::abs(a-b)<.0001F;}
+
+namespace {
+void CheckReceiverApproach() {
+    using cojvr::runtime::Vec3;
+    constexpr ElementWorldBasisTarget identity{{},{0,1,0},{0,0,1},true};
+    // Proper, non-axis-aligned rotation with the receiver facing world -X.
+    const auto rotate=[](Vec3 v) -> Vec3 {
+        return {(-2*v.x+2*v.y-v.z)/3,(v.x+2*v.y+2*v.z)/3,(2*v.x+v.y-2*v.z)/3};
+    };
+    constexpr Vec3 translation{120,-72,35};
+    const auto point=[&](Vec3 v) -> Vec3 {
+        const auto r=rotate(v);
+        return {r.x+translation.x,r.y+translation.y,r.z+translation.z};
+    };
+    constexpr Vec3 centre{1.228641F,-17.347876F,-4.344577F};
+    constexpr Vec3 outward{.999935744F,-.002132640F,.011133682F};
+    for (const auto model : {CoJWinchesterLoadingModel::ordinary, CoJWinchesterLoadingModel::scoped}) {
+        const ElementWorldBasisTarget body{translation,rotate(identity.up),rotate(identity.forward),true};
+        CoJReloadMouthPreview preview{};
+        Check(BuildCoJWinchesterLoadingLip(model,body,preview.points_cm),"measured preview lip failed");
+        preview.count=preview.points_cm.size();
+        const auto expected_centre=point(centre);
+        auto approach=BuildCoJWinchesterReloadApproach(preview);
+        Check(approach.mouth_valid && !approach.valid && !approach.within_capture &&
+            Near(approach.centre_cm.x,expected_centre.x) && Near(approach.centre_cm.y,expected_centre.y) &&
+            Near(approach.centre_cm.z,expected_centre.z),"preview lost its measured centre without a current nose");
+
+        const auto sample=[&](Vec3 lip, float distance, Vec3 axis) {
+            preview.tip_cm={point({lip.x+outward.x*distance,lip.y+outward.y*distance,
+                lip.z+outward.z*distance}),rotate(identity.up),rotate(axis),true};
+            return BuildCoJWinchesterReloadApproach(preview);
+        };
+        constexpr Vec3 inward{-1,0,0};
+        const auto far=sample(centre,4.F,inward);
+        const auto outside=sample(centre,2.F,inward);
+        const auto nearer=sample(centre,.25F,inward);
+        const auto behind=sample(centre,-.25F,inward);
+        Check(far.valid && !far.within_capture && Near(far.outside_distance_cm,4.F) &&
+            outside.valid && outside.within_capture && Near(outside.outside_distance_cm,2.F) &&
+            nearer.valid && nearer.within_capture && Near(nearer.outside_distance_cm,.25F) &&
+            behind.valid && !behind.within_capture && Near(behind.outside_distance_cm,-.25F),
+            "signed exterior distance did not decrease through the rotated right-side lip");
+        const auto reversed=sample(centre,2.F,{1,0,0});
+        const auto tangent=sample(centre,2.F,{0,0,1});
+        Check(Near(outside.axis_alignment,outward.x) && Near(reversed.axis_alignment,-outward.x) &&
+            Near(tangent.axis_alignment,-outward.z) && reversed.within_capture,
+            "nose alignment must be signed and separate from the capture geometry");
+
+        // Relative to the measured Y=-20.0688 edge (not the mouth centre).
+        const Vec3 near_edge{1.228641F,-22.F,-4.4F};
+        const Vec3 far_edge{1.228641F,-23.2F,-4.4F};
+        Check(sample(near_edge,1.F,inward).within_capture &&
+            !sample(near_edge,2.5F,inward).within_capture &&
+            !sample(far_edge,.25F,inward).within_capture,
+            "capture must use combined distance to the measured polygon near its rim");
+        Check(sample({1.228641F,-14.65F,-4.3F},2.998F,inward).within_capture &&
+            !sample({1.228641F,-14.65F,-3.58F},2.998F,inward).within_capture,
+            "capture lost the measured tab or filled the adjacent concave notch");
+
+        auto invalid=preview;
+        invalid.tip_cm.forward={};
+        approach=BuildCoJWinchesterReloadApproach(invalid);
+        Check(approach.mouth_valid && !approach.valid && !approach.within_capture,
+            "invalid tip axis admitted receiver capture");
+        invalid=preview; invalid.count=2;
+        Check(!BuildCoJWinchesterReloadApproach(invalid).mouth_valid,"shotgun preview admitted as Winchester");
+        invalid=preview; invalid.points_cm.fill(expected_centre);
+        Check(!BuildCoJWinchesterReloadApproach(invalid).mouth_valid,"collapsed polygon admitted as Winchester");
+        invalid=preview; std::reverse(invalid.points_cm.begin(),invalid.points_cm.end());
+        Check(!BuildCoJWinchesterReloadApproach(invalid).mouth_valid,"reversed winding could invert receiver exterior");
+        invalid=preview; invalid.points_cm[7].x=std::numeric_limits<float>::quiet_NaN();
+        Check(!BuildCoJWinchesterReloadApproach(invalid).mouth_valid,"nonfinite receiver corner admitted");
+    }
+}
+}
+
 int main(){
+    CheckReceiverApproach();
     // A legacy controller-tip proxy or missing mesh centre correction puts
     // this nose 2.1088 cm away from the actual displayed imported mesh.
     ElementWorldBasisTarget pinch{{100,200,300},{0,1,0},{1,0,0},true};

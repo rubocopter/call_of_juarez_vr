@@ -29,6 +29,7 @@
 #include "games/call_of_juarez/mounted_input.hpp"
 #include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "games/call_of_juarez/winchester_loading_probe.hpp"
+#include "games/call_of_juarez/winchester_reload_approach.hpp"
 #include "games/call_of_juarez/remington_loading_probe.hpp"
 #include "games/call_of_juarez/reload_mouth_preview.hpp"
 #include "runtime/reload_visual.hpp"
@@ -4065,19 +4066,23 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     geometry.muzzle_direction=RuntimeVector(direction);geometry.read_failure="none";return true;
 }
 
-// Compare with the independently verified render geometry at the same frame.
-// This prediction runs before the native insertion and retains no render map.
-void ObserveReloadMouthPreview(const CameraRenderStateSnapshot& natural,float height,
+struct ReloadMouthCapture {
+    CoJReloadMouthPreview preview{};
+    runtime::Vec3 origin{}, right{}, up{}, forward{};
+};
+
+// Sample the pinned native body and the same-frame tracked transforms before
+// input dispatch. No prior display frame or grip offset can admit a receiver.
+bool ReadReloadMouthPreview(const CameraRenderStateSnapshot& natural,float height,
     const CoJManualReloadInput& input,const runtime::Pose& left_tip,const runtime::Pose& right_tip,
-    std::uint64_t frame,bool release,bool grip_release_admitted) noexcept {
-    if(!CoJReloadMouthElement(input.native)||g_reload_mouth_preview_attempts>=120||
-        input.native.probe_status!=2)return;
-    ++g_reload_mouth_preview_attempts;
+    ReloadMouthCapture& out,bool need_tip) noexcept {
+    out={};
+    if(!CoJReloadMouthElement(input.native)||input.native.probe_status!=2)return false;
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
-    if(!ReadNaturalCameraFrame(natural,basis,camera))return;
+    if(!ReadNaturalCameraFrame(natural,basis,camera))return false;
     basis=BuildTrackingReferenceBasis(basis.forward,basis.up,BodyYawCompensationForCurrentPlayer());
-    if(!IsCameraProbeBasisRigidRightHanded(basis))return;
+    if(!IsCameraProbeBasisRigidRightHanded(basis))return false;
     const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
         u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
     const auto grip_world=[&](const runtime::Pose& grip,bool& valid){
@@ -4087,21 +4092,52 @@ void ObserveReloadMouthPreview(const CameraRenderStateSnapshot& natural,float he
     const bool right=input.native.armed_hand==0;
     const auto& tip=right?right_tip:left_tip;
     const auto& support=right?input.left:input.right;
-    if(!tip.orientation_valid)return;
+    if(!tip.orientation_valid)return false;
     bool valid=false;
     const auto grip=grip_world(right?input.right:input.left,valid);
-    if(!valid)return;
+    if(!valid)return false;
     const auto direction=BuildTrackedAimDirection(tip.orientation,x,u,f,valid);
-    if(!valid)return;
+    if(!valid)return false;
     const auto local_up=runtime::RotateVector(tip.orientation,{0,1,0});
     const runtime::Vec3 up{x.x*local_up.x+u.x*local_up.y+f.x*local_up.z,
         x.y*local_up.x+u.y*local_up.y+f.y*local_up.z,x.z*local_up.x+u.z*local_up.y+f.z*local_up.z};
-    const auto support_world=grip_world(support,valid);
-    if(!valid)return;
-    const auto support_socket=BuildTrackedHandSocketFrame(support.orientation,x,u,f,support_world);
-    CoJReloadMouthPreview preview{};
-    if(!g_java_player_bridge.TryPreviewManualReloadMouths(input.native,grip,direction,up,support_socket,preview)||
-        input.player!=g_java_player_bridge.being_generation())return;
+    ElementWorldBasisTarget support_socket{};
+    if(need_tip){
+        const auto support_world=grip_world(support,valid);
+        if(!valid)return false;
+        support_socket=BuildTrackedHandSocketFrame(support.orientation,x,u,f,support_world);
+    }
+    if(!g_java_player_bridge.TryPreviewManualReloadMouths(input.native,grip,direction,up,support_socket,out.preview)||
+        input.player!=g_java_player_bridge.being_generation())return false;
+    out.origin={camera.x,camera.y+height,camera.z};out.right=x;out.up=u;out.forward=f;
+    return true;
+}
+
+CoJWinchesterReceiverInput WinchesterReceiverInput(const ReloadMouthCapture& capture) noexcept {
+    using namespace winchester_loading_detail;
+    const auto approach=BuildCoJWinchesterReloadApproach(capture.preview);
+    if(!approach.mouth_valid)return {};
+    CoJWinchesterReceiverInput out{};
+    const auto axes=[&](Vector vector){return Project(vector,Widen(capture.right),Widen(capture.up),Widen(capture.forward));};
+    const auto position=[&](runtime::Vec3 p,runtime::Vec3& dest){
+        const auto o=Widen(capture.origin);
+        return Store(axes({(p.x-o.x)/kGameUnitsPerMeter,(p.y-o.y)/kGameUnitsPerMeter,
+            (p.z-o.z)/kGameUnitsPerMeter}),dest);
+    };
+    out.mouth_valid=position(approach.centre_cm,out.centre);
+    out.lever_valid=capture.preview.lever_valid&&position(capture.preview.lever_cm,out.lever);
+    out.tip_valid=approach.valid&&Store(axes(Widen(approach.inward)),out.inward)&&
+        position(capture.preview.tip_cm.position,out.tip);
+    out.outside_cm=approach.outside_distance_cm;out.alignment=approach.axis_alignment;
+    out.within_capture=approach.within_capture;
+    return out;
+}
+
+// Compare with the independently verified render geometry at the same frame.
+void ObserveReloadMouthPreview(const CoJReloadMouthPreview& preview,const CoJManualReloadInput& input,
+    std::uint64_t frame,bool release,bool release_admitted) noexcept {
+    if(!preview.count||g_reload_mouth_preview_attempts>=120)return;
+    ++g_reload_mouth_preview_attempts;
     try{
         std::string detail="frame_sequence="+std::to_string(frame)+";pose_sequence="+std::to_string(input.sequence)+
             ";player_generation="+std::to_string(input.player)+";native_context="+std::to_string(input.context)+
@@ -4109,7 +4145,7 @@ void ObserveReloadMouthPreview(const CameraRenderStateSnapshot& natural,float he
             ";weapon_id="+std::to_string(input.native.weapon_id)+";weapon_class="+input.native.weapon_class+
             ";armed_hand="+std::to_string(input.native.armed_hand)+";selected_index="+
             std::to_string(input.native.selected_index)+";release="+std::to_string(release)+
-            ";grip_release_admitted="+std::to_string(grip_release_admitted)+
+            ";grip_release_admitted="+std::to_string(release_admitted)+
             ";tip_valid="+std::to_string(preview.tip_cm.valid)+";clearance_proven=false;socket_admission=false";
         for(std::size_t i=0;i<preview.count;++i)
             detail+=";point"+std::to_string(i)+"_cm="+RuntimeVectorText(preview.points_cm[i]);
@@ -6974,23 +7010,48 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_input.head=relative_head_pose;manual_input.left=relative_left_controller;manual_input.right=relative_right_controller;
     if(manual_input.enabled&&motion_reload_context)
         (void)g_java_player_bridge.TryObserveReloadTrace(manual_input.native,true,g_manual_reload.selected_index());
-    manual_input.armed_aim=manual_input.native.armed_hand==0?relative_right_aim:relative_left_aim;
     const auto reload_feedback_owner = PublishReloadFeedbackOwner(
         manual_input.player, manual_input.context, manual_input.native);
     const auto manual_before=g_manual_reload.phase();
     const auto carry_before=g_manual_reload.gesture_stage();
+    const bool carried_before=carry_before==runtime::MotionReloadGestureStage::carrying||
+        carry_before==runtime::MotionReloadGestureStage::replenished_carrying;
+    const auto* mouth=CoJReloadMouthElement(manual_input.native);
+    manual_input.winchester_receiver=snapshot.command.winchester_receiver&&mouth&&std::string_view(mouth)=="GunBody";
+    if(manual_input.winchester_receiver&&manual_reload_enabled&&motion_reload_context&&
+        manual_input.native.probe_status==2&&(raw_reload_input.digital_available&3U)==3U){
+        const auto a=manual_input.left.position,b=manual_input.right.position;
+        const bool near_rifle=std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<.40F;
+        const bool need_tip=carried_before||raw_reload_input.fire_left;
+        ReloadMouthCapture capture{};
+        if((near_rifle||need_tip)&&ReadReloadMouthPreview(natural_render_state,physical_view_correction,
+            manual_input,relative_left_aim,relative_right_aim,capture,need_tip))
+            manual_input.receiver=WinchesterReceiverInput(capture);
+    }
     auto manual_result=g_manual_reload.Update(gameplay_input,manual_input);
     if(snapshot.command.reload_trace_enabled&&manual_result.tracked&&!manual_result.cancel){
         const auto& gesture=manual_result.gesture;
         const bool carrying=gesture.cartridge_held&&gesture.claimed_hand==gesture.cartridge_hand;
-        const bool release=(carry_before==runtime::MotionReloadGestureStage::carrying||
-            carry_before==runtime::MotionReloadGestureStage::replenished_carrying)&&gesture.claimed_hand<2&&
+        const bool release=carried_before&&gesture.claimed_hand<2&&
             !(gesture.claimed_hand==0?raw_reload_input.fire_right:raw_reload_input.fire_left)&&
             (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
              g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
-        if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence)))
-            ObserveReloadMouthPreview(natural_render_state,physical_view_correction,manual_input,
-                relative_left_aim,relative_right_aim,frame_sequence,release,manual_result.insert);
+        if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence))){
+            if(manual_input.winchester_receiver){
+                try{EmitEvent("winchester_receiver_contact",manual_result.insert?"release_admitted":"sampled",
+                    "frame_sequence="+std::to_string(frame_sequence)+";release="+std::to_string(release)+
+                    ";mouth_valid="+std::to_string(manual_input.receiver.mouth_valid)+
+                    ";tip_valid="+std::to_string(manual_input.receiver.tip_valid)+
+                    ";outside_cm="+std::to_string(manual_input.receiver.outside_cm)+
+                    ";alignment="+std::to_string(manual_input.receiver.alignment)+
+                    ";within_capture="+std::to_string(manual_input.receiver.within_capture));}catch(...){}
+            }else if(g_reload_mouth_preview_attempts<120){
+                ReloadMouthCapture capture{};
+                if(ReadReloadMouthPreview(natural_render_state,physical_view_correction,manual_input,
+                    relative_left_aim,relative_right_aim,capture,true))
+                    ObserveReloadMouthPreview(capture.preview,manual_input,frame_sequence,release,manual_result.insert);
+            }
+        }
     }
     if(manual_result.start)g_reload_depth_observation_budget=6;
     runtime::ReloadInsertionFeedback manual_feedback{};
@@ -7002,7 +7063,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
         const bool forward_flick=std::string_view(manual_result.reason)=="schofield_forward_flick";
-        if(forward_flick){
+        const bool lever_close=std::string_view(manual_result.reason)=="winchester_lever_close";
+        if(forward_flick||lever_close){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return g_java_player_bridge.CancelManualReload(&manual_error);
@@ -7013,7 +7075,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 after.valid&&after.probe_valid&&after.weapon_id==manual_input.native.weapon_id&&
                 after.armed_hand==manual_input.native.armed_hand;
             try{
-                EmitEvent("schofield_close","requested",
+                EmitEvent(lever_close?"winchester_lever_close":"schofield_close","requested",
                     "frame_sequence="+std::to_string(frame_sequence)+
                     ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
                     ";close_completed="+std::to_string(completed)+
@@ -9521,6 +9583,10 @@ bool ParseCameraProbeCommand(
     bool schofield_motion_present=false;
     if(!ReadBool(text,"schofieldMotion",parsed.schofield_motion,schofield_motion_present)){
         SetError(error,"schofieldMotion must be true or false");return false;
+    }
+    bool winchester_receiver_present=false;
+    if(!ReadBool(text,"winchesterReceiver",parsed.winchester_receiver,winchester_receiver_present)){
+        SetError(error,"winchesterReceiver must be true or false");return false;
     }
     if (!ReadBool(text,"reloadTraceEnabled",parsed.reload_trace_enabled,reload_trace_present)) {
         SetError(error,"reloadTraceEnabled must be true or false"); return false;
