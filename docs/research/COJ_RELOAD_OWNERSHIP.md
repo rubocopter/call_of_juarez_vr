@@ -885,6 +885,19 @@ hand and inventory on both sides of the read. The presentation order starts at d
 keeps it separate from measured occupancy. Placement and readability from the
 rear remain unobserved in the headset.
 
+One finished live run correlates seven native waiting samples to an
+independently observed ready pose for the same base Schofield. `GunReleaser`
+rotates about 68° relative to the weapon root and translates about 3.33 cm in
+that frame. In the barrel frame it translates about 0.44–0.45 cm along local
+`+X` with no measurable rotation. The drum's barrel-relative translation
+changes by less than 0.01 cm, and its orientation follows the sampled native
+phase changes. Post-overlay receipts expose the six centres and the count
+mask at 0, 1, 2 and 5 loaded rounds. The same two-round count is observed at
+60° and −60° with the same nominal mask. The mask therefore rotates with
+the drum. To keep empty positions starting to the viewer's right, order the
+displayed mouths in a non-spinning rear-view reference at the observed phase.
+The observed transform alone leaves rear access and occlusion unqualified.
+
 The original `PawnInventory.AddAmmo(Weapon, boolean)` previews availability
 with `true`. Its write branch caps removal by reserve headroom, subtracts from
 the weapon and credits the matching reserve as two separate writes. The normal

@@ -87,9 +87,10 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   native ammunition accounting on unload and insertion, and require native
   close confirmation before admitting fresh fire input. The current automatic
   close after insertion remains the baseline for comparison.
-  The read-only trace has six measured rear mouths and a count-based empty
-  mask, starting at the upper-right in drum space. Qualify that presentation
-  against the displayed open drum. Return all still-loaded rounds to the
+  Live read-only traces now correlate the six measured rear mouths, the native
+  waiting pose and a count-based empty mask in drum space. Order the rendered
+  empty positions from upper-right in a non-spinning rear-view frame and check
+  their visibility. Return all still-loaded rounds to the
   pistol reserve when it has room for the complete transfer. Host tests
   exercise that transfer on the exact archive, full-reserve rejection and
   quarantine after interrupted native writes. The gameplay route, cleared
