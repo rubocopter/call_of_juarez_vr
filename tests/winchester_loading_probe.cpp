@@ -36,38 +36,55 @@ void CheckReceiverApproach() {
             Near(approach.centre_cm.z,expected_centre.z),"preview lost its measured centre without a current nose");
 
         const auto sample=[&](Vec3 lip, float distance, Vec3 axis) {
+            // Put the requested projection on the measured best-fit plane.
+            lip.x=centre.x-(outward.y*(lip.y-centre.y)+outward.z*(lip.z-centre.z))/outward.x;
             preview.tip_cm={point({lip.x+outward.x*distance,lip.y+outward.y*distance,
                 lip.z+outward.z*distance}),rotate(identity.up),rotate(axis),true};
             return BuildCoJWinchesterReloadApproach(preview);
         };
         constexpr Vec3 inward{-1,0,0};
-        const auto far=sample(centre,4.F,inward);
         const auto outside=sample(centre,2.F,inward);
-        const auto nearer=sample(centre,.25F,inward);
         const auto behind=sample(centre,-.25F,inward);
-        Check(far.valid && !far.within_capture && Near(far.outside_distance_cm,4.F) &&
-            outside.valid && outside.within_capture && Near(outside.outside_distance_cm,2.F) &&
-            nearer.valid && nearer.within_capture && Near(nearer.outside_distance_cm,.25F) &&
-            behind.valid && !behind.within_capture && Near(behind.outside_distance_cm,-.25F),
-            "signed exterior distance did not decrease through the rotated right-side lip");
+        Check(outside.valid && outside.within_capture && Near(outside.outside_distance_cm,2.F) &&
+            behind.valid && behind.within_capture && Near(behind.outside_distance_cm,-.25F),
+            "capture did not span both sides of the rotated lip with signed diagnostics");
         const auto reversed=sample(centre,2.F,{1,0,0});
-        const auto tangent=sample(centre,2.F,{0,0,1});
-        Check(Near(outside.axis_alignment,outward.x) && Near(reversed.axis_alignment,-outward.x) &&
-            Near(tangent.axis_alignment,-outward.z) && reversed.within_capture,
+        const auto tangent=sample(centre,-2.F,{0,0,1});
+        Check(reversed.valid && reversed.within_capture && tangent.valid && tangent.within_capture &&
+            Near(outside.axis_alignment,outward.x) && Near(reversed.axis_alignment,-outward.x) &&
+            Near(tangent.axis_alignment,-outward.z),
             "nose alignment must be signed and separate from the capture geometry");
 
-        // Relative to the measured Y=-20.0688 edge (not the mouth centre).
-        const Vec3 near_edge{1.228641F,-22.F,-4.4F};
-        const Vec3 far_edge{1.228641F,-23.2F,-4.4F};
-        Check(sample(near_edge,1.F,inward).within_capture &&
-            !sample(near_edge,2.5F,inward).within_capture &&
-            !sample(far_edge,.25F,inward).within_capture,
-            "capture must use combined distance to the measured polygon near its rim");
-        Check(sample({1.228641F,-14.65F,-4.3F},2.998F,inward).within_capture &&
-            !sample({1.228641F,-14.65F,-3.58F},2.998F,inward).within_capture,
-            "capture lost the measured tab or filled the adjacent concave notch");
+        for (const float side : {-1.F,1.F}) {
+            const auto near=sample(centre,side*6.99F,inward);
+            const auto far=sample(centre,side*7.01F,inward);
+            Check(near.valid && near.within_capture && Near(near.outside_distance_cm,side*6.99F) &&
+                far.valid && !far.within_capture && Near(far.outside_distance_cm,side*7.01F),
+                "the rotated lip must have a 7 cm normal reach on both sides");
+
+            // The measured rim ends near Y=-20.0688, 1.93 cm from near_edge.
+            const Vec3 near_edge{0,-22.F,-4.4F};
+            const Vec3 far_edge{0,-27.2F,-4.4F};
+            Check(sample(near_edge,side*6.5F,inward).within_capture &&
+                !sample(near_edge,side*6.85F,inward).within_capture &&
+                !sample(far_edge,side*.25F,inward).within_capture,
+                "capture must use combined distance to the finite measured rim on both sides");
+            Check(sample({0,-14.65F,-4.3F},side*6.999F,inward).within_capture &&
+                !sample({0,-14.65F,-3.58F},side*6.999F,inward).within_capture,
+                "capture lost the measured tab or filled the adjacent concave notch");
+        }
 
         auto invalid=preview;
+        invalid.tip_cm.valid=false;
+        approach=BuildCoJWinchesterReloadApproach(invalid);
+        Check(approach.mouth_valid && !approach.valid && !approach.within_capture,
+            "unread tip frame admitted receiver capture");
+        invalid=preview;
+        invalid.tip_cm.position.x=std::numeric_limits<float>::infinity();
+        approach=BuildCoJWinchesterReloadApproach(invalid);
+        Check(approach.mouth_valid && !approach.valid && !approach.within_capture,
+            "nonfinite tip position admitted receiver capture");
+        invalid=preview;
         invalid.tip_cm.forward={};
         approach=BuildCoJWinchesterReloadApproach(invalid);
         Check(approach.mouth_valid && !approach.valid && !approach.within_capture,

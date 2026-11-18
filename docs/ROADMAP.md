@@ -20,9 +20,9 @@ Current source already implements and host-tests these changes:
 - Sixteen exact manual firearm profiles, including the pinned Henry 1863 alias;
   unit, retained-index and native clip accounting remain separate.
 - One optional insertion-policy target guide for every admitted manual profile,
-  including Schofield. The conflicting measured-mouth circles are withdrawn.
-  The active target still uses the provisional grip zone; precise mouth contact
-  is not implemented or accepted.
+  including Schofield. The provisional grip zone is the default. The optional
+  Winchester candidate places the guide at the measured receiver lip and
+  permits nearby releases on either side of its plane.
 - Recovery of idle-rifle support fingers after positively confirmed native reload
   completion, while preserving retained cleanup responsibility. This does not
   resolve the reported skin pose during active loading.
@@ -64,8 +64,8 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — image quality and rendering stability | Qualify the reduced temporal source mode at native 2804×2860 and isolate translucent flicker under capture pressure. | The preview-only path has native-size GPU coverage and the isolated helper preserves fully marked current pixels. GPU depth-disagreement/halo masking has host and reduced recorded-source coverage; qualify native dynamic/material exclusions, game jitter and full-size cost. Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
-| 2 — real reload contact | Check the Winchester exterior approach and lever candidate in the headset. Collect restored-pair geometry for the Winchester/Remington comparison analyzer. | Qualify appearance, release accuracy, native transfers and close/regrip recovery. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 1 — campaign gameplay and reloads | Qualify Schofield and Winchester gestures and exercise other firearms as encountered in the campaign. Check level transitions and recovery on the intended release configuration. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 2 — rendering stability | Isolate translucent flicker under capture pressure. Keep temporal reconstruction in the experimental track. | Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
 | 5 — scoped shot agreement | Correlate native fired trajectory/impact with optical ray and qualify head-yaw/Focus isolation. | Reticle/actual impact remains rejected; no guessed reticle offset or native spread change. Controller-only rendering and body-yaw freeze are host-tested, not a physical solution. |
@@ -81,7 +81,7 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
 - The exact base Schofield has an opt-in development route for opening,
-  backward unloading, retained bundle insertion and a forward wrist
+  downward unloading, retained bundle insertion and a rearward pull or wrist
   flick to close. Qualify count conservation, closing/recovery, rear-view
   guide visibility and gesture comfort using the combined headset gate.
   Ordinary clips and variants retain automatic close on insertion.
@@ -317,6 +317,15 @@ These milestones identify implemented scope. [Validation](VALIDATION.md)
 provides the exact physical acceptance boundaries and pending checks.
 
 ## Release direction
+
+The official v1.0.0 target is a playable original campaign from New Game
+through the ending on the supported Steam/OpenVR configuration. Prioritize
+core controls, combat and equipment. The operator reports working chapter
+transitions, checkpoints, recovery after death and secret scrolls in the
+exercised campaign. Preserve those paths during the end-to-end playthrough.
+Temporally reconstructed output, DLSS and DLAA remain experimental and outside
+this gate.
+See the [campaign acceptance checklist](VALIDATION.md#pending-headset-checks).
 
 Keep published .5 artifacts and verdicts unchanged. Future distributions retain
 reversible installation, saved resolution/reload choices, local-only diagnostics,

@@ -1137,12 +1137,14 @@ The default input policy continues to use the grip receipt while that correlatio
 mechanical clearance await live validation.
 
 `-WinchesterReceiver` opts the exact ordinary and scoped Winchester into a
-same-sample exterior contact candidate. A read-only native preview supplies
-the lip, the tracked cartridge tip and the authored lever reference. A held
-inward push and a current exterior contact authorize release through the
-existing native unit transaction. Missing geometry withholds receiver insertion.
-A downward free-hand stroke near the lever requests native closure during the
-waiting phase. Full or reserve-exhausted insertion follows native completion.
+receiver proximity candidate. A read-only native preview supplies the lip,
+the tracked cartridge tip and the authored lever reference. After a valid hip
+pickup and carry, a fresh release can use the existing native unit transaction
+when the tip is within 7 cm of the finite projected lip on either side. Signed
+distance to its plane and cartridge angle remain diagnostic. Missing geometry
+withholds receiver insertion. A short downward free-hand stroke near the lever
+requests native closure during the waiting phase. Full or reserve-exhausted
+insertion follows native completion.
 
 The duel coach is read-only presentation from the existing native input capture:
 phase, observed hand occupancy, physical pitch and successful axis delivery.
@@ -1219,9 +1221,10 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a backward translation of the armed hand to unload and
-forward translation to close, independently of the loaded count. The first
-stroke direction is retained through reversals until a neutral hold. A partial
+retained wait accepts a downward shake with the muzzle tipped down to unload.
+A rearward pull or an upward wrist flick closes at any load count. Stroke
+classification uses the tracked aim and HMD-relative armed hand. The first
+stroke intent is retained through reversals until a neutral hold. A partial
 drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
 clears the outlines and pulses the armed hand. Confirmed reserve transfers also
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
@@ -1471,11 +1474,13 @@ Displayed drum/gate observation is a separate read-only game diagnostic. Precise
 chamber/ejection, independently controlled mechanical pose and
 manual-session engine save/load recovery remain unresolved.
 The manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
-It consumes rejected Square admission until release, preserving native fallback
-only for positively identified unsupported contexts. Missing observation cannot
-start conventional reload. The exact base Schofield shot tail can hold one
-Square press for up to 450 ms. The same owner must pass ordinary idle admission
-before the manual request is dispatched. Invalid owner/context/poses/input availability,
+It consumes rejected Square admission until release. In eligible native-only
+contexts, the exact firearm fallback verifies the current weapon, player,
+hand slots and native state before passing Square to normal action 31. It
+includes the sixteen manual profiles and six pinned legacy classes. The base
+Schofield and five single-round revolvers can hold one Square press for up to
+450 ms in the coherent pistol shot tail. The same owner must pass ordinary
+idle admission before the manual request is dispatched. Invalid owner/context/poses/input availability,
 recenter, stale samples, incompatible actions or presentation failure close the
 session. Native-clock watchdog expiry is a recovery fallback, not a fixed mesh
 frame. JNI cleanup retains the player on failed cancellation for retry. See

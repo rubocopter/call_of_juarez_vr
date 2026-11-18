@@ -53,6 +53,8 @@ inline Vector LipLocal(const LipBasis& basis,Vector point) noexcept {
     using namespace winchester_loading_detail;
     using namespace winchester_reload_approach_detail;
     if (preview.count!=preview.points_cm.size()) return {};
+    for (const auto point : preview.points_cm)
+        if (!Finite(Widen(point))) return {};
     const auto world=OrderedLipBasis(preview.points_cm);
     if (Dot(world.x,world.x)==0) return {};
 
@@ -86,17 +88,15 @@ inline Vector LipLocal(const LipBasis& basis,Vector point) noexcept {
                 -normal.x*world.x.y-normal.y*world.y.y-normal.z*world.z.y,
                 -normal.x*world.x.z-normal.y*world.y.z-normal.z*world.z.z},out.inward)) return {};
     out.mouth_valid=true;
-    if (!Rigid(preview.tip_cm)) return out;
+    if (!Rigid(preview.tip_cm)) return out; // Requires a read-valid, finite tip frame.
 
     const auto tip=Project(Delta(LipLocal(world,Widen(preview.tip_cm.position)),centre),normal,along,across);
-    if (std::abs(tip.x)>std::numeric_limits<float>::max()) return out;
+    if (!Finite(tip) || std::abs(tip.x)>std::numeric_limits<float>::max()) return out;
     const auto axis=Project(Unit(Widen(preview.tip_cm.forward)),world.x,world.y,world.z);
     out.valid=true;
     out.outside_distance_cm=static_cast<float>(tip.x);
     out.axis_alignment=static_cast<float>(std::clamp(-Dot(axis,normal),-1.,1.));
 
-    constexpr double capture_cm=3.;
-    if (tip.x<0 || tip.x>capture_cm) return out;
     double nearest_edge_squared=std::numeric_limits<double>::infinity();
     bool projected_inside=false;
     for (std::size_t i=0,j=polygon.size()-1;i<polygon.size();j=i++) {
@@ -109,9 +109,11 @@ inline Vector LipLocal(const LipBasis& basis,Vector point) noexcept {
         if ((a.z>tip.z)!=(b.z>tip.z) && tip.y<a.y+(tip.z-a.z)*dy/dz)
             projected_inside=!projected_inside;
     }
-    // Exterior distance to the filled projected lip, including its concave
-    // rim. Capture is an ergonomic proximity check. It carries no clearance.
-    out.within_capture=projected_inside || tip.x*tip.x+nearest_edge_squared<=capture_cm*capture_cm;
+    // Distance to the filled projected lip on either side of its plane.
+    // Outside the polygon, the nearest point lies on its concave perimeter.
+    const double planar_distance_squared=projected_inside?0.:nearest_edge_squared;
+    constexpr double capture_cm=7.;
+    out.within_capture=tip.x*tip.x+planar_distance_squared<=capture_cm*capture_cm;
     return out;
 }
 } // namespace cojvr::games::call_of_juarez

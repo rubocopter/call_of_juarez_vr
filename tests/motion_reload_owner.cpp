@@ -22,6 +22,7 @@ int frontier_class,walker_class,cogswell_class,schofield_class;
 int weapon_alias;
 int scoped_class, winchester_class, henry_class, remington_class, sawoff_class, volcanic_class, lemant_class;
 int old_frontier_class, old_schofield_a_class, old_schofield_b_class;
+int old_henry_class, rifle_shotgun_class, shotgun_class;
 bool foreign_owner=false;
 bool net_game=false;
 void* table[174]{};
@@ -79,6 +80,9 @@ void* JNI_CALL Find(void*, const char* name) {
     if (!std::strcmp(name,"WeaponPistolFrontier1878_Regular_Old"))return Ref(&old_frontier_class);
     if (!std::strcmp(name,"WeaponPistolSchofield_A_Old"))return Ref(&old_schofield_a_class);
     if (!std::strcmp(name,"WeaponPistolSchofield_B_Old"))return Ref(&old_schofield_b_class);
+    if (!std::strcmp(name,"WeaponHenry1863_Old"))return Ref(&old_henry_class);
+    if (!std::strcmp(name,"WeaponRifleShotgun"))return Ref(&rifle_shotgun_class);
+    if (!std::strcmp(name,"WeaponShotgun"))return Ref(&shotgun_class);
     const bool whitelisted = !std::strcmp(name, "WeaponPistolFrontier1878_Regular") ||
         !std::strcmp(name, "WeaponPistolSchofield_A") ||
         !std::strcmp(name, "WeaponPistolSchofield_B");
@@ -428,13 +432,16 @@ void NativeFallbackRegression() {
         static_cast<void*>(&lemant_class),static_cast<void*>(&derringer_class),static_cast<void*>(&schofield_class),
         static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class),
         static_cast<void*>(&old_frontier_class),static_cast<void*>(&old_schofield_a_class),
-        static_cast<void*>(&old_schofield_b_class)}) {
+        static_cast<void*>(&old_schofield_b_class),static_cast<void*>(&pistol_class),
+        static_cast<void*>(&peacemaker_class),static_cast<void*>(&frontier_class),
+        static_cast<void*>(&walker_class),static_cast<void*>(&cogswell_class),
+        static_cast<void*>(&old_henry_class),static_cast<void*>(&rifle_shotgun_class),
+        static_cast<void*>(&shotgun_class)}) {
         for(int state:{1,31,32,97,129,149}) {
             Reset(hand);weapon_class=cls;current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=state;
             CoJMotionReloadOwner manual{};CoJMotionReloadDiagnostic diagnostic{};
             (void)ReadCoJMotionReloadOwner(&holder,&player,manual,&diagnostic);
-            Require(!manual.single_round_supported,
-                "native fallback enabled an unsupported manual profile/state");
+            Require(state==1||!manual.valid,"manual owner accepted an alternate state");
             const bool allowed=ReadCoJNativeReloadFallback(&holder,&player);
             Require(allowed&&refs==0&&!pending,"alternate/native-only firearm lost native reload");
             CoJManualReloadSession session;CoJManualReloadInput s{};s.enabled=s.allowed=true;
@@ -476,9 +483,16 @@ void NativeFallbackRegression() {
     for(int hand:{0,1}) {
         for(void* cls:{static_cast<void*>(&pistol_class),static_cast<void*>(&peacemaker_class),
             static_cast<void*>(&frontier_class),static_cast<void*>(&walker_class),
-            static_cast<void*>(&cogswell_class),static_cast<void*>(&other_class)}) {
-            Reset(hand);weapon_class=cls;current[hand]=149;fallback(false);
+            static_cast<void*>(&cogswell_class)}) {
+            Reset(hand);weapon_class=cls;current[hand]=32;
+            CoJMotionReloadOwner after_shot{};
+            Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&after_shot.valid&&
+                after_shot.kind==CoJManualReloadKind::unit&&after_shot.single_round_supported&&
+                after_shot.armed_hand==hand&&after_shot.weapon_id==static_cast<std::uint32_t>(weapon_id)&&
+                refs==0&&!pending,"exact unit revolver dropped the shot-tail reload press");
+            current[hand]=149;fallback(true);
         }
+        Reset(hand);weapon_class=&other_class;current[hand]=149;fallback(false);
         for(int id:{0,-1}){Reset(hand);weapon_class=&scoped_class;weapon_id=id;fallback(false);}
         for(std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
             Reset(hand);weapon_class=&scoped_class;weapon_id=static_cast<std::int32_t>(id);fallback(true);

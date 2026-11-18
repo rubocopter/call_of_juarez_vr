@@ -20,7 +20,7 @@ struct Fixture{
         s.native.valid=s.native.probe_valid=true;s.native.weapon_id=42;s.native.armed_hand=0;s.native.states[0]={1,1,1,1};
         s.native.reserve_readback=10;
     }
-    CoJManualReloadOutput Poll(){++s.sequence;s.now+=50;mapped=s.raw;return session.Update(mapped,s);}
+    CoJManualReloadOutput Poll(unsigned elapsed=50){++s.sequence;s.now+=elapsed;mapped=s.raw;return session.Update(mapped,s);}
     void Open(){(void)Poll();s.raw.reload=true;auto out=Poll();Check(out.start,"Square must prepare");
         session.NoteStart(true);s.raw.reload=false;s.native.probe_status=1;s.native.states[0]={20,21,21,21};
         Check(Poll().tracked,"owned opening must keep VR presentation");
@@ -67,16 +67,22 @@ struct IndexedFixture:Fixture {
     CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
 };
 void SchofieldMotionSession() {
-    const auto open=[](Fixture& f,int loaded){
+    const auto open=[](Fixture& f,int loaded,float pitch=0.F){
         f.s.schofield_motion=true;
+        f.s.armed_aim=f.s.right;
+        f.s.armed_aim.orientation={std::sin(pitch*.5F),0,0,std::cos(pitch*.5F)};
         f.s.native.weapon_class="WeaponPistolSchofield";
         f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
         f.s.native.capacities[0]=6;
         f.s.native.ammo_readback=f.s.native.loaded[0]=loaded;
         f.Open();
     };
-    const auto move=[](Fixture& f,float depth){
-        f.s.right.position.z+=depth;
+    const auto move=[](Fixture& f,Vec3 step){
+        f.s.right.position.x+=step.x;f.s.right.position.y+=step.y;f.s.right.position.z+=step.z;
+        return f.Poll();
+    };
+    const auto pitch=[](Fixture& f,float angle){
+        f.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
         return f.Poll();
     };
     Fixture top_up;
@@ -84,19 +90,19 @@ void SchofieldMotionSession() {
     top_up.Claim();
     Check(top_up.Insert().insert,"partly loaded drum refused the missing-round bundle");
     Fixture rebound;
-    open(rebound,3);
-    (void)move(rebound,-.013F);
-    Check(!move(rebound,.055F).unload&&!move(rebound,.055F).unload,
-        "incomplete forward gesture rebounded into an unload");
+    open(rebound,3,-.4F);
+    (void)move(rebound,{0,-.030F,0});
+    Check(!move(rebound,{0,.055F,.055F}).cancel&&!move(rebound,{0,.055F,.055F}).cancel,
+        "incomplete downstroke rebounded into a close");
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);
-        const auto first=move(f,-.055F);
-        Check(!first.cancel&&!first.unload,"short forward step closed the drum");
-        const auto close=move(f,-.055F);
+        const auto first=move(f,{0,0,.044F});
+        Check(!first.cancel&&!first.unload,"short rearward step closed the drum");
+        const auto close=move(f,{0,0,.044F});
         Check(close.cancel&&!close.unload&&!close.supervise&&
-            std::strcmp(close.reason,"schofield_forward_flick")==0,
-            "forward flick must close at every load count");
+            std::strcmp(close.reason,"schofield_rearward_close")==0,
+            "rearward flick must close at every load count");
         f.s.raw.fire_right=true;f.s.native.probe_status=3;(void)f.Poll();
         Check(!f.mapped.fire_right,"closing leaked a held fire input");
         f.s.native.probe_status=4;(void)f.Poll();
@@ -104,21 +110,21 @@ void SchofieldMotionSession() {
     }
     for(int loaded:{0,3,6}){
         Fixture f;
-        open(f,loaded);
+        open(f,loaded,-.36F);
         f.s.right.position.x+=.055F;Check(!f.Poll().unload,"lateral step requested unload");
         f.s.right.position.x+=.055F;Check(!f.Poll().unload,"lateral sweep requested unload");
-        Check(!move(f,.055F).unload,"short rearward step unloaded");
-        const auto eject=move(f,.055F);
+        Check(!move(f,{0,-.040F,0}).unload,"short downward step unloaded");
+        const auto eject=move(f,{0,-.040F,0});
         Check(!eject.cancel&&eject.unload==(loaded>0)&&eject.eject_empty==(loaded==0),
-            "backward flick must eject without closing at every load count");
+            "downward flick must eject without closing at every load count");
         if(loaded)f.session.NoteSchofieldUnloadConfirmed();
         Check(f.session.schofield_chambers_cleared(),"ejection receipt did not clear chamber outlines");
         f.s.native.ammo_readback=f.s.native.loaded[0]=0;
-        Check(!move(f,-.055F).cancel&&!move(f,-.055F).cancel,
+        Check(!move(f,{0,0,.055F}).cancel&&!move(f,{0,0,.055F}).cancel,
             "return stroke immediately closed after ejecting");
         for(int i=0;i<4;++i)(void)f.Poll();
-        (void)move(f,.055F);
-        Check(!move(f,.055F).eject_empty,"empty ejection replayed in the same wait");
+        (void)move(f,{0,-.055F,0});
+        Check(!move(f,{0,-.055F,0}).eject_empty,"empty ejection replayed in the same wait");
     }
     Fixture wrist;
     open(wrist,0);
@@ -127,16 +133,31 @@ void SchofieldMotionSession() {
     wrist.session.CompleteInsertion(true,true,bundle);
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=6;
     (void)wrist.Poll();
-    wrist.s.right.orientation={.70710678F,0,0,.70710678F};
-    Check(!wrist.Poll().unload,"wrist twist alone ejected a newly placed bundle");
-    (void)move(wrist,.055F);
-    Check(move(wrist,.055F).unload,"hand displacement could not eject a newly placed bundle");
+    Check(!pitch(wrist,-.34F).unload,"short wrist tip unloaded a newly placed bundle");
+    Check(pitch(wrist,-.74F).unload,"downward wrist flick could not eject a newly placed bundle");
     wrist.session.NoteSchofieldUnloadConfirmed();
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=0;
     for(int i=0;i<4;++i)(void)wrist.Poll();
-    (void)move(wrist,-.055F);
-    wrist.s.right.orientation={};
-    Check(move(wrist,-.055F).cancel,"opposite wrist rotation stole a forward close");
+    (void)pitch(wrist,-.40F);
+    Check(pitch(wrist,.04F).cancel,"rearward wrist flick did not close after rearming");
+
+    Fixture forward;
+    open(forward,3);
+    (void)move(forward,{0,0,-.055F});
+    const auto ahead=move(forward,{0,0,-.055F});
+    Check(!ahead.cancel&&!ahead.unload,"forward transport masqueraded as close or eject");
+
+    Fixture looking_down;
+    looking_down.s.head.orientation={-.70710678F,0,0,.70710678F};
+    open(looking_down,3,-.36F);
+    unsigned ejections=0;
+    for(int i=0;i<10;++i){
+        looking_down.s.right.position.y-=.009F;
+        const auto out=looking_down.Poll(11);
+        Check(!out.cancel,"downward movement while inspecting the drum closed it");
+        ejections+=out.unload;
+    }
+    Check(ejections==1,"90 Hz downward shake while looking down must eject once");
 }
 
 void WinchesterReceiverSession(){
@@ -153,16 +174,22 @@ void WinchesterReceiverSession(){
     Fixture port;
     open(port);port.Claim();
     auto& r=port.s.receiver;
-    r.centre={.32F,1.22F,-.62F};r.inward={1,0,0};
-    r.mouth_valid=r.tip_valid=true;r.alignment=.9F;r.outside_cm=8;
-    port.Carry(port.s.left,At({.24F,1.22F,-.62F}));
-    r.tip=port.s.left.position;(void)port.Poll();
-    port.s.left.position.x=.30F;r.tip=port.s.left.position;r.outside_cm=2;r.within_capture=true;
+    r.centre={.32F,1.22F,-.62F};
+    r.mouth_valid=r.tip_valid=true;r.alignment=-.27F;r.outside_cm=-2;
+    port.Carry(port.s.left,At({.34F,1.22F,-.62F}));
+    r.within_capture=true;
     const auto ready=port.Poll();
     Check(ready.gesture.insertion_ready&&ready.target.valid&&ready.target.position.x==r.centre.x,
-        "receiver approach did not qualify the same measured guide");
+        "nearby tip without a prescribed angle or stroke did not qualify the measured guide");
     port.s.raw.fire_left=false;
-    Check(port.Poll().insert,"qualified receiver push outside the old grip zone could not load");
+    Check(port.Poll().insert,"valid near-receiver release outside the old grip zone could not load");
+
+    Fixture miss;
+    open(miss);miss.Claim();miss.s.receiver=r;
+    miss.Carry(miss.s.left,At({.34F,1.22F,-.62F}));
+    Check(miss.Poll().gesture.insertion_ready,"fixture receiver was not ready before release");
+    miss.s.raw.fire_left=false;miss.s.receiver.within_capture=false;
+    Check(!miss.Poll().insert,"stale receiver readiness overrode a live miss");
 
     Fixture lever;
     open(lever);
@@ -170,10 +197,10 @@ void WinchesterReceiverSession(){
     l.lever_valid=true;l.lever=lever.s.left.position;
     (void)lever.Poll();l.lever.y+=.04F;
     Check(!lever.Poll().cancel,"moving the rifle alone closed it");
-    l.lever=lever.s.left.position;(void)lever.Poll();
-    lever.s.left.position.y-=.034F;
+    l.lever=lever.s.left.position;l.lever.x+=.11F;(void)lever.Poll();
+    lever.s.left.position.y-=.016F;
     Check(!lever.Poll().cancel,"short lever motion closed the rifle");
-    lever.s.left.position.y-=.034F;
+    lever.s.left.position.y-=.027F;
     const auto close=lever.Poll();
     Check(close.cancel&&!close.insert&&std::strcmp(close.reason,"winchester_lever_close")==0,
         "free-hand lever stroke did not close the rifle");
@@ -526,13 +553,13 @@ void TargetGuideFreshnessAndReadiness(){
     Check(std::abs(actual.x-expected.x)<.00001F&&std::abs(actual.y-expected.y)<.00001F&&
         std::abs(actual.z-expected.z)<.00001F,"guide applied head translation/rotation twice or omitted it");
 }
-void ReloadPressedDuringSchofieldShot() {
-    for(int outcome:{0,1,2,3,4,5,6}) {
+void ReloadPressedDuringShot() {
+    for(auto kind:{CoJManualReloadKind::unit,CoJManualReloadKind::clip})for(int outcome:{0,1,2,3,4,5,6}) {
         Fixture f;
-        f.s.native.kind=CoJManualReloadKind::clip;
+        f.s.native.kind=kind;
         f.s.native.ammo_readback=3;
         f.s.native.probe_status=4;
-        const CoJMotionReloadOwner idle{0,42,true,false,CoJManualReloadKind::clip,true};
+        const CoJMotionReloadOwner idle{0,42,true,kind==CoJManualReloadKind::unit,kind,kind==CoJManualReloadKind::clip};
         f.s.admission=idle;
         (void)f.Poll();
         f.s.admission={};
@@ -569,7 +596,7 @@ int main(){
     ManualReloadCapability();
     DisableWhileCarrying();
     RetiredSampleRetainsCleanup();
-    ReloadPressedDuringSchofieldShot();
+    ReloadPressedDuringShot();
     {
         Fixture outside;
         outside.Open();outside.Claim();

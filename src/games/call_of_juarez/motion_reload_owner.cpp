@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cmath>
 #include <cstring>
+#include <string_view>
 #if defined(_WIN32)
 #define COJ_RELOAD_JNICALL __stdcall
 #else
@@ -415,31 +416,40 @@ bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* 
     if (!Clean(env) || !cls) return false;
     // Concrete shipped firearms with a native fallback, separate from manual
     // admission. An unknown subclass or failed lookup is never positive proof.
-    struct NativeProfile { const char* name; bool shared_rifle; bool defer_shot_tail=false; };
-    constexpr NativeProfile native_classes[]{
-        {"WeaponRifleWinchesterScope",true},{"WeaponRifleWinchester",true},
-        {"WeaponHenry1863",true},
-        {"WeaponRifleRemington",true},{"WeaponRifleRemingtonSawOff",true},
-        {"WeaponPistolVolcanic",false},{"WeaponPistolLemant",false},{"WeaponPistolDerringer",false},
-        {"WeaponPistolSchofield",false,true},{"WeaponPistolSchofield_A",false},{"WeaponPistolSchofield_B",false},
-        {"WeaponPistolFrontier1878_Regular_Old",false},{"WeaponPistolSchofield_A_Old",false},
-        {"WeaponPistolSchofield_B_Old",false}
-    };
-    int matched=-1;
-    for (std::size_t i=0; i<std::size(native_classes); ++i) {
-        void* candidate=Fn<Find>(env,6)(env,native_classes[i].name);
+    const auto compare_class=[&](const char* name,bool& equal) noexcept {
+        void* candidate=Fn<Find>(env,6)(env,name);
         const bool clean=Clean(env);
-        bool equal=false,compared=false;
+        bool compared=false;
         if (clean && candidate) {
             equal=Fn<Same>(env,24)(env,cls,candidate)!=0;
             compared=Clean(env);
         }
         if (candidate) Fn<Delete>(env,23)(env,candidate);
-        if (!clean || !candidate || !compared) return false;
-        if (equal) { matched=static_cast<int>(i); break; }
+        return clean&&candidate&&compared;
+    };
+    const CoJRevolverProfile* manual=nullptr;
+    bool matched=false,shared_rifle=false;
+    for (const auto& profile:kCoJRevolvers) {
+        if (!compare_class(profile.class_name,matched)) return false;
+        if (matched) {
+            manual=&profile;
+            shared_rifle=profile.right_owned_only||std::string_view(profile.class_name)=="WeaponRifleRemingtonSawOff";
+            break;
+        }
     }
-    if (matched<0) return false;
-    if (first[0].weapons[0] && first[1].weapons[0] && !native_classes[matched].shared_rifle) return false;
+    if (!matched) {
+        struct LegacyProfile { const char* name; bool shared_rifle; };
+        constexpr LegacyProfile legacy_classes[]{
+            {"WeaponPistolFrontier1878_Regular_Old",false},{"WeaponPistolSchofield_A_Old",false},
+            {"WeaponPistolSchofield_B_Old",false},{"WeaponHenry1863_Old",true},
+            {"WeaponRifleShotgun",true},{"WeaponShotgun",true}
+        };
+        for (const auto& profile:legacy_classes) {
+            if (!compare_class(profile.name,matched)) return false;
+            if (matched) { shared_rifle=profile.shared_rifle;break; }
+        }
+    }
+    if (!matched||(first[0].weapons[0]&&first[1].weapons[0]&&!shared_rifle)) return false;
     using Field=void*(COJ_RELOAD_JNICALL*)(void*,void*,const char*,const char*);
     using GetObject=void*(COJ_RELOAD_JNICALL*)(void*,void*,void*);
     void* owner_field=Fn<Field>(env,94)(env,cls,"cOwner","LPawnInventory;");
@@ -466,11 +476,13 @@ bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* 
     if (!Clean(env) || second_id!=id) return false;
     const int armed=first[0].weapons[0]?0:1;
     const auto& support=first[1-armed];
-    // In the recorded Schofield fire tail only the current state remains in
-    // attack (32). All three target/weapon states are already returning to idle.
-    if (native_classes[matched].defer_shot_tail && !support.weapons[0] &&
+    // In the recorded pistol fire tail only the current state remains in
+    // attack (32). Defer the press until the exact same owner reaches idle.
+    const bool defer=manual&&(manual->single_round||std::string_view(manual->class_name)=="WeaponPistolSchofield");
+    if (defer && !support.weapons[0] &&
         support.states==std::array<int,4>{} && first[armed].states==std::array{32,1,1,1}) {
-        if (after_shot) *after_shot={armed,static_cast<std::uint32_t>(id),true,false,CoJManualReloadKind::clip,true};
+        if (after_shot) *after_shot={armed,static_cast<std::uint32_t>(id),true,
+            manual->single_round,manual->kind,manual->manual_supported};
         return false;
     }
     return true;

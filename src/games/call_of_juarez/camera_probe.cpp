@@ -4126,8 +4126,7 @@ CoJWinchesterReceiverInput WinchesterReceiverInput(const ReloadMouthCapture& cap
     };
     out.mouth_valid=position(approach.centre_cm,out.centre);
     out.lever_valid=capture.preview.lever_valid&&position(capture.preview.lever_cm,out.lever);
-    out.tip_valid=approach.valid&&Store(axes(Widen(approach.inward)),out.inward)&&
-        position(capture.preview.tip_cm.position,out.tip);
+    out.tip_valid=approach.valid;
     out.outside_cm=approach.outside_distance_cm;out.alignment=approach.axis_alignment;
     out.within_capture=approach.within_capture;
     return out;
@@ -7010,6 +7009,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     manual_input.head=relative_head_pose;manual_input.left=relative_left_controller;manual_input.right=relative_right_controller;
     if(manual_input.enabled&&motion_reload_context)
         (void)g_java_player_bridge.TryObserveReloadTrace(manual_input.native,true,g_manual_reload.selected_index());
+    manual_input.armed_aim=manual_input.native.armed_hand==0?relative_right_aim:relative_left_aim;
     const auto reload_feedback_owner = PublishReloadFeedbackOwner(
         manual_input.player, manual_input.context, manual_input.native);
     const auto manual_before=g_manual_reload.phase();
@@ -7036,6 +7036,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             !(gesture.claimed_hand==0?raw_reload_input.fire_right:raw_reload_input.fire_left)&&
             (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
              g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
+        if(manual_input.winchester_receiver&&manual_input.native.probe_status==2&&!carrying&&
+            ShouldObserveBodyFrame(frame_sequence))try{
+            const auto a=manual_input.left.position,b=manual_input.receiver.lever;
+            const float distance=manual_input.receiver.lever_valid?std::hypot(a.x-b.x,a.y-b.y,a.z-b.z):-1.F;
+            EmitEvent("winchester_lever_position","sampled",
+                "frame_sequence="+std::to_string(frame_sequence)+";support_distance_m="+std::to_string(distance));
+        }catch(...){}
         if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence))){
             if(manual_input.winchester_receiver){
                 try{EmitEvent("winchester_receiver_contact",manual_result.insert?"release_admitted":"sampled",
@@ -7062,9 +7069,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     unsigned schofield_ejected_rounds=0;
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
-        const bool forward_flick=std::string_view(manual_result.reason)=="schofield_forward_flick";
+        const bool schofield_close=std::string_view(manual_result.reason)=="schofield_rearward_close";
         const bool lever_close=std::string_view(manual_result.reason)=="winchester_lever_close";
-        if(forward_flick||lever_close){
+        if(schofield_close||lever_close){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return g_java_player_bridge.CancelManualReload(&manual_error);
