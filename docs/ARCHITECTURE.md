@@ -1618,8 +1618,8 @@ no diagnostic lock or getter reference crosses forwarding. Per-draw permission
 is a cached owner read with an independent epoch, not file polling. Native device
 generation, continuity, frame/Present/thread and hook identities stay distinct.
 Faults, nesting, reset, changed ownership and missing/overflowed closure retain
-incomplete metadata. This source implementation and authored C++ fixtures await
-compiled verification. It observes no pixels and cannot qualify alpha/coverage,
+incomplete metadata. The compiled host fixture covers these metadata boundaries.
+The collector observes no pixels and cannot qualify alpha/coverage,
 depth contents, resource lifetime, native HUD capture or compositor retirement.
 
 Periodic native FX-global/emitter walks and duplicate shot/barrel comparisons

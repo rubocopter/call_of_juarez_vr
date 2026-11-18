@@ -64,7 +64,7 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — campaign gameplay and reloads | Qualify Schofield and Winchester gestures and exercise other firearms as encountered in the campaign. Check level transitions and recovery on the intended release configuration. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 1 — campaign gameplay and reloads | Diagnose unreliable Schofield gestures at the input, transaction and feedback boundaries. Preserve the exercised Winchester insertion and verify early lever closure after an intermediate cartridge. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
 | 2 — rendering stability | Isolate translucent flicker under capture pressure. Keep temporal reconstruction in the experimental track. | Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
@@ -113,7 +113,7 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | --- | --- | --- |
 | Peacemaker / admitted Frontier1878 | Persistent native unit-loading route with scoped acceptance. | Contact/occlusion, precise mouth, sound, mechanics and broader interruption recovery. |
 | Additional Frontier, Walker, Cogswell | Manual profiles host-tested. Cogswell presents the elongated rifle round from its rifle reserve. | Per-model physical unit transfer, geometry, ammunition appearance and recovery. |
-| Winchester | The opt-in source targets the measured exterior lip and adds a free-hand lever close while waiting. The 12-round native transaction and corrected R2 firing retain their prior coverage. | Retest the exterior approach and guide, clearance, transfers, misses, lever close and support regrip in the headset. |
+| Winchester | Receiver proximity has scoped final-round insertion acceptance on the ordinary rifle, followed by native close. The opt-in lever remains available while waiting with more ammunition to load. | Qualify intermediate transfer and replay, a missed release, early lever close, support regrip and visible clearance. |
 | Remington / SawOff | Remington grasp accepted. Current manual source integrates selected-index shell accounting, shared shotgun reserve, distinct shell presentation, guarded body replay and supervised close. SawOff retains its either-hand policy. | Confirm shell appearance, per-barrel loading contact, native hand ownership and mechanical playback/recovery in the headset. The grip-zone loading target remains provisional. |
 | Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Current source shares Winchester manual unit/body-cycle accounting with separate exact-class admission; controller-only scope aim remains a host candidate. | Zoom reticle and actual shot impact were misaligned in .6 and are rejected. Correlate optical ray with native fired trajectory/impact/spread by pose and distance; separately check Focus exit/head tracking, manual loading, support regrip/recovery and exact mouth. |
 | Volcanic | Current manual source integrates the exact 8-round native unit/body-cycle route with pistol reserve and the shared pickup/carry/release gesture. | Physical animation, hand/port, per-model cartridge and recovery qualification. |
@@ -326,6 +326,11 @@ exercised campaign. Preserve those paths during the end-to-end playthrough.
 Temporally reconstructed output, DLSS and DLAA remain experimental and outside
 this gate.
 See the [campaign acceptance checklist](VALIDATION.md#pending-headset-checks).
+The public package workflow currently drafts pre-alpha releases. A stable
+release candidate still needs explicit stable-version packaging, a declared
+default reload policy and clean install/update/recovery on a player PC before
+publication. Qualify pacing with a representative gameplay run and record the
+active transport, display mode and resolution.
 
 Keep published .5 artifacts and verdicts unchanged. Future distributions retain
 reversible installation, saved resolution/reload choices, local-only diagnostics,
