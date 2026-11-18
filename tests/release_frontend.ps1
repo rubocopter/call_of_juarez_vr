@@ -35,7 +35,22 @@ function New-Package {
 }
 try {
     $Package = New-Package
-    Assert-True ((Read-CojvrRelease $Package).version -eq '0.1.0-prealpha.1') 'Valid relocated package rejected.'
+    $ManifestPath = Join-Path $Package 'release-manifest.json'
+    $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    foreach ($Version in @('0.1.0-prealpha.7', '1.0.0')) {
+        $Manifest.version = $Version
+        Write-CojvrPublicJson $ManifestPath $Manifest
+        Assert-True ((Read-CojvrRelease $Package).version -ceq $Version) "Valid relocated package rejected: $Version"
+    }
+    $InvalidVersions = @('v1.0.0', '01.0.0', '1.0', '1.0.0-rc.1', '0.1.0-prealpha.07',
+        '0.1.0-PREALPHA.7', '1.0.0+local', "1.0.0`n", $true, $null, ,@('1.0.0','0.1.0-prealpha.7'))
+    foreach ($Version in $InvalidVersions) {
+        $Manifest.version = $Version
+        Write-CojvrPublicJson $ManifestPath $Manifest
+        Assert-Rejects { Read-CojvrRelease $Package } "Invalid package version accepted: $Version"
+    }
+    $Manifest.version = '1.0.0'
+    Write-CojvrPublicJson $ManifestPath $Manifest
     [IO.File]::AppendAllText((Join-Path $Package 'payload/openvr_api.dll'), 'tampered')
     Assert-Rejects { Read-CojvrRelease $Package } 'Tampered runtime accepted.'
     $Package = New-Package
@@ -56,6 +71,22 @@ try {
     [IO.File]::WriteAllText((Join-Path $Game 'CoJ.exe'), 'unknown')
     Assert-Rejects { Assert-CojvrPublicGame $Game } 'Unknown game accepted.'
     Assert-True (@(Get-ChildItem -LiteralPath $Game -Force).Count -eq 1) 'Unknown game preflight mutated files.'
+    $RecoveryState = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';
+        buildManifestId=('b'*64);sourceCommit=('c'*40);runId='recovery-run';pendingRunId='pending-run';manualReload=$false}
+    $RecoveryPath = Join-Path $Game '.cojvr-public-install.json'
+    foreach ($Version in @('0.1.0-prealpha.7', '1.0.0')) {
+        $RecoveryState.version = $Version
+        Write-CojvrPublicJson $RecoveryPath $RecoveryState
+        $Loaded = Assert-CojvrPublicOwnership $Game
+        Assert-True ($Loaded.version -ceq $Version -and $Loaded.pendingRunId -ceq 'pending-run' -and
+            -not $Loaded.manualReload) "Valid recovery state rejected or changed: $Version"
+    }
+    foreach ($Version in $InvalidVersions) {
+        $RecoveryState.version = $Version
+        Write-CojvrPublicJson $RecoveryPath $RecoveryState
+        Assert-Rejects { Assert-CojvrPublicOwnership $Game } "Invalid installed version accepted: $Version"
+    }
+    Remove-Item -LiteralPath $RecoveryPath
     [IO.File]::WriteAllText((Join-Path $Game '.cojvr-d3d9-stage.json'), '{}')
     Assert-Rejects { Assert-CojvrPublicOwnership $Game } 'Foreign development staging accepted.'
     Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='unknown';buildManifestId='../outside'}
@@ -87,6 +118,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $SourceDirectory $Relative) -Destination (Join-Path $Package $Destination) -Force
     }
     $Manifest = Get-Content -LiteralPath (Join-Path $Package 'release-manifest.json') -Raw | ConvertFrom-Json
+    $Manifest.version = '1.0.0'
     $Manifest.files = @(Get-ChildItem -LiteralPath $Package -File -Recurse | Where-Object { $_.Name -ne 'release-manifest.json' } | ForEach-Object {
         @{path=$_.FullName.Substring($Package.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash;size=$_.Length}
     })
@@ -178,15 +210,90 @@ try {
     Assert-True ($Output -match 'native.*limits.*unavailable' -and -not $Output.Contains('C:/secret-fixture/hidden')) 'Status echoed arbitrary helper error text'
     Write-Host 'PASS read-only resolution Status: current outcome, pending choice, identity fences and safe errors.'
     . (Join-Path $SourceDirectory 'tools/deployment_transaction.ps1')
-    $Public = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';buildManifestId=('b'*64);sourceCommit=('c'*40);version='0.1.0-prealpha.1';runId='public-recovery-test'}
-    Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') $Public
-    [IO.File]::WriteAllText((Join-Path $Game '.cojvr-d3d9-stage.json'), '{"schemaVersion":')
-    [IO.File]::WriteAllText((Join-Path $Game 'd3d9.dll'), 'staged-for-recovery')
-    $Assets = @(@{role='proxy';kind='file';destination='d3d9.dll';backup='d3d9.cojvr-backup.dll';temporary='d3d9.cojvr-installing.dll';hadOriginal=$false;stagedSha256=(Get-FileHash -LiteralPath (Join-Path $Game 'd3d9.dll') -Algorithm SHA256).Hash})
-    [void](Write-CojvrDeploymentJournal $Game 'stage' $Public.runId 'd3d9_native_stereo' $Assets)
+    $Public = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';buildManifestId=('b'*64);
+        sourceCommit=('c'*40);version='0.1.0-prealpha.7';runId='public-recovery-test';pendingRunId='pending-recovery-test';manualReload=$false}
+    $StagePath = Join-Path $Game '.cojvr-d3d9-stage.json'
+    $ProxyPath = Join-Path $Game 'd3d9.dll'
+    $JournalPath = Join-Path $Game '.cojvr-deployment-transaction.json'
+    [IO.File]::WriteAllText($StagePath, '{"schemaVersion":')
+    [IO.File]::WriteAllText($ProxyPath, 'staged-for-recovery')
+    $Assets = @(@{role='proxy';kind='file';destination='d3d9.dll';backup='d3d9.cojvr-backup.dll';temporary='d3d9.cojvr-installing.dll';
+        hadOriginal=$false;stagedSha256=(Get-FileHash -LiteralPath $ProxyPath -Algorithm SHA256).Hash})
+    [void](Write-CojvrDeploymentJournal $Game 'stage' $Public.pendingRunId 'd3d9_native_stereo' $Assets)
+
+    # Pause a real launcher immediately before it opens the lock. The fixture
+    # replaces only the packaged path check, so the action still uses its own
+    # ownership reader, file lease, and recovery implementation.
+    $PackageHelper = Join-Path $Package 'release_common.ps1'
+    Add-Content -LiteralPath $PackageHelper -Value @'
+$OriginalPathCheck = ${function:Assert-CojvrNoReparse}
+function Assert-CojvrNoReparse([string]$Path, [switch]$AllowCloudFiles) {
+    & $OriginalPathCheck $Path -AllowCloudFiles:$AllowCloudFiles
+    if ([IO.Path]::GetFileName($Path) -eq '.cojvr-public.lock' -and [IO.File]::Exists("$Path.gate")) {
+        [IO.File]::WriteAllText("$Path.ready", '')
+        $Timer = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [IO.File]::Exists("$Path.resume")) {
+            if ($Timer.Elapsed.TotalSeconds -ge 20) { throw 'Fixture lock gate timed out.' }
+            Start-Sleep -Milliseconds 25
+        }
+    }
+}
+'@
+    $Entry = $Manifest.files | Where-Object { $_.path -eq 'release_common.ps1' }
+    $Entry.sha256 = (Get-FileHash -LiteralPath $PackageHelper).Hash
+    $Entry.size = (Get-Item -LiteralPath $PackageHelper).Length
+    Write-CojvrPublicJson (Join-Path $Package 'release-manifest.json') $Manifest
+    $LockPath = Join-Path $Game '.cojvr-public.lock'
+    $UninstallArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Action Uninstall -GameDirectory "{1}"' -f
+        (Join-Path $Package 'cojvr.ps1'), $Game
+    foreach ($Scenario in @('held-lock','stale-owner')) {
+        Write-CojvrPublicJson $RecoveryPath $Public
+        [IO.File]::WriteAllText("$LockPath.gate", '')
+        $Lease = [IO.File]::Open($LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $Child = $null
+        $OutputPath = Join-Path $Root "$Scenario.stdout"
+        try {
+            $Child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') `
+                -ArgumentList $UninstallArgs -RedirectStandardOutput $OutputPath `
+                -RedirectStandardError (Join-Path $Root "$Scenario.stderr") -PassThru -WindowStyle Hidden
+            $null = $Child.Handle
+            $Timer = [Diagnostics.Stopwatch]::StartNew()
+            while (-not [IO.File]::Exists("$LockPath.ready") -and -not $Child.HasExited -and $Timer.Elapsed.TotalSeconds -lt 15) {
+                Start-Sleep -Milliseconds 25
+            }
+            Assert-True ([IO.File]::Exists("$LockPath.ready")) "Launcher never reached the lock gate: $Scenario"
+            if ($Scenario -eq 'stale-owner') {
+                # The other lock holder withdraws public ownership. The same
+                # underlying files are now foreign and must stay untouched.
+                Remove-Item -LiteralPath $RecoveryPath
+                $Lease.Dispose()
+            }
+            [IO.File]::WriteAllText("$LockPath.resume", '')
+            Assert-True ($Child.WaitForExit(15000)) "Launcher did not exit: $Scenario"
+            $Output = [IO.File]::ReadAllText($OutputPath)
+            $ExpectedError = if ($Scenario -eq 'held-lock') { '\.cojvr-public\.lock' } else { 'foreign deployment' }
+            Assert-True ($Child.ExitCode -ne 0 -and $Output -match $ExpectedError) "Wrong result for ${Scenario}: $Output"
+            Assert-True ((Test-Path -LiteralPath $StagePath) -and (Test-Path -LiteralPath $JournalPath) -and
+                ([IO.File]::ReadAllText($ProxyPath) -ceq 'staged-for-recovery')) "Recovery files changed during $Scenario"
+        } finally {
+            $Lease.Dispose()
+            if ($null -ne $Child) {
+                [IO.File]::WriteAllText("$LockPath.resume", '')
+                if (-not $Child.WaitForExit(22000)) { $Child.Kill(); $Child.WaitForExit() }
+                $Child.Dispose()
+            }
+            foreach ($Suffix in @('gate','ready','resume')) {
+                Remove-Item -LiteralPath "$LockPath.$Suffix" -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    Write-CojvrPublicJson $RecoveryPath $Public
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') -Action Uninstall -GameDirectory $Game
-    Assert-True ($LASTEXITCODE -eq 0) 'Public recovery rejected a valid owned journal because stage JSON was truncated.'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game 'd3d9.dll'))) 'Recovery left partial proxy installed.'
+    Assert-True ($LASTEXITCODE -eq 0) 'Stable launcher rejected an owned .7 recovery journal with truncated stage JSON.'
+    foreach ($Path in @($StagePath, $ProxyPath, $JournalPath, $RecoveryPath)) {
+        Assert-True (-not (Test-Path -LiteralPath $Path)) "Recovery retained $Path"
+    }
+    Write-Host 'PASS stable and .7 version validation, competing launcher refusal, stale owner refusal and .7 interrupted recovery.'
 } finally {
     $Resolved = [IO.Path]::GetFullPath($Root)
     $Allowed = [IO.Path]::GetFullPath((Join-Path $SourceDirectory 'work')).TrimEnd('\') + '\'

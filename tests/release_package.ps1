@@ -1,6 +1,9 @@
 # Host-only verification of extracted release bytes. No game/SteamVR operations.
 [CmdletBinding()]
-param([Parameter(Mandatory = $true)][string]$ZipPath)
+param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [string]$ExpectedVersion
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -11,7 +14,8 @@ function Assert-RelativePath([string]$Path) {
 function Assert-ReleaseInventory([string]$Root) {
     $Manifest = Get-Content -LiteralPath (Join-Path $Root 'release-manifest.json') -Raw | ConvertFrom-Json
     Assert-True ($Manifest.schemaVersion -eq 1 -and $Manifest.manifestType -ceq 'cojvr-release') 'Invalid release schema.'
-    Assert-True ($Manifest.version -cmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-prealpha\.(0|[1-9][0-9]*)$') 'Release must use the frontend prealpha.N version format.'
+    Assert-True ($Manifest.version -is [string] -and
+        $Manifest.version -cmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-prealpha\.(0|[1-9][0-9]*))?\z') 'Invalid player release version.'
     Assert-True ($Manifest.sourceCommit -cmatch '^[a-f0-9]{40}$') 'Invalid source identity.'
     $Seen = @{}
     foreach ($Item in $Manifest.files) {
@@ -74,9 +78,12 @@ try {
     } finally { $Zip.Dispose() }
     [IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $Root)
     $Manifest = Assert-ReleaseInventory $Root
+    if ($ExpectedVersion) {
+        Assert-True ($Manifest.version -ceq $ExpectedVersion) "ZIP manifest version differs from requested version $ExpectedVersion."
+    }
     $PlayerManifest = Read-PlayerRelease $Root
     Assert-True ($PlayerManifest.version -ceq $Manifest.version -and $PlayerManifest.files.Count -eq $Manifest.files.Count) 'Shipped validator and independent inventory disagree.'
-    foreach ($Required in @('cojvr.ps1', 'cojvr-gui.ps1', 'CoJ-VR.cmd', 'dependencies.lock.json', 'THIRD_PARTY_NOTICES.txt',
+    foreach ($Required in @('cojvr.ps1', 'cojvr-gui.ps1', 'CoJ-VR.cmd', 'README.txt', 'dependencies.lock.json', 'THIRD_PARTY_NOTICES.txt',
         'licenses/OpenVR-LICENSE.txt', 'LICENSE', 'COPYRIGHT_AND_REUSE.md', 'SOURCE_COMMIT.txt', 'payload/d3d9_native_stereo.dll', 'payload/openvr_api.dll',
         'payload/d3d9_native_stereo.build-manifest.json', 'payload/cojvr_openvr_input/actions.json',
         'payload/cojvr_openvr_input/bindings/psvr2_sense.json', 'dependencies/python/python.exe',
@@ -84,6 +91,11 @@ try {
         'payload/cojvr_openvr_input/bindings/oculus_touch.json', 'payload/cojvr_openvr_input/bindings/holographic_controller.json',
         'dependencies/python/python313._pth', 'dependencies/python/LICENSE.txt', 'dependencies/vc_redist.x86.exe')) {
         Assert-True (Test-Path -LiteralPath (Join-Path $Root $Required) -PathType Leaf) "Required release file missing: $Required"
+    }
+    $Readme = [IO.File]::ReadAllText((Join-Path $Root 'README.txt'))
+    Assert-True ($Readme.StartsWith("Call of Juarez VR $($Manifest.version) - ", [StringComparison]::Ordinal)) 'README heading differs from the packaged version.'
+    if (-not $Manifest.version.Contains('-prealpha.')) {
+        Assert-True ($Readme -notmatch '(?m)^Experimental community-testing prerelease\r?$|\bthis prerelease\b|This \.[0-9]+ player package') 'Stable README labels the package as a prerelease.'
     }
     $SourceNotice = Get-Content -LiteralPath (Join-Path $Root 'SOURCE_COMMIT.txt') -Raw
     Assert-True ($SourceNotice.Contains($Manifest.sourceCommit) -and

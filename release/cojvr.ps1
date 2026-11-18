@@ -418,6 +418,10 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
     Assert-CojvrNoReparse $LockPath
     $Lock = [IO.File]::Open($LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     try {
+        # Another launcher may have updated or removed the owner after preflight.
+        # Use only the state read under the lease for decisions and recovery.
+        $State = Assert-CojvrPublicOwnership $Game
+        Assert-GameClosed
         . (Join-Path $PSScriptRoot 'tools/coj_video_profile.ps1')
         if ($RequestedAction -eq 'Uninstall') {
             if ($null -eq $State) { Write-Host 'Public mod is not installed.'; return }
@@ -437,8 +441,12 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
         if (-not $ReloadSpecified) {
             $Reload = if ($null -ne $State) { [bool]$State.manualReload } else { $true }
         }
-        if ($null -ne $State) { Assert-PublicStageIdentity $Game $State }
-        if ($null -ne $State -and $State.phase -eq 'installed') { [void](Assert-CojvrPublicGame $Game -Installed) }
+        if ($null -eq $State) {
+            $ExactBuild = Assert-CojvrPublicGame $Game
+        } else {
+            Assert-PublicStageIdentity $Game $State
+            if ($State.phase -eq 'installed') { [void](Assert-CojvrPublicGame $Game -Installed) }
+        }
         $VideoPath = $VideoSettingsPath
         if ([string]::IsNullOrWhiteSpace($VideoPath)) {
             $VideoPath = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'call of juarez/out/Settings/Video.scr'
@@ -449,8 +457,10 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
         & $Python -B -c 'import zipfile, pathlib, inspect_java_bytecode, coj_manual_reload, coj_physical_punch'
         if ($LASTEXITCODE -ne 0) { throw 'Bundled Python/patcher self-check failed. Extract the complete release again.' }
         Install-PublicRuntime $Manifest
-        if ($null -ne $State) { Restore-PublicInstall $Game $State }
-        $ExactBuild = Assert-CojvrPublicGame $Game
+        if ($null -ne $State) {
+            Restore-PublicInstall $Game $State
+            $ExactBuild = Assert-CojvrPublicGame $Game
+        }
         $IsGog = $ExactBuild.Edition -eq 'gog'
         Write-Host ('Verified game edition: ' + $ExactBuild.Edition)
         if ($IsGog) { Write-Host 'GOG compatibility is experimental and limited to this exact build.' }
@@ -491,7 +501,7 @@ try {
         $Game = if ($Action -in @('Verify','ConfigureResolution')) { '' } else { Resolve-CojvrPublicGame $GameDirectory }
         Invoke-PublicAction $Action $Game $ManualReload.IsPresent $PSBoundParameters.ContainsKey('ManualReload')
     } else {
-        Write-Host 'Call of Juarez VR - community pre-alpha'
+        Write-Host 'Call of Juarez VR'
         Write-Host 'Experimental campaign support. Back up your saves before testing.'
         Write-Host 'Start SteamVR manually -> Install/update or Prepare session with the game closed -> launch the game manually in D3D9 mode.'
         try { $Game = Resolve-CojvrPublicGame $GameDirectory } catch {

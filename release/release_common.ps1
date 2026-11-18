@@ -111,12 +111,18 @@ function Get-CojvrGuiActionScript([string]$LauncherDirectory, [string]$Action) {
     if (-not (Test-Path -LiteralPath $Backend -PathType Leaf)) { throw 'Missing local installer package builder.' }
     return $Backend
 }
+function Test-CojvrReleaseVersion([object]$Version) {
+    # The ZIP, installed recovery state, and tag share this version contract.
+    # The tag adds its leading v outside the package version.
+    return ($Version -is [string] -and
+        $Version -cmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-prealpha\.(0|[1-9][0-9]*))?\z')
+}
 function Read-CojvrRelease([string]$PackageRoot) {
     $Root = [IO.Path]::GetFullPath($PackageRoot).TrimEnd('\') + '\'
     Assert-CojvrNoReparse $Root
     $Manifest = Get-Content -LiteralPath (Join-Path $Root 'release-manifest.json') -Raw | ConvertFrom-Json
     if ($Manifest.schemaVersion -ne 1 -or $Manifest.manifestType -ne 'cojvr-release' -or
-        $Manifest.version -notmatch '^\d+\.\d+\.\d+-prealpha\.\d+$' -or
+        -not (Test-CojvrReleaseVersion $Manifest.version) -or
         $Manifest.sourceCommit -notmatch '^[a-fA-F0-9]{40}$' -or @($Manifest.files).Count -lt 1) {
         throw 'Unsupported release manifest.'
     }
@@ -174,7 +180,7 @@ function Assert-CojvrPublicOwnership([string]$GameDirectory) {
         if ($State.schemaVersion -ne 1 -or $State.manifestType -ne 'cojvr-public-install' -or
             $State.installId -notmatch '^[a-f0-9]{32}$' -or $State.buildManifestId -notmatch '^[A-Fa-f0-9]{64}$' -or
             $State.sourceCommit -notmatch '^[A-Fa-f0-9]{40}$' -or $State.phase -notin @('installing','installed') -or
-            $State.version -notmatch '^\d+\.\d+\.\d+-prealpha\.\d+$' -or
+            -not (Test-CojvrReleaseVersion $State.version) -or
             $State.runId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or
             ($State.PSObject.Properties['pendingRunId'] -and $State.pendingRunId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$')) { throw 'Invalid public installation recovery state. Preserve backups.' }
         return $State
@@ -212,7 +218,7 @@ function Assert-CojvrPublicGame([string]$GameDirectory, [switch]$Installed) {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required game file '$Name' is missing. Run the original D3D9 game once first." }
         Assert-CojvrNoReparse $Path
         if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne $Expected[$Name]) {
-            throw "Unsupported or modified '$Name'. This pre-alpha requires matching original files from the verified Steam or experimental GOG CoJ (2006) build. No files were patched."
+            throw "Unsupported or modified '$Name'. The installer requires matching original files from the verified Steam or experimental GOG CoJ (2006) build."
         }
     }
     foreach ($Item in Get-ChildItem -LiteralPath $GameDirectory -Force) {

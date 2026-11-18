@@ -1,10 +1,10 @@
-name: Draft Windows prerelease
+name: Draft Windows release
 
 on:
   workflow_dispatch:
     inputs:
       Version:
-        description: 'Semantic prerelease version (for example 0.1.0-prealpha.1)'
+        description: 'Release version (for example 1.0.0 or 0.1.0-prealpha.7)'
         required: true
         type: string
 
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: draft-prerelease-${{ github.event.inputs.Version }}
+  group: draft-release-${{ github.event.inputs.Version }}
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: Verify extracted offline package with Windows PowerShell 5.1
         run: |
           $zip = Get-Item -LiteralPath "dist/CoJ-VR-$env:RELEASE_VERSION-windows-x64.zip"
-          .\tests\release_package.ps1 -ZipPath $zip.FullName
+          .\tests\release_package.ps1 -ZipPath $zip.FullName -ExpectedVersion $env:RELEASE_VERSION
 
       - name: Package developer symbols separately
         run: |
@@ -67,12 +67,17 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      # gh release create --draft --prerelease creates an unpublished release.
+      # Both channels create an unpublished draft for review.
       # No publish/edit step and no automatic release on push/tag.
-      - name: Create draft prerelease only
+      - name: Create draft release only
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $assets = @(Get-ChildItem -LiteralPath dist -File | ForEach-Object { $_.FullName })
-          gh release create "v$env:RELEASE_VERSION" @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Call of Juarez VR $env:RELEASE_VERSION" --notes-file release/RELEASE_NOTES.md --draft --prerelease
-          if ($LASTEXITCODE -ne 0) { throw 'Draft prerelease creation failed.' }
+          $options = if ($env:RELEASE_VERSION.Contains('-prealpha.')) {
+              @('--prerelease', '--notes-file', 'release/RELEASE_NOTES.md')
+          } else {
+              @('--generate-notes')
+          }
+          gh release create "v$env:RELEASE_VERSION" @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Call of Juarez VR $env:RELEASE_VERSION" --draft @options
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed.' }

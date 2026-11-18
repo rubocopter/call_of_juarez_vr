@@ -4,13 +4,22 @@ param(
     [Parameter(Mandatory=$true)][string]$PackageDirectory,
     [Parameter(Mandatory=$true)][string]$OriginalGameDirectory,
     [string]$SourceDirectory = '',
-    [switch]$UseGuiCommands
+    [switch]$UseGuiCommands,
+    [string]$PreviousPackageDirectory = '',
+    [switch]$WindowsOnlyPath
 )
 $ErrorActionPreference = 'Stop'
 if (-not $SourceDirectory) { $SourceDirectory = Split-Path $PSScriptRoot -Parent }
 $PackageDirectory = [IO.Path]::GetFullPath($PackageDirectory)
 . (Join-Path $PackageDirectory 'release_common.ps1')
 $Manifest = Read-CojvrRelease $PackageDirectory
+if ($PreviousPackageDirectory) {
+    $PreviousPackageDirectory = [IO.Path]::GetFullPath($PreviousPackageDirectory)
+    $Previous = Read-CojvrRelease $PreviousPackageDirectory
+    if ($Previous.version -cne '0.1.0-prealpha.7' -or $Manifest.version -cne '1.0.0' -or $UseGuiCommands) {
+        throw 'The upgrade test requires an extracted .7 package and the packaged 1.0.0 launcher.'
+    }
+}
 $Runtime = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x86' -ErrorAction SilentlyContinue
 if ($null -eq $Runtime -or $Runtime.Installed -ne 1 -or
     [version]([string]$Runtime.Version).TrimStart('v') -lt [version]$Manifest.dependencies.vcRuntimeVersion) {
@@ -21,8 +30,7 @@ $Game = Join-Path $Root ('Game ' + [char]0x00F1 + ' sandbox')
 $Preference=Join-Path $Root 'user/resolution.json'
 New-Item -ItemType Directory -Path $Game -Force | Out-Null
 $OriginalLocalAppData = $env:LOCALAPPDATA
-$env:LOCALAPPDATA = Join-Path $Root 'user'
-if ($UseGuiCommands) { . (Join-Path $SourceDirectory 'release/cojvr-gui.ps1') -LibraryOnly }
+$OriginalPath = $env:PATH
 function Assert-True($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Invoke-Frontend([string[]]$Arguments, [bool]$ShouldPass=$true) {
     if ($UseGuiCommands) {
@@ -55,9 +63,21 @@ function Assert-Originals {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game 'd3d9.dll'))) 'Proxy not removed.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json'))) 'Staging still active.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game '.cojvr-public-install.json'))) 'Public journal remains.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game '.cojvr-deployment-transaction.json'))) 'Deployment journal remains.'
     Assert-True (([IO.File]::ReadAllText($Video)) -eq "Resolution(1280,720)`nFSAA(4)`n") 'Video settings not restored.'
 }
 try {
+    $env:LOCALAPPDATA = Join-Path $Root 'user'
+    if ($WindowsOnlyPath) {
+        $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+        if (Get-Command git.exe,cmake.exe,python.exe,py.exe -ErrorAction SilentlyContinue) {
+            throw 'The Windows-only test PATH admits a development tool.'
+        }
+        $Version = $PSVersionTable.PSVersion
+        if ($Version.Major -ne 5 -or $Version.Minor -ne 1) { throw 'Run the Windows-only test using Windows PowerShell 5.1.' }
+        Write-Host "Running isolated installation under Windows PowerShell $Version with Windows-only PATH."
+    }
+    if ($UseGuiCommands) { . (Join-Path $SourceDirectory 'release/cojvr-gui.ps1') -LibraryOnly }
     $OriginalHashes = @{}
     foreach ($Name in @('CoJ.exe','ChromeEngine3.dll','code.pak','Data0.pak')) {
         Copy-Item -LiteralPath (Join-Path $OriginalGameDirectory $Name) -Destination (Join-Path $Game $Name)
@@ -104,6 +124,10 @@ for archive, entry, transform in (
     Assert-True ($LASTEXITCODE -eq 0) 'Installed native options class/resources differ from the exact transformations.'
     $RunBefore = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
     Assert-True ($RunBefore.validation.manualReloadInstalled -and $RunBefore.validation.handPresentation -eq 'independent_native_hands') 'Default session omitted the complete hands/reload feature set.'
+    if ($Manifest.version -eq '1.0.0') {
+        Assert-True ($RunBefore.validation.schofieldMotion -eq $false -and
+            $RunBefore.validation.winchesterReceiver -eq $false) 'Stable default activated developer-only reload gestures.'
+    }
     Assert-True ($RunBefore.validation.videoProfile.resolutionProfile -eq 'Auto') 'First installation did not select automatic headset resolution.'
     [IO.File]::WriteAllText((Join-Path $Game 'cojvr.log'), 'previous run log')
     [IO.File]::WriteAllText((Join-Path $Game 'callstack.txt'), 'previous crash')
@@ -165,6 +189,31 @@ for archive, entry, transform in (
     Assert-True ($Menu.ExitCode -eq 0 -and (Get-FileHash -LiteralPath (Join-Path $Game '.cojvr-public-install.json')).Hash -eq $BeforeCancel) 'Cancelling reload selector changed installation.'
     Invoke-Frontend @('-Action','Uninstall')
     Assert-Originals
+    if ($PreviousPackageDirectory) {
+        $StatePath = Join-Path $Game '.cojvr-public-install.json'
+        & (Join-Path $PreviousPackageDirectory 'cojvr.ps1') -Action Install -GameDirectory $Game `
+            -VideoSettingsPath $Video -ResolutionSettingsPath $Preference -ManualReload:$false
+        $LegacyState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+        Assert-True ($LegacyState.version -ceq $Previous.version -and $LegacyState.sourceCommit -ceq $Previous.sourceCommit -and
+            $LegacyState.phase -ceq 'installed' -and $LegacyState.manualReload -eq $false) 'Legacy launcher did not produce an installed reload-off state.'
+        $PreferenceHash = (Get-FileHash -LiteralPath $Preference).Hash
+        Invoke-Frontend @('-Action','Install','-VideoSettingsPath',$Video)
+        $StableState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+        Assert-True ($StableState.version -ceq '1.0.0' -and $StableState.sourceCommit -ceq $Manifest.sourceCommit -and
+            $StableState.installId -cne $LegacyState.installId -and $StableState.buildManifestId -cne $LegacyState.buildManifestId -and
+            $StableState.phase -ceq 'installed' -and
+            $StableState.manualReload -eq $false) 'Stable upgrade did not replace .7 or lost the installed reload choice.'
+        $UpdatedRun = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+        Assert-True ($UpdatedRun.validation.manualReloadInstalled -eq $false -and
+            $UpdatedRun.validation.videoProfile.resolution -eq '2428x2477' -and
+            (Get-FileHash -LiteralPath $Preference).Hash -eq $PreferenceHash) 'Stable upgrade lost the .7 reload or saved resolution.'
+        Invoke-Frontend @('-Action','PrepareSession')
+        $PreparedRun = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+        Assert-True ($PreparedRun.runId -cne $UpdatedRun.runId) 'Stable upgrade did not support preparation of a fresh session.'
+        Invoke-Frontend @('-Action','Uninstall')
+        Assert-Originals
+        Write-Host 'PASS real .7 to 1.0.0 upgrade, preserved reload-off and Manual dimensions, fresh session and byte-exact uninstall.'
+    }
     $env:COJVR_DEPLOYMENT_FAILURE_TEST = '1'
     $env:COJVR_DEPLOYMENT_FAIL_AFTER = 'stage_proxy_published'
     try { Invoke-Frontend @('-Action','Install','-VideoSettingsPath',$Video) $false } finally {
@@ -176,6 +225,7 @@ for archive, entry, transform in (
     Write-Host 'PASS isolated exact-game defaults, Auto resolution, reload on/off selector, preserved update/session preferences, all controllers, saved Manual size, uninstall and failure restoration. Host-only.'
 } finally {
     $env:LOCALAPPDATA = $OriginalLocalAppData
+    $env:PATH = $OriginalPath
     $Allowed = [IO.Path]::GetFullPath((Join-Path $SourceDirectory 'work')).TrimEnd('\') + '\'
     $Resolved = [IO.Path]::GetFullPath($Root)
     if ($Resolved.StartsWith($Allowed, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $Resolved -Recurse -Force }

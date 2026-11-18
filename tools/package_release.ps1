@@ -30,10 +30,9 @@ function Assert-CleanSource {
         throw 'Public packaging requires a clean source tree. -AllowDirty is for local smoke packages only.'
     }
 }
-# Match the player frontend's prealpha.N contract; numeric semver parts cannot
-# have leading zeroes. A leading v belongs only to the Git tag, not this value.
-if ($Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-prealpha\.(0|[1-9][0-9]*)$') {
-    throw 'Version must use the semantic prerelease form 0.1.0-prealpha.1 (without a leading v).'
+. (Join-Path $RepositoryRoot 'release/release_common.ps1')
+if (-not (Test-CojvrReleaseVersion $Version)) {
+    throw 'Version must use a stable version such as 1.0.0 or a prerelease such as 0.1.0-prealpha.7, without a leading v.'
 }
 Assert-CleanSource
 $SourceCommit = [string](Invoke-Git @('rev-parse', 'HEAD'))
@@ -122,10 +121,23 @@ try {
     foreach ($Name in @('cojvr.ps1', 'cojvr-gui.ps1', 'CoJ-VR.cmd')) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot "release/$Name") -Destination (Join-Path $PackageRoot $Name)
     }
-    foreach ($Name in @('release_common.ps1', 'README.txt', 'RELEASE_NOTES.md')) {
+    foreach ($Name in @('release_common.ps1', 'RELEASE_NOTES.md')) {
         $Source = Join-Path $RepositoryRoot "release/$Name"
         if (Test-Path -LiteralPath $Source -PathType Leaf) { Copy-Item -LiteralPath $Source -Destination (Join-Path $PackageRoot $Name) }
     }
+    # The checkout README also supplies the source launcher's default version.
+    # Update the heading only in the packaged copy.
+    $Readme = [IO.File]::ReadAllText((Join-Path $RepositoryRoot 'release/README.txt'))
+    $ReadmeChannel = if ($Version.Contains('-prealpha.')) {
+        'Experimental community-testing prerelease'
+    } else {
+        'Windows 10/11 x64, D3D9/OpenVR'
+    }
+    $Readme = $Readme -creplace '\ACall of Juarez VR [^\r\n]*(\r?\n)Experimental community-testing prerelease',
+        ("Call of Juarez VR $Version - Windows player package" + '$1' + $ReadmeChannel)
+    $Readme = $Readme.Replace('This .7 player package opens', 'This player package opens')
+    $Readme = $Readme.Replace('outside this prerelease.', 'outside this package.')
+    [IO.File]::WriteAllText((Join-Path $PackageRoot 'README.txt'), $Readme, [Text.UTF8Encoding]::new($false))
     foreach ($Name in $Tools) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot "tools/$Name") -Destination (Join-Path $PackageRoot "tools/$Name")
     }
@@ -205,7 +217,7 @@ try {
         } finally { $Zip.Dispose() }
     } finally { $Stream.Dispose() }
     # Verify the actual extracted bytes and offline imports before publishing output.
-    & (Join-Path $RepositoryRoot 'tests/release_package.ps1') -ZipPath (Join-Path $Temporary $ZipName)
+    & (Join-Path $RepositoryRoot 'tests/release_package.ps1') -ZipPath (Join-Path $Temporary $ZipName) -ExpectedVersion $Version
     $ZipHash = Get-Hash (Join-Path $Temporary $ZipName)
     Move-Item -LiteralPath (Join-Path $Temporary $ZipName) -Destination $ZipPath
     [IO.File]::WriteAllText("$ZipPath.sha256", "$ZipHash  $ZipName`n", [Text.Encoding]::ASCII)
