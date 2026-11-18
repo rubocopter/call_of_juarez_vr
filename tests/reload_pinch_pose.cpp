@@ -192,6 +192,14 @@ int main() {
         if(CoJManualSupportFingersAllowed(true,1,o,n))return 1;
     }
     CoJReloadPinchInput waiting{};
+    native.weapon_class="WeaponRifleWinchester";
+    native.probe_status=3;
+    native.native_body_cycle=true;native.states[0][0]=22;
+    if(!CoJManualSupportFingersAllowed(true,1,owner,native)){
+        std::cerr<<"Winchester support fingers lost tracking during verified close\n";return 1;
+    }
+    native.states[0][0]=21;
+    if(CoJManualSupportFingersAllowed(true,1,owner,native))return 1;
     waiting.manual_load=true;waiting.armed_hand=0;
     waiting.left=TrackedPose();waiting.right=TrackedPose();
     cojvr::runtime::FingerTrackingState free{},armed{};

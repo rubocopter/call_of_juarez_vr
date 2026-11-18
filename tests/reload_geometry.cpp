@@ -22,7 +22,7 @@ void CheckSchofieldGuides() {
 
     CoJLoadingMouthGuideFrame frame{};
     frame.head.position_valid=frame.head.orientation_valid=true;
-    frame.right={-1,0,0};frame.up={0,1,0};frame.forward={0,0,-1};
+    frame.origin_cm={0,0,100};frame.right={1,0,0};frame.up={0,1,0};frame.forward={0,0,1};
     frame.frame=10;frame.player=7;frame.context=5;frame.weapon=0x80000042;
     frame.armed_hand=0;frame.allowed=frame.restored=true;
     CoJReloadTraceSnapshot native{};
@@ -33,26 +33,26 @@ void CheckSchofieldGuides() {
     StereoHudTextOverlay overlay{};
     overlay.frame_sequence=frame.frame;overlay.reload_feedback.owner_token=17;
 
-    const auto at_mouth=[&](std::size_t slot,std::size_t mouth) {
+    const auto at_mouth=[&](std::size_t slot,std::size_t mouth,unsigned state=0) {
         const auto& surface=overlay.holster_guides.zones[slot];
         Vec3 centre{};
         for(const auto& p:surface.head_corners) {
             centre.x+=p.x*.25F;centre.y+=p.y*.25F;centre.z+=p.z*.25F;
         }
         const auto expected=geometry.mouths[mouth].position;
-        return surface.kind==GestureGuideKind::loading_mouth&&surface.state==0&&
-            Near(centre.x,-expected.x*.01F)&&Near(centre.y,expected.y*.01F)&&
-            Near(centre.z,-expected.z*.01F);
+        return surface.kind==GestureGuideKind::loading_mouth&&surface.state==state&&
+            Near(centre.x,expected.x*.01F)&&Near(centre.y,expected.y*.01F)&&
+            Near(centre.z,(50.F+1.8852F-100.F)*.01F);
     };
     for(int loaded=0;loaded<=6;++loaded) {
         geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=loaded;
         overlay.holster_guides={};
         const bool appended=AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay);
-        Check(appended==(loaded<6)&&overlay.holster_guides.count==static_cast<unsigned>(6-loaded),
-            "Schofield must publish exactly the aggregate empty count");
-        constexpr std::array<std::size_t,6> clockwise_from_rear{4,3,2,1,0,5};
+        Check(appended&&overlay.holster_guides.count==6,
+            "Schofield must publish all six chamber positions before ejection");
         for(std::size_t i=0;i<overlay.holster_guides.count;++i)
-            Check(at_mouth(i,clockwise_from_rear[i]),"Schofield guide did not follow rear-view order");
+            Check(at_mouth(i,i,i<static_cast<unsigned>(6-loaded)?0:2),
+                "Schofield guide did not distinguish loaded rounds in rear-view order");
     }
 
     geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=0;
@@ -61,7 +61,7 @@ void CheckSchofieldGuides() {
         overlay.holster_guides.count==2,"six empty rings must append atomically");
     overlay.holster_guides.count=1;
     Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay)&&
-        overlay.holster_guides.count==7&&at_mouth(1,4)&&at_mouth(6,5),
+        overlay.holster_guides.count==7&&at_mouth(1,0)&&at_mouth(6,5),
         "all six empty rings must fit after an existing guide");
 
     geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=5;
@@ -71,15 +71,19 @@ void CheckSchofieldGuides() {
         "Schofield phase fixture has no mouths");
     overlay.holster_guides={};
     Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay)&&
-        overlay.holster_guides.count==1&&at_mouth(0,5),
+        overlay.holster_guides.count==6&&at_mouth(0,1),
         "a 60-degree drum turn should move a different mouth into the upper-right slot");
     auto no_reserve=native;
     no_reserve.reserve_readback=no_reserve.reserves[0]=0;
     auto empty_reserve_overlay=overlay;
     empty_reserve_overlay.holster_guides={};
     Check(AppendCoJSchofieldChamberGuides(frame,geometry,no_reserve,true,empty_reserve_overlay)&&
-        empty_reserve_overlay.holster_guides.count==1,
+        empty_reserve_overlay.holster_guides.count==6,
         "a current waiting drum's empty count is independent of reserve");
+    auto cleared=overlay;cleared.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,cleared,true)&&
+        cleared.holster_guides.count==5&&cleared.holster_guides.zones[0].state==2,
+        "cleared positions should only show remaining loaded rounds");
 
     for(int fault=0;fault<21;++fault) {
         auto view=frame;
@@ -104,7 +108,7 @@ void CheckSchofieldGuides() {
         case 13:snapshot.gate.forward={1,0,0};break;
         case 14:out.reload_feedback.owner_token=0;break;
         case 15:out.holster_guides.count=static_cast<unsigned>(out.holster_guides.zones.size());break;
-        case 16:view.origin_cm={0,0,100};view.right={1,0,0};view.forward={0,0,1};break;
+        case 16:view.origin_cm={0,0,0};view.right={-1,0,0};view.forward={0,0,-1};break;
         case 17:view.origin_cm={-50,0,48};view.right={0,0,1};view.forward={-1,0,0};break;
         case 18:out.frame_sequence++;break;
         case 19:current.weapon_class="WeaponPistolSchofield_A";break;

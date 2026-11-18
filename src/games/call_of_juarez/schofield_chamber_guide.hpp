@@ -35,14 +35,14 @@ inline bool RearView(Vector to_mouth, Vector inward) noexcept {
 // The caller supplies synchronous post-overlay geometry and the current native
 // wait read from the same capture. Set frame.allowed only while the captured
 // player and context still own publication, and frame.restored after restoration.
-// The markers depict aggregate empties for the exact base model.
+// The rear-face markers depict the aggregate count for the exact base model.
 inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& frame,
     const CoJReloadGeometrySnapshot& geometry, const CoJReloadTraceSnapshot& current,
-    bool enabled, runtime::StereoHudTextOverlay& out) noexcept {
+    bool enabled, runtime::StereoHudTextOverlay& out, bool chambers_cleared=false) noexcept {
     using namespace winchester_loading_detail;
     using namespace schofield_chamber_guide_detail;
     const auto mask=CoJSchofieldEmptyMask(geometry.schofield_loaded);
-    if (!mask || !*mask || !geometry.valid || geometry.model!=CoJReloadModel::schofield ||
+    if (!mask || !geometry.valid || geometry.model!=CoJReloadModel::schofield ||
         geometry.source!=CoJReloadGeometrySource::post_overlay ||
         !std::isfinite(geometry.native_drum_phase_degrees) ||
         !enabled || !frame.allowed || !frame.restored || !frame.frame ||
@@ -60,19 +60,21 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
         std::abs(Dot(tracking_right,tracking_forward))>.001) return false;
 
     const auto empty_count=static_cast<std::size_t>(6-geometry.schofield_loaded);
+    const auto first=chambers_cleared?empty_count:0U;
     auto& guides=out.holster_guides;
-    if (guides.count>guides.zones.size()-empty_count ||
+    if (first==6 || guides.count>guides.zones.size()-(6-first) ||
         !Rigid(geometry.root) || !Rigid(geometry.barrel) || !Rigid(geometry.gate)) return false;
     std::array<ElementWorldBasisTarget,6> expected{};
     if (!BuildCoJReloadMouthFrames(geometry.model,geometry.drum,expected)) return false;
 
-    // Capture lines 10261 and 12443 show GunReleaser locked to the barrel.
-    // Its forward follows drum inward while its up stays fixed across spins.
+    // GunReleaser follows the drum axis and its up stays fixed across spins.
+    // The negative-Z rings face the muzzle. Draw on the positive-Z drum face.
     const auto axis=Widen(geometry.drum.forward);
     const auto axis_length=std::sqrt(Dot(axis,axis));
-    const Vector inward{axis.x/axis_length,axis.y/axis_length,axis.z/axis_length};
+    const Vector outward{axis.x/axis_length,axis.y/axis_length,axis.z/axis_length};
+    const Vector inward{-outward.x,-outward.y,-outward.z};
     const auto gate_up=Widen(geometry.gate.up);
-    if (Dot(inward,Widen(geometry.gate.forward))<.999 ||
+    if (Dot(outward,Widen(geometry.gate.forward))<.999 ||
         Dot(gate_up,Widen(geometry.barrel.up))<.999) return false;
     const auto vertical=Dot(gate_up,inward);
     const Vector projected_up{gate_up.x-vertical*inward.x,gate_up.y-vertical*inward.y,
@@ -112,10 +114,15 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
     // the measured 0.546 cm radius and keep the quad in the drum face plane.
     constexpr float half_m=.0064F;
     std::array<runtime::HolsterGuideSurface,6> pending{};
-    for (std::size_t i=0;i<empty_count;++i) {
+    constexpr double rear_face_cm=1.8852;
+    for (std::size_t i=first;i<ordered.size();++i) {
         auto& surface=pending[i];
-        if (!loading_mouth_guide_detail::Surface(frame,geometry.mouths[ordered[i].index].position,
-            0.F,surface)) return false;
+        const auto front=Widen(geometry.mouths[ordered[i].index].position);
+        const auto offset=rear_face_cm-Dot(Difference(front,Widen(geometry.drum.position)),outward);
+        runtime::Vec3 rear{};
+        if (!Store({front.x+offset*outward.x,front.y+offset*outward.y,front.z+offset*outward.z},rear) ||
+            !loading_mouth_guide_detail::Surface(frame,rear,0.F,surface)) return false;
+        surface.state=i<empty_count?0:2;
         const auto centre=surface.head_corners[0];
         if (!RearView(Widen(centre),head_inward)) return false;
         for (const auto& eye:out.eyes) {
@@ -130,7 +137,7 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
                 centre.y+x*head_right.y+y*head_up.y,centre.z+x*head_right.z+y*head_up.z};
         }
     }
-    for (std::size_t i=0;i<empty_count;++i) guides.zones[guides.count++]=pending[i];
+    for (std::size_t i=first;i<ordered.size();++i) guides.zones[guides.count++]=pending[i];
     return true;
 }
 }

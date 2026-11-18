@@ -79,8 +79,11 @@ void SchofieldMotionSession() {
     auto& gun=f.s.right.position;
     gun.z+=.05F;Check(!f.Poll().cancel,"rearward motion before insertion closed the drum");
     gun.y-=.05F;Check(!f.Poll().unload,"level pistol admitted unloading");
-    f.s.armed_aim.orientation={-.38268343F,0,0,.92387953F};
-    (void)f.Poll();
+    for(int degrees=5;degrees<=45;degrees+=5){
+        const float half_pitch=degrees*.008726646F;
+        f.s.armed_aim.orientation={-std::sin(half_pitch),0,0,std::cos(half_pitch)};
+        Check(!f.Poll().unload,"gradual tilt alone ejected rounds");
+    }
     gun.y-=.05F;Check(!f.Poll().unload,"unload accepted a single short step");
     gun.y-=.05F;Check(f.Poll().unload,"tilted down sweep did not request unloading");
     gun.y-=.05F;Check(!f.Poll().unload,"unload repeated within the same sweep");
@@ -119,6 +122,30 @@ void SchofieldMotionSession() {
     Check(!wrist.Poll().cancel,"small wrist flick closed the drum");
     wrist.s.armed_aim.orientation={.70710678F,0,0,.70710678F};
     Check(wrist.Poll().cancel,"wrist rotation without arm translation did not close");
+
+    Fixture shake;
+    shake.s.schofield_motion=true;
+    shake.s.native.weapon_class="WeaponPistolSchofield";
+    shake.s.native.kind=shake.s.admission.kind=shake.s.recovery.kind=CoJManualReloadKind::clip;
+    shake.s.native.capacities[0]=6;
+    shake.s.native.ammo_readback=shake.s.native.loaded[0]=4;
+    shake.s.armed_aim=At({});
+    shake.Open();
+    shake.s.armed_aim.orientation={-.08715574F,0,0,.9961947F};
+    Check(!shake.Poll().unload,"a shallow tilt ejected rounds");
+    shake.s.armed_aim.orientation={-.38268343F,0,0,.92387953F};
+    Check(shake.Poll().unload,"a downward wrist snap never reached the native unload route");
+    Check(!shake.Poll().unload,"held tilted pose repeated the unload");
+
+    shake.s.native.ammo_readback=shake.s.native.loaded[0]=0;
+    shake.s.armed_aim.orientation={};(void)shake.Poll();
+    shake.s.armed_aim.orientation={-.5F,0,0,.8660254F};
+    const auto empty=shake.Poll();
+    Check(empty.eject_empty&&!empty.unload&&shake.session.schofield_chambers_cleared(),
+        "empty ejection must clear markers without requesting a reserve transfer");
+    shake.s.armed_aim.orientation={};(void)shake.Poll();
+    shake.s.armed_aim.orientation={-.5F,0,0,.8660254F};
+    Check(!shake.Poll().eject_empty,"repeated empty shake replayed the visual ejection");
 }
 void ManualReloadCapability() {
     using Mode=CoJReloadMode;

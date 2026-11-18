@@ -3,6 +3,7 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
 #include <cmath>
+#include <string_view>
 
 namespace cojvr::games::call_of_juarez {
 
@@ -65,10 +66,14 @@ struct CoJReloadPinchInput {
 // may use this exception to the ordinary empty-idle finger gate.
 [[nodiscard]] inline bool CoJManualSupportFingersAllowed(bool owned,int hand,
     const CoJMotionReloadOwner& recovery,const CoJReloadTraceSnapshot& native) noexcept {
+    const std::string_view weapon=native.weapon_class?native.weapon_class:"";
+    const bool closing_rifle=native.probe_status==3&&native.native_body_cycle&&
+        native.kind==CoJManualReloadKind::unit&&native.states[0][0]==22&&
+        (weapon=="WeaponRifleWinchester"||weapon=="WeaponRifleWinchesterScope")&&native.armed_hand==0;
     return owned&&hand>=0&&hand<2&&recovery.valid&&recovery.SupportsManual()&&
         native.valid&&native.probe_valid&&native.weapon_id!=0&&
         recovery.kind==native.kind&&
         recovery.weapon_id==native.weapon_id&&recovery.armed_hand==native.armed_hand&&
-        native.armed_hand==1-hand&&(native.probe_status==1||native.probe_status==2);
+        native.armed_hand==1-hand&&(native.probe_status==1||native.probe_status==2||closing_rifle);
 }
 }

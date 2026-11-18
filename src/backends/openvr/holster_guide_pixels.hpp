@@ -83,9 +83,14 @@ inline const std::array<HudTextPanel,3>& AmmunitionPickupGuidePanels() {
 inline const std::array<HudTextPanel,3>& LoadingMouthGuidePanels() {
     static const auto panels=[] {
         auto out=GlyphGuideBackgroundPanels();
-        constexpr std::array<std::uint32_t,3> colors{0x6ECBE0U,0x70DDA0U,0x9A8274U};
+        constexpr std::array<std::uint32_t,3> colors{0x6ECBE0U,0x70DDA0U,0xEAC67AU};
         for(unsigned i=0;i<out.size();++i)
             for(auto& pixel:out[i].pixels)pixel=(pixel&0xff000000U)|colors[i];
+        auto& loaded=out[2].pixels;
+        for(int y=8;y<56;++y)for(int x=8;x<56;++x){
+            const int dx=2*x-63,dy=2*y-63,r2=dx*dx+dy*dy;
+            if(r2<47*47)loaded[y*64+x]=r2<13*13?0xE08F622FU:0xE0EAC67AU;
+        }
         return out;
     }();
     return panels;

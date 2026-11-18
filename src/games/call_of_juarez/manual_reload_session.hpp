@@ -30,7 +30,7 @@ struct CoJManualReloadGestureTarget {
 };
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
-    bool schofield_motion=false,unload=false;
+    bool schofield_motion=false,unload=false,eject_empty=false;
     std::uint32_t transition_controls=0; // Gameplay digital bits held by the preference transition.
     int selected_index=-1; // Captured at indexed pickup, never inferred at release.
     runtime::MotionReloadGestureOutput gesture{};
@@ -183,7 +183,8 @@ public:
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
             kind_=s.native.kind;cartridge_index_=-1;
-            schofield_motion_=schofield;schofield_inserted_=false;schofield_sweep_={};
+            schofield_motion_=schofield;schofield_inserted_=false;schofield_chambers_cleared_=false;
+            schofield_sweep_={};
             replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
             out.reason=deferred_start?"reload_after_shot":empty_fire_edge?"empty_trigger":"reload_button";
@@ -215,6 +216,10 @@ public:
                 if(schofield_inserted_){
                     out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_rear_flick";
                 }else if(s.native.ammo_readback>0)out.unload=true;
+                else if(!schofield_chambers_cleared_){
+                    out.eject_empty=true;
+                    schofield_chambers_cleared_=true;
+                }
             }
         }
         runtime::MotionReloadGestureInput gesture{};
@@ -270,6 +275,8 @@ public:
     }
     void NoteStart(bool accepted) noexcept {if(!accepted){phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;}}
     void NoteInsertion(bool accepted) noexcept {replenish_=accepted;cancel_pending_=!accepted;}
+    void NoteSchofieldUnloadConfirmed() noexcept {schofield_chambers_cleared_=true;}
+    bool schofield_chambers_cleared() const noexcept {return schofield_chambers_cleared_;}
     // Resolve the synchronous native call before publishing this frame's
     // ownership/feedback. The insertion flag records intent, never ammo credit.
     void CompleteInsertion(bool completed,bool accepted,CoJManualReloadOutput& out) noexcept {
@@ -327,13 +334,16 @@ private:
         const float velocity_scale=1000.F/static_cast<float>(dt);
         // Reject discontinuous tracking, transport only relative to the HMD,
         // and require downward pitch when requesting a transfer.
-        if(distance>.12F||distance*velocity_scale>4.F||(!closing&&aim.y>-.45F)){
+        if(distance>.12F||distance*velocity_scale>4.F||(!closing&&aim.y>-.30F)){
             schofield_sweep_.start=0;schofield_sweep_.fired=false;return false;
         }
         const float linear=closing?dot(step,rear):-step.y;
-        const float angular=closing?dot({aim.x-prior.aim.x,aim.y-prior.aim.y,aim.z-prior.aim.z},rear):0.F;
+        const float angular=closing?dot({aim.x-prior.aim.x,aim.y-prior.aim.y,aim.z-prior.aim.z},rear):
+            prior.aim.y-aim.y;
         const float progress=std::max(linear,angular*.14F);
-        if(progress*velocity_scale<.6F||(linear<distance*.75F&&angular*velocity_scale<4.3F)){
+        const float speed=closing?.6F:.35F;
+        const float alignment=closing?.75F:.45F;
+        if(progress*velocity_scale<speed||(linear<distance*alignment&&angular*velocity_scale<4.3F)){
             schofield_sweep_.start=0;schofield_sweep_.fired=false;return false;
         }
         if(prior.fired)return false;
@@ -341,7 +351,7 @@ private:
             schofield_sweep_.start=prior.last;schofield_sweep_.distance=0;
         }
         schofield_sweep_.distance+=progress;
-        if(schofield_sweep_.distance<.08F)return false;
+        if(schofield_sweep_.distance<(closing?.08F:.065F))return false;
         schofield_sweep_.fired=true;return true;
     }
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
@@ -376,7 +386,7 @@ private:
         float distance=0;
         bool fired=false;
     } schofield_sweep_{};
-    bool schofield_motion_=false,schofield_inserted_=false;
+    bool schofield_motion_=false,schofield_inserted_=false,schofield_chambers_cleared_=false;
     std::uint8_t trigger_claims_=0;
     std::uint32_t known_controls_=0,transition_release_=0;
     std::array<std::uint64_t,3> trigger_source_{};

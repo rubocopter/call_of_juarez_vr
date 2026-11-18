@@ -871,13 +871,15 @@ The original Steam `Data0.pak` member
 contains `GunDrum` (element 4) and `GunReleaser` (element 5), both parented
 to `GunBarrel` (element 2). Quantized positions on the negative-Z face yield
 six disjoint XY rings, each with ten witnesses. Fitted radii are 0.5455–0.5458
-cm and rear-ring centers lie near Z = −1.88 cm in drum space. Use the displayed
-open barrel/drum transform and clearance to qualify placement. The bind mesh
-does not identify the native indexing phase or which chamber contains a case.
+cm and these ring centres lie near Z = −1.88 cm in drum space. The `Barrel`
+muzzle marker is at −16.03 cm on this same axis, placing those rings on the
+front face. The headset clip confirms front-facing guide placement was wrong.
+The revised rear guide projects the same radial coordinates onto the +1.8852 cm
+mesh bound. The bind mesh leaves physical case occupancy and clearance open.
 
 The native weapon exposes one loaded count for all six chambers. The ammo skin
 switches between zero and positive load. The read-only base Schofield observer
-transforms the six measured rear centres using the displayed drum basis. In
+transforms the six measured front centres using the displayed drum basis. In
 the waiting phase it derives an empty mask from the exact aggregate count
 bracketed around that read. The same held object must own the wait ticket,
 hand and inventory on both sides of the read. The presentation order starts at drum-local

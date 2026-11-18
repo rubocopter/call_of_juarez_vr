@@ -4251,8 +4251,13 @@ void CaptureWinchesterLoadingGeometry(CoJReloadGeometrySource source,
     const unsigned slot=source==CoJReloadGeometrySource::pre_native?0U:1U;
     auto& pending=g_winchester_loading_pending[slot];pending={};
     if(generation!=g_java_player_bridge.being_generation())return;
-    (void)g_java_player_bridge.TryObserveWinchesterLoadingSample(
-        source,frame,context,physical_cartridge,pending);
+    std::string error;
+    const bool observed=g_java_player_bridge.TryObserveWinchesterLoadingSample(
+        source,frame,context,physical_cartridge,pending,&error);
+    if(!observed&&(g_winchester_loading_attempts<=3||g_manual_reload_geometry_event))try{
+        EmitEvent("winchester_loading_capture","unavailable","frame_sequence="+std::to_string(frame)+
+            ";source="+(slot==0?"pre_native":"post_overlay")+";detail="+error);
+    }catch(...){}
     if(pending.player_generation!=generation)pending={};
 }
 
@@ -6995,8 +7000,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         !g_java_player_bridge.TryKeepManualReloadAlive(&manual_error)){
         (void)g_manual_reload.Cancel();(void)g_java_player_bridge.CancelManualReload(&manual_error);
         g_manual_reload_presentation=false;manual_result.insert=false;manual_result.unload=false;manual_result.gesture={};
+        manual_result.eject_empty=false;
         manual_result.cancel=true;manual_result.reason="native_supervision_failed";
     }
+    if(manual_result.eject_empty&&snapshot.command.reload_trace_enabled)try{
+        EmitEvent("schofield_empty_eject","visual", "frame_sequence="+std::to_string(frame_sequence)+
+            ";weapon_id="+std::to_string(manual_input.native.weapon_id)+";ammo_write=false");
+    }catch(...){}
     if(manual_result.unload){
         bool accepted=false,context_restored=true;
         const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
@@ -7020,7 +7030,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_manual_reload_presentation=false;manual_result.tracked=false;manual_result.cancel=true;
             manual_result.reason="schofield_unload_uncertain";
         }
-        if(confirmed)insertion_pose_native=after;
+        if(confirmed){
+            g_manual_reload.NoteSchofieldUnloadConfirmed();
+            insertion_pose_native=after;
+        }
         try{
             EmitEvent("schofield_unload",confirmed?"accepted":declined?"declined":"uncertain",
                 "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(before.weapon_id)+
@@ -8863,12 +8876,15 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 const bool chamber_guide_drawn=guide.context==sample.native_gameplay_context_token&&
                     guide.player==g_java_player_bridge.being_generation()&&
                     AppendCoJSchofieldChamberGuides(guide,schofield_guide.geometry,
-                        schofield_guide.native,holster_guides_enabled,hud_text);
+                        schofield_guide.native,holster_guides_enabled,hud_text,
+                        g_manual_reload.schofield_chambers_cleared());
                 if(chamber_guide_drawn&&snapshot.command.reload_trace_enabled&&ShouldObserveBodyFrame(frame_sequence))
                     EmitEvent("schofield_chamber_guide","captured",
                         "frame_sequence="+std::to_string(frame_sequence)+
                         ";weapon_id="+std::to_string(guide.weapon)+
-                        ";empty_count="+std::to_string(6-schofield_guide.geometry.schofield_loaded));
+                        ";loaded_count="+std::to_string(schofield_guide.geometry.schofield_loaded)+
+                        ";chambers_cleared="+std::to_string(g_manual_reload.schofield_chambers_cleared())+
+                        ";face=rear_positive_z");
                 if(!g_room_scale_body_offset.faulted)
                     (void)AppendCoJManualReloadTargetGuide(manual_input,manual_result,frame_sequence,
                         holster_guides_enabled,hud_text);
