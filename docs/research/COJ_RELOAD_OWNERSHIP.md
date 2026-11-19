@@ -134,6 +134,13 @@ context clears the press. This routing change has host coverage and bounded
 live evidence of deferred base-Schofield presses reaching idle manual opening
 and native clip transfer. The operator reports improved loading with the
 18 cm insertion zone. Broader interrupted requests retain their physical gate.
+The ordinary right-owned `WeaponRifleWinchester` with empty support showed
+the same `32,1,1,1` tuple during the authored 0.6-second fire tail. Square
+then reached action 31 and the original body cycle refilled two or three
+chambers with matching rifle-reserve debits. Source uses the same
+450 ms deferral and fresh idle admission for that exact rifle. The scoped
+Winchester and other long guns retain their previous routes. Host fixtures
+cover this distinction and the ordinary Winchester manual handoff.
 One later exercised session records an exact Derringer and support-occupied
 contexts, with no admitted manual session or insertion. The operator's report
 of conventional reload in that session does not qualify new cartridge visuals

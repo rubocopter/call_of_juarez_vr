@@ -74,7 +74,7 @@ bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player,
     CoJMotionReloadOwner& out, CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
 // Positive native-only firearm observation, independent of manual idle/recovery
 // states. Exact class, coherent hand slots, cOwner and object/ID stability are
-// required. The exact Schofield shot tail may publish an owner for a deferred
+// required. A supported exact shot tail may publish an owner for a deferred
 // intent. This never admits a manual reload before ordinary idle observation.
 // Caller retains exact-build, gameplay-context and player-generation gates.
 bool ReadCoJNativeReloadFallback(void* env, void* player,

@@ -667,11 +667,40 @@ void ReloadPressedDuringShot() {
         Check(!f.Poll().start&&!f.mapped.reload,"deferred reload dispatched again or after its native edge was blocked");
     }
 }
+void WinchesterReloadPressedDuringShot() {
+    for(const int loaded:{9,10,11}){
+        Fixture f;
+        f.s.native.weapon_class="WeaponRifleWinchester";
+        f.s.native.native_body_cycle=true;
+        f.s.native.capacities[0]=12;
+        f.s.native.loaded[0]=f.s.native.ammo_readback=loaded;
+        f.s.native.probe_status=4;
+        const CoJMotionReloadOwner idle{0,42,true,false,CoJManualReloadKind::unit,true};
+        f.s.admission=idle;
+        (void)f.Poll();
+        f.s.native.states[0]={32,1,1,1};
+        f.s.admission={};
+        f.s.after_shot=idle;
+        f.s.raw.reload=true;
+        Check(!f.Poll(12).start&&!f.mapped.reload,"Winchester shot tail must not dispatch a native fill");
+        f.s.raw.reload=false;
+        for(unsigned ms:{16,23,50,61})
+            Check(!f.Poll(ms).start&&!f.mapped.reload,"Winchester shot tail must wait across fresh samples");
+        f.s.native.states[0]={1,1,1,1};
+        f.s.after_shot={};
+        f.s.admission=idle;
+        const auto start=f.Poll(17);
+        Check(start.start&&f.mapped.reload&&std::strcmp(start.reason,"reload_after_shot")==0,
+            "Winchester Square must start manual reload once it returns to idle");
+        Check(!f.Poll(12).start&&!f.mapped.reload,"Winchester replayed the deferred Square press");
+    }
+}
 int main(){
     ManualReloadCapability();
     DisableWhileCarrying();
     RetiredSampleRetainsCleanup();
     ReloadPressedDuringShot();
+    WinchesterReloadPressedDuringShot();
     {
         Fixture outside;
         outside.Open();outside.Claim();

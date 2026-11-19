@@ -476,9 +476,13 @@ bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* 
     if (!Clean(env) || second_id!=id) return false;
     const int armed=first[0].weapons[0]?0:1;
     const auto& support=first[1-armed];
-    // In the recorded pistol fire tail only the current state remains in
-    // attack (32). Defer the press until the exact same owner reaches idle.
-    const bool defer=manual&&(manual->single_round||std::string_view(manual->class_name)=="WeaponPistolSchofield");
+    // The ordinary Winchester also exposes the recorded pistol fire-tail
+    // tuple. Keep Square pending until the same empty-support owner reaches
+    // ordinary manual admission. Shared and left-owned rifles keep action31.
+    const bool ordinary_winchester=manual&&armed==0&&
+        std::string_view(manual->class_name)=="WeaponRifleWinchester";
+    const bool defer=manual&&(manual->single_round||ordinary_winchester||
+        std::string_view(manual->class_name)=="WeaponPistolSchofield");
     if (defer && !support.weapons[0] &&
         support.states==std::array<int,4>{} && first[armed].states==std::array{32,1,1,1}) {
         if (after_shot) *after_shot={armed,static_cast<std::uint32_t>(id),true,

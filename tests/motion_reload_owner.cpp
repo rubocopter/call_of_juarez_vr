@@ -405,6 +405,30 @@ void NativeReloadContinuationIntegration() {
 }
 void NativeFallbackRegression() {
     using namespace cojvr::runtime;
+    {
+        Reset();weapon_class=&winchester_class;current[0]=32;
+        for(auto& flags:two)flags[0]=true;
+        CoJMotionReloadOwner after_shot{};
+        Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&
+            after_shot.valid&&after_shot.armed_hand==0&&after_shot.SupportsManual()&&
+            !after_shot.single_round_supported&&after_shot.kind==CoJManualReloadKind::unit&&
+            after_shot.weapon_id==static_cast<std::uint32_t>(weapon_id)&&refs==0&&!pending,
+            "ordinary right-owned Winchester post-shot Square must wait for manual idle");
+        current[0]=1;
+        Require(ReadCoJMotionReloadOwner(&holder,&player,after_shot)&&after_shot.SupportsManual(),
+            "the same Winchester must remain eligible through ordinary idle admission");
+    }
+    for(auto hand:{0,1}){
+        Reset(hand);weapon_class=hand==0?&scoped_class:&winchester_class;current[hand]=32;
+        CoJMotionReloadOwner after_shot{};
+        Require(ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid,
+            "scoped or left-owned Winchester should retain the existing shot-tail fallback");
+    }
+    Reset();weapon_class=&winchester_class;current[0]=32;
+    actual[1]=active[1]=desired[1]=&weapon_alias;
+    CoJMotionReloadOwner shared_rifle{};
+    Require(ReadCoJNativeReloadFallback(&holder,&player,&shared_rifle)&&!shared_rifle.valid,
+        "shared Winchester ownership should retain native reload");
     for(int hand:{0,1}) {
         Reset(hand);weapon_class=&schofield_class;current[hand]=32;
         CoJMotionReloadOwner after_shot{};

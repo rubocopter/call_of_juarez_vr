@@ -1487,9 +1487,10 @@ It consumes rejected Square admission until release. In eligible native-only
 contexts, the exact firearm fallback verifies the current weapon, player,
 hand slots and native state before passing Square to normal action 31. It
 includes the sixteen manual profiles and six pinned legacy classes. The base
-Schofield and five single-round revolvers can hold one Square press for up to
-450 ms in the coherent pistol shot tail. The same owner must pass ordinary
-idle admission before the manual request is dispatched. Invalid owner/context/poses/input availability,
+Schofield, five single-round revolvers and the exact right-owned ordinary
+Winchester can hold one Square press for up to 450 ms in the coherent shot
+tail. The same owner must pass ordinary idle admission before the manual
+request is dispatched. Invalid owner/context/poses/input availability,
 recenter, stale samples, incompatible actions or presentation failure close the
 session. Native-clock watchdog expiry is a recovery fallback, not a fixed mesh
 frame. JNI cleanup retains the player on failed cancellation for retry. See
