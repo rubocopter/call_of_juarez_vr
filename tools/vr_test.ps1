@@ -529,10 +529,10 @@ switch ($Action) {
             Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental exact-profile cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Legacy paced continuation has bounded live evidence; native animation still owns its hands. Persistent manual reload requires -ManualReload. See docs/VALIDATION.md#cartridge-paced-reload-acceptance."
         }
         if ($SchofieldMotion) {
-            Write-Host "Base Schofield motion candidate: Square opens with one armed hand. Pick up a bundle for missing rounds. With the muzzle tipped down, shake down or flick toward your chest to eject. Hold still briefly, then flick the wrist up to close at any load count. Square can also close."
+            Write-Host "Base Schofield motion candidate: Square opens with one armed hand. Pick up a bundle for missing rounds. Pull the armed hand sharply toward you to eject. Flick the wrist down and forward to close at any load count. Square can also close."
         }
         if ($WinchesterReceiver) {
-            Write-Host 'Winchester receiver candidate: release the support grip and press Square. Pick up one round at the hip, bring its tip near the side loading port and release at the green guide. After the native loading animation, sweep the free hand down next to the lever or press Square to close early. The final cartridge closes natively.'
+            Write-Host 'Winchester receiver candidate: release the support grip and press Square. Pick up one round at the hip, bring its tip near the side loading port and release at the green guide. After the native loading animation, pick up another round or press Square to close early. The final cartridge closes natively.'
         }
         Write-Host "Drawer/container Action: point the left Sense at the handle/usable part and press L1. A small cyan hand-directed reference appears only while L1 is held; head gaze no longer selects the object. Native reach/permissions remain. Lost left-hand tracking requires release before another Action. The reference is not proof that a target is usable."
         Write-Host "Death/mission failure: corrected visor visibility has operator acceptance. Circle requests native Back/Escape. Native retry/held-control recovery remains pending; successive manual loading has scoped acceptance."

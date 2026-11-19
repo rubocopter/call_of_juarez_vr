@@ -48,14 +48,14 @@ public:
         switch(instruction_){
         case Instruction::schofield_gestures:
             if(s.native.ammo_readback>0)
-                add(es?u"Para vaciar, apunta abajo y tira hacia ti.\n":
-                    u"To empty, point down and flick toward you.\n");
-            add(es?u"Cierra con un giro de muñeca hacia arriba o con ":u"Flick your wrist up or press ");
+                add(es?u"Para vaciar, da un tirón seco hacia ti.\n":
+                    u"To empty, flick the gun toward you.\n");
+            add(es?u"Cierra con un golpe de muñeca hacia abajo y delante o con ":
+                u"Flick your wrist down and forward or press ");
             add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
             add(es?u".":u" to close.");break;
-        case Instruction::winchester_lever:
-            add(es?u"Baja la mano libre junto a la palanca o pulsa ":
-                u"Sweep your free hand down beside the lever or press ");
+        case Instruction::close:
+            add(es?u"Pulsa ":u"Press ");
             add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
             add(es?u" para cerrar.":u" to close.");break;
         case Instruction::receiver_carry:
@@ -90,7 +90,7 @@ public:
         out.reload_result_notice=IsRefusal();
         out.reload_instruction_until_ms=started_>UINT64_MAX-3000?UINT64_MAX:started_+3000;
         out.control_hint_action=instruction_==Instruction::empty_reserve||IsRefusal()||
-            instruction_==Instruction::schofield_gestures||instruction_==Instruction::winchester_lever?
+            instruction_==Instruction::schofield_gestures||instruction_==Instruction::close?
             runtime::PromptAction::reload:support;
         out.control_hint_prompts=prompts;
         return true;
@@ -98,7 +98,7 @@ public:
     void Reset() noexcept {have_=false;instruction_=Instruction::none;}
 private:
     enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve,reserve_full,
-        unload_refused,schofield_gestures,winchester_lever,receiver_carry};
+        unload_refused,schofield_gestures,close,receiver_carry};
     bool IsRefusal() const noexcept {
         return instruction_==Instruction::reserve_full||instruction_==Instruction::unload_refused;
     }
@@ -109,10 +109,10 @@ private:
         if(g.pickup_hint.visible)return g.pickup_hint.ready?Instruction::pickup:Instruction::release_first;
         if(!g.cartridge_held||g.cartridge_hand!=1-s.native.armed_hand)
             return r.schofield_motion?Instruction::schofield_gestures:
-                s.winchester_receiver?Instruction::winchester_lever:Instruction::none;
+                s.winchester_receiver?Instruction::close:Instruction::none;
         if(g.claimed_hand!=g.cartridge_hand){
             const bool held=s.native.armed_hand==0?s.raw.fire_left:s.raw.fire_right;
-            return held?Instruction::release_first:s.winchester_receiver?Instruction::winchester_lever:Instruction::continuation;
+            return held?Instruction::release_first:Instruction::continuation;
         }
         if(s.winchester_receiver)return Instruction::receiver_carry;
         return g.insertion_ready?Instruction::insert:Instruction::carry;

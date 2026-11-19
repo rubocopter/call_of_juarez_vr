@@ -1141,14 +1141,13 @@ The default input policy continues to use the grip receipt while that correlatio
 mechanical clearance await live validation.
 
 `-WinchesterReceiver` opts the exact ordinary and scoped Winchester into a
-receiver proximity candidate. A read-only native preview supplies the lip,
-the tracked cartridge tip and the authored lever reference. After a valid hip
+receiver proximity candidate. A read-only native preview supplies the lip
+and the tracked cartridge tip. After a valid hip
 pickup and carry, a fresh release can use the existing native unit transaction
 when the tip is within 7 cm of the finite projected lip on either side. Signed
 distance to its plane and cartridge angle remain diagnostic. Missing geometry
-withholds receiver insertion. A short downward free-hand stroke near the lever
-requests native closure during the waiting phase. Full or reserve-exhausted
-insertion follows native completion.
+withholds receiver insertion. Square closes early during the waiting phase.
+Full or reserve-exhausted insertion follows native completion.
 
 The duel coach is read-only presentation from the existing native input capture:
 phase, observed hand occupancy, physical pitch and successful axis delivery.
@@ -1225,14 +1224,14 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a downward shake or a rearward stroke with the muzzle
-tipped down to unload. An upward wrist flick closes at any load count.
-Classification uses the tracked aim elevation and HMD-relative armed hand.
-Wrist rotation can qualify during natural hand translation. An opposing
+retained wait accepts a sharp pull toward the player to unload. A wrist flick
+down and forward closes at any load count. Classification uses the tracked aim
+elevation and the hand's horizontal reach relative to the player, independent
+of head yaw. An opposing
 stroke discards accumulated progress. A substantial reversal, classified
 gesture or broken stroke across a pose gap requires a fresh neutral hold.
-A partial drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
-clears the outlines and pulses the armed hand. Confirmed reserve transfers also
+A partial drum can accept a bundle sized to the missing rounds and available reserve.
+An empty eject pulses the armed hand once per wait. Confirmed reserve transfers
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
 uses the verified quantity with one shared mesh and bounded stereo instances.
 The unload helper checks the original pistol counter's capacity inside the
@@ -1245,8 +1244,8 @@ session, with phase changes and classified requests recorded immediately.
 The native watchdog and ownership retirement still
 control the animation lifecycle. A visual guide projects the six measured
 radial positions onto the positive-Z drum face and shows the aggregate live
-count as brass heads in a non-spinning rear view. Unfilled outlines clear on
-an empty eject or a confirmed transfer to reserve. This guide carries no
+count as brass heads in a non-spinning rear view. Empty outlines remain visible
+while waiting after a confirmed transfer to reserve. This guide carries no
 contact or ammunition authority.
 Shared transaction guards prevent cross-family callback reentry.
 All new paths remain source/host candidates with generic grip-zone interaction;

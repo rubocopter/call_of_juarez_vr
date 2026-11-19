@@ -64,7 +64,7 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — campaign gameplay and reloads | Use the bounded Schofield classifier and native-result traces to measure remaining misses on both hands. Preserve the exercised Winchester insertion and verify early lever closure after an intermediate cartridge. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 1 — campaign gameplay and reloads | Use the bounded Schofield classifier and native-result traces to measure inward ejection and down-forward closure on both hands. Preserve the exercised Winchester insertion, native replay and Square closure. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
 | 2 — rendering stability | Isolate translucent flicker under capture pressure. Keep temporal reconstruction in the experimental track. | Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
@@ -81,8 +81,8 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
 - The exact base Schofield has an opt-in development route for opening,
-  downward or rearward unloading with a tipped muzzle, retained bundle insertion and a wrist
-  flick to close. Qualify count conservation, closing/recovery, rear-view
+  unloading with a sharp pull toward the body, retained bundle insertion and
+  a down-forward wrist flick to close. Qualify count conservation, closing/recovery, rear-view
   guide visibility and gesture comfort using the combined headset gate.
   Ordinary clips and variants retain automatic close on insertion.
 - Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
@@ -113,7 +113,7 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | --- | --- | --- |
 | Peacemaker / admitted Frontier1878 | Persistent native unit-loading route with scoped acceptance. | Contact/occlusion, precise mouth, sound, mechanics and broader interruption recovery. |
 | Additional Frontier, Walker, Cogswell | Manual profiles host-tested. Cogswell presents the elongated rifle round from its rifle reserve. | Per-model physical unit transfer, geometry, ammunition appearance and recovery. |
-| Winchester | Receiver proximity has scoped final-round insertion acceptance on the ordinary rifle, followed by native close. The opt-in lever remains available while waiting with more ammunition to load. | Qualify intermediate transfer and replay, a missed release, early lever close, support regrip and visible clearance. |
+| Winchester | Receiver proximity has operator acceptance for ordinary-rifle manual loading. Native readback confirms intermediate transfers and replay and final-round closure. Square remains available for early closure. | Qualify missed release, early Square closure, support regrip and visible clearance. |
 | Remington / SawOff | Remington grasp accepted. Current manual source integrates selected-index shell accounting, shared shotgun reserve, distinct shell presentation, guarded body replay and supervised close. SawOff retains its either-hand policy. | Confirm shell appearance, per-barrel loading contact, native hand ownership and mechanical playback/recovery in the headset. The grip-zone loading target remains provisional. |
 | Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Current source shares Winchester manual unit/body-cycle accounting with separate exact-class admission; controller-only scope aim remains a host candidate. | Zoom reticle and actual shot impact were misaligned in .6 and are rejected. Correlate optical ray with native fired trajectory/impact/spread by pose and distance; separately check Focus exit/head tracking, manual loading, support regrip/recovery and exact mouth. |
 | Volcanic | Current manual source integrates the exact 8-round native unit/body-cycle route with pistol reserve and the shared pickup/carry/release gesture. | Physical animation, hand/port, per-model cartridge and recovery qualification. |

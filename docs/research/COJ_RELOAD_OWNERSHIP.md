@@ -1068,13 +1068,11 @@ The evidence analyzer retains accepted and rejected observation records without
 granting live or physical qualification.
 
 The `-WinchesterReceiver` candidate uses only the exterior of the pinned lip.
-It requires a fresh predicted tip and a held inward hand push before admitting
-release within 3 cm of the exterior lip. It uses the original native transfer
-and checks the displayed gate independently. The stock lever contact reference
-is the LOD0 `GunLever` bounds centre in `GunBody` space, identical across both
-meshes. A downward free-hand stroke there can close an active wait. The
-candidate leaves cavity clearance, insertion in the game scene and physical
-ergonomics open for validation.
+A fresh predicted tip within 7 cm of the projected lip qualifies release after
+valid pickup and carry. It uses the original native transfer and checks the
+displayed gate independently. The original lever bounds are an asset
+observation. The candidate uses Square for early closure and relies on the
+native cycle when full or out of reserve. Cavity clearance remains open.
 
 ## Persistent-session boundary
 

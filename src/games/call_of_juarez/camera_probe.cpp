@@ -4128,7 +4128,6 @@ CoJWinchesterReceiverInput WinchesterReceiverInput(const ReloadMouthCapture& cap
             (p.z-o.z)/kGameUnitsPerMeter}),dest);
     };
     out.mouth_valid=position(approach.centre_cm,out.centre);
-    out.lever_valid=capture.preview.lever_valid&&position(capture.preview.lever_cm,out.lever);
     out.tip_valid=approach.valid;
     out.outside_cm=approach.outside_distance_cm;out.alignment=approach.axis_alignment;
     out.within_capture=approach.within_capture;
@@ -7060,29 +7059,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             }catch(...){}
         }
     }
-    const bool lever_close_requested=std::string_view(manual_result.reason)=="winchester_lever_close";
-    if(snapshot.command.reload_trace_enabled&&((manual_result.tracked&&!manual_result.cancel)||lever_close_requested)){
+    if(snapshot.command.reload_trace_enabled&&manual_result.tracked&&!manual_result.cancel){
         const auto& gesture=manual_result.gesture;
         const bool carrying=gesture.cartridge_held&&gesture.claimed_hand==gesture.cartridge_hand;
         const bool release=carried_before&&gesture.claimed_hand<2&&
             !(gesture.claimed_hand==0?raw_reload_input.fire_right:raw_reload_input.fire_left)&&
             (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
              g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
-        if(manual_input.winchester_receiver&&manual_input.native.probe_status==2&&!carrying&&
-            (lever_close_requested||frame_sequence%8==0))try{
-            const auto a=manual_input.left.position,b=manual_input.receiver.lever;
-            const float distance=manual_input.receiver.lever_valid?std::hypot(a.x-b.x,a.y-b.y,a.z-b.z):-1.F;
-            EmitEvent("winchester_lever_position","sampled",
-                "frame_sequence="+std::to_string(frame_sequence)+
-                ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
-                ";weapon_class="+manual_input.native.weapon_class+
-                ";close_requested="+std::to_string(lever_close_requested)+
-                ";lever_valid="+std::to_string(manual_input.receiver.lever_valid)+
-                ";support_distance_m="+std::to_string(distance)+
-                ";support_offset_x_m="+std::to_string(a.x-b.x)+
-                ";support_offset_y_m="+std::to_string(a.y-b.y)+
-                ";support_offset_z_m="+std::to_string(a.z-b.z));
-        }catch(...){}
         if(release||(carrying&&manual_result.target.valid&&ShouldObserveBodyFrame(frame_sequence))){
             if(manual_input.winchester_receiver){
                 try{EmitEvent("winchester_receiver_contact",manual_result.insert?"release_admitted":"sampled",
@@ -7112,7 +7095,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
         const bool schofield_close=std::string_view(manual_result.reason)=="schofield_wrist_close";
-        if(schofield_close||lever_close_requested){
+        if(schofield_close){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return g_java_player_bridge.CancelManualReload(&manual_error);
@@ -7123,7 +7106,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 after.valid&&after.probe_valid&&after.weapon_id==manual_input.native.weapon_id&&
                 after.armed_hand==manual_input.native.armed_hand;
             try{
-                EmitEvent(lever_close_requested?"winchester_lever_close":"schofield_close","requested",
+                EmitEvent("schofield_close","requested",
                     "frame_sequence="+std::to_string(frame_sequence)+
                     ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
                     ";weapon_class="+manual_input.native.weapon_class+
@@ -9073,14 +9056,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 const bool chamber_guide_drawn=guide.context==sample.native_gameplay_context_token&&
                     guide.player==g_java_player_bridge.being_generation()&&
                     AppendCoJSchofieldChamberGuides(guide,schofield_guide.geometry,
-                        schofield_guide.native,holster_guides_enabled,hud_text,
-                        g_manual_reload.schofield_chambers_cleared());
+                        schofield_guide.native,holster_guides_enabled,hud_text);
                 if(chamber_guide_drawn&&snapshot.command.reload_trace_enabled&&ShouldObserveBodyFrame(frame_sequence))
                     EmitEvent("schofield_chamber_guide","captured",
                         "frame_sequence="+std::to_string(frame_sequence)+
                         ";weapon_id="+std::to_string(guide.weapon)+
                         ";loaded_count="+std::to_string(schofield_guide.geometry.schofield_loaded)+
-                        ";chambers_cleared="+std::to_string(g_manual_reload.schofield_chambers_cleared())+
                         ";face=rear_positive_z");
                 if(!g_room_scale_body_offset.faulted)
                     (void)AppendCoJManualReloadTargetGuide(manual_input,manual_result,frame_sequence,

@@ -31,12 +31,13 @@ int main(){
     lever.s.winchester_receiver=true;
     lever.r.gesture.pickup_hint.visible=false;
     hint=lever.Frame();
-    Check(lever.Draw(hint)&&hint.text.interaction.view().find(u"lever")!=std::u16string_view::npos,
-        "receiver wait must explain the free-hand lever");
+    Check(lever.Draw(hint)&&hint.control_hint_action==PromptAction::reload&&
+        hint.text.interaction.view().find(u"lever")==std::u16string_view::npos,
+        "receiver wait must explain button closure");
     lever.r.gesture.cartridge_held=true;lever.r.gesture.cartridge_hand=1;lever.r.gesture.claimed_hand=2;
     lever.Step();hint=lever.Frame();
-    Check(lever.Draw(hint)&&hint.text.interaction.view().find(u"lever")!=std::u16string_view::npos,
-        "a replenished cartridge must leave the receiver lever instruction visible after replay");
+    Check(lever.Draw(hint)&&hint.text.interaction.view().find(u"next")!=std::u16string_view::npos,
+        "a replenished cartridge must offer another round after replay");
     lever.r.gesture.claimed_hand=1;lever.Step();hint=lever.Frame();
     Check(lever.Draw(hint),"receiver carry instruction was missing");
     const auto carry=hint.text.interaction;

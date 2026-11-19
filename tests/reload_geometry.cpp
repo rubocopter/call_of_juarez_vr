@@ -80,10 +80,15 @@ void CheckSchofieldGuides() {
     Check(AppendCoJSchofieldChamberGuides(frame,geometry,no_reserve,true,empty_reserve_overlay)&&
         empty_reserve_overlay.holster_guides.count==6,
         "a current waiting drum's empty count is independent of reserve");
-    auto cleared=overlay;cleared.holster_guides={};
-    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,cleared,true)&&
-        cleared.holster_guides.count==5&&cleared.holster_guides.zones[0].state==2,
-        "cleared positions should only show remaining loaded rounds");
+    auto emptied_geometry=geometry;
+    auto emptied_native=native;
+    emptied_geometry.schofield_loaded=emptied_native.loaded[0]=emptied_native.ammo_readback=0;
+    auto emptied=overlay;emptied.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,emptied_geometry,emptied_native,true,emptied)&&
+        emptied.holster_guides.count==6&&std::ranges::all_of(
+            emptied.holster_guides.zones.begin(),emptied.holster_guides.zones.begin()+6,
+            [](const auto& zone){return zone.state==0;}),
+        "six empty rings must stay visible after the waiting drum is unloaded");
 
     for(int fault=0;fault<21;++fault) {
         auto view=frame;

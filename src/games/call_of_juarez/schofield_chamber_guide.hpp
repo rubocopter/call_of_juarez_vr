@@ -39,7 +39,7 @@ inline bool RearView(Vector to_mouth, Vector inward) noexcept {
 // The rear-face markers depict the aggregate count for the exact base model.
 inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& frame,
     const CoJReloadGeometrySnapshot& geometry, const CoJReloadTraceSnapshot& current,
-    bool enabled, runtime::StereoHudTextOverlay& out, bool chambers_cleared=false) noexcept {
+    bool enabled, runtime::StereoHudTextOverlay& out) noexcept {
     using namespace winchester_loading_detail;
     using namespace schofield_chamber_guide_detail;
     const auto mask=CoJSchofieldEmptyMask(geometry.schofield_loaded);
@@ -61,9 +61,8 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
         std::abs(Dot(tracking_right,tracking_forward))>.001) return false;
 
     const auto empty_count=static_cast<std::size_t>(6-geometry.schofield_loaded);
-    const auto first=chambers_cleared?empty_count:0U;
     auto& guides=out.holster_guides;
-    if (first==6 || guides.count>guides.zones.size()-(6-first) ||
+    if (guides.count>guides.zones.size()-6 ||
         !Rigid(geometry.root) || !Rigid(geometry.barrel) || !Rigid(geometry.gate)) return false;
     std::array<ElementWorldBasisTarget,6> expected{};
     if (!BuildCoJReloadMouthFrames(geometry.model,geometry.drum,expected)) return false;
@@ -115,7 +114,7 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
     // the measured 0.546 cm radius and keep the quad in the drum face plane.
     constexpr float half_m=.0064F;
     std::array<runtime::HolsterGuideSurface,6> pending{};
-    for (std::size_t i=first;i<ordered.size();++i) {
+    for (std::size_t i=0;i<ordered.size();++i) {
         auto& surface=pending[i];
         const auto front=Widen(geometry.mouths[ordered[i].index].position);
         const auto offset=kCoJSchofieldRearFaceCm-Dot(Difference(front,Widen(geometry.drum.position)),outward);
@@ -137,7 +136,7 @@ inline bool AppendCoJSchofieldChamberGuides(const CoJLoadingMouthGuideFrame& fra
                 centre.y+x*head_right.y+y*head_up.y,centre.z+x*head_right.z+y*head_up.z};
         }
     }
-    for (std::size_t i=first;i<ordered.size();++i) guides.zones[guides.count++]=pending[i];
+    for (const auto& surface:pending) guides.zones[guides.count++]=surface;
     return true;
 }
 }
