@@ -48,10 +48,10 @@ public:
         switch(instruction_){
         case Instruction::schofield_gestures:
             if(s.native.ammo_readback>0)
-                add(es?u"Para vaciar, da un tirón seco hacia ti.\n":
-                    u"To empty, flick the gun toward you.\n");
-            add(es?u"Cierra con un golpe de muñeca hacia abajo y delante o con ":
-                u"Flick your wrist down and forward or press ");
+                add(es?u"Para vaciar, inclina el revólver hacia atrás.\n":
+                    u"To empty, tilt the revolver back.\n");
+            add(es?u"Vuelve a nivel y da un golpe de muñeca hacia abajo y delante, o pulsa ":
+                u"Return to level, then flick down and forward or press ");
             add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
             add(es?u".":u" to close.");break;
         case Instruction::close:

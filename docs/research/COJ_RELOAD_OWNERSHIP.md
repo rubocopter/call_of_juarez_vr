@@ -923,6 +923,14 @@ allows an ordinary subsequent native reload after the borrowed body retires.
 The lab exercises the original transfer and storage bytecode with engine
 callbacks modelled.
 
+The VR interaction takes its cue from public game manuals that describe
+tilting a revolver back to empty it and using a separate wrist flick to close.
+Call of Juarez uses its tracked aim elevation and native retained-wait
+transaction. After a recognized tilt, returning through neutral and holding
+briefly re-arms the down-forward close. Square remains available.
+[Half-Life 2 VR manual](https://halflife2vr.com/manual/#reloading) ·
+[L.A. Noire VR manual](https://media-rockstargames-com.akamaized.net/rockstargames-newsite/img/manuals/en_us/LAN_VR_DIGITAL_MANUAL_ENG.pdf)
+
 The original public `ReloadWeapon()` only dispatches a hand when the
 transferable reload count is positive. The motion candidate uses the existing
 protected hand request when the exact idle owner and its pending ticket

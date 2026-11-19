@@ -92,9 +92,8 @@ void SchofieldMotionSession() {
     Check(top_up.Insert().insert,"partly loaded drum refused the missing-round bundle");
     Fixture rebound;
     open(rebound,3);
-    (void)move(rebound,{0,0,.032F});
-    Check(!move(rebound,{0,-.035F,-.04F}).cancel&&!move(rebound,{0,-.035F,-.04F}).cancel,
-        "incomplete pull rebounded into a close");
+    Check(!pitch(rebound,.68F).unload&&!pitch(rebound,.35F).cancel&&!pitch(rebound,0.F).cancel,
+        "a one-sample tilt rebounded into a close");
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);
@@ -114,32 +113,42 @@ void SchofieldMotionSession() {
         Check(!f.mapped.fire_right,"native retirement replayed a held fire input");
     }
     Fixture toward;
-    open(toward,4,.18F);
-    Check(!move(toward,{0,0,.037F}).unload,"short neutral rearward stroke unloaded");
-    const auto pull=move(toward,{0,0,.041F});
-    Check(pull.unload&&!pull.cancel,"rearward stroke from forward aim must eject while keeping the drum open");
-    Check(!move(toward,{0,-.04F,-.055F}).cancel&&!move(toward,{0,-.04F,-.055F}).cancel,
-        "down-forward return from rearward ejection closed the drum");
+    open(toward,4);
+    Check(!move(toward,{0,0,.040F}).unload&&!move(toward,{0,0,.045F}).unload,
+        "pulling the hand inward without tilting must not eject");
+    Check(!pitch(toward,.32F).unload,"a small back tilt must not eject");
+    Check(!pitch(toward,.66F).unload,"one tilted sample must not eject");
+    const auto tilt=pitch(toward,.70F);
+    Check(tilt.unload&&!tilt.cancel,"tilt back must eject while keeping the drum open");
+    toward.session.NoteSchofieldUnloadConfirmed();
+    toward.s.native.ammo_readback=toward.s.native.loaded[0]=0;
+    for(int i=0;i<5;++i)Check(!toward.Poll().cancel,"raised hold rearmed closure before neutral");
+    Check(!pitch(toward,.36F).cancel&&!pitch(toward,0.F).cancel,
+        "lowering after ejection closed the drum");
+    for(int i=0;i<4;++i)(void)toward.Poll();
+    Check(!pitch(toward,-.18F).cancel&&pitch(toward,-.41F).cancel,
+        "a separate downward flick after neutral did not close the drum");
     Fixture upright;
     open(upright,6,1.26F);
-    Check(!pitch(upright,1.09F).cancel,"a small correction near vertical closed prematurely");
-    Check(pitch(upright,.84F).cancel,"downward wrist close near vertical was lost in the aim sine");
+    Check(!upright.Poll().unload,"opening already tilted must not eject");
+    Check(!pitch(upright,1.09F).cancel&&!pitch(upright,.70F).cancel&&!pitch(upright,0.F).cancel,
+        "lowering a drum opened in the tilt position must not close it");
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);
         Check(!move(f,{0,-.055F,0}).unload,"lowering the pistol alone requested unload");
         Check(!move(f,{0,-.055F,0}).cancel,"lowering the pistol alone requested close");
-        Check(!move(f,{0,0,.038F}).unload,"short inward step unloaded");
-        const auto eject=move(f,{0,0,.045F});
+        Check(!pitch(f,.66F).unload,"one tilted sample unloaded");
+        const auto eject=pitch(f,.67F);
         Check(!eject.cancel&&eject.unload==(loaded>0)&&eject.eject_empty==(loaded==0),
-            "inward flick must eject without closing at every load count");
+            "rearward tilt must eject without closing at every load count");
         if(loaded)f.session.NoteSchofieldUnloadConfirmed();
         f.s.native.ammo_readback=f.s.native.loaded[0]=0;
-        Check(!move(f,{0,0,.055F}).cancel&&!move(f,{0,0,.055F}).cancel,
+        Check(!pitch(f,.35F).cancel&&!pitch(f,0.F).cancel,
             "return stroke immediately closed after ejecting");
         for(int i=0;i<4;++i)(void)f.Poll();
-        (void)move(f,{0,0,.055F});
-        Check(!move(f,{0,0,.055F}).eject_empty,"empty ejection replayed in the same wait");
+        (void)pitch(f,.66F);
+        Check(!pitch(f,.67F).eject_empty,"empty ejection replayed in the same wait");
     }
     Fixture wrist;
     open(wrist,0);
@@ -148,10 +157,11 @@ void SchofieldMotionSession() {
     wrist.session.CompleteInsertion(true,true,bundle);
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=6;
     (void)wrist.Poll();
-    Check(!move(wrist,{0,0,.037F}).unload,"short pull unloaded a newly placed bundle");
-    Check(move(wrist,{0,0,.044F}).unload,"inward flick could not eject a newly placed bundle");
+    Check(!pitch(wrist,.62F).unload,"one tilted sample unloaded a newly placed bundle");
+    Check(pitch(wrist,.64F).unload,"rearward tilt could not eject a newly placed bundle");
     wrist.session.NoteSchofieldUnloadConfirmed();
     wrist.s.native.ammo_readback=wrist.s.native.loaded[0]=0;
+    (void)pitch(wrist,0.F);
     for(int i=0;i<4;++i)(void)wrist.Poll();
     (void)pitch(wrist,-.17F);
     Check(pitch(wrist,-.40F).cancel,"downward wrist flick did not close after rearming");
@@ -174,12 +184,13 @@ void SchofieldMotionSession() {
     open(looking_down,3);
     unsigned ejections=0;
     for(int i=0;i<10;++i){
-        looking_down.s.right.position.z+=.009F;
+        const float angle=.09F*static_cast<float>(i);
+        looking_down.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
         const auto out=looking_down.Poll(11);
-        Check(!out.cancel,"pulling in while turning to inspect the drum closed it");
+        Check(!out.cancel,"tilting back while turning to inspect the drum closed it");
         ejections+=out.unload;
     }
-    Check(ejections==1,"90 Hz inward stroke must eject once despite head yaw");
+    Check(ejections==1,"90 Hz tilt must eject once despite head yaw");
 }
 
 void WinchesterReceiverSession(){
@@ -263,20 +274,21 @@ void SchofieldInterruptedStroke(){
         (void)f.Poll();
         f.s.native.probe_status=2;
         (void)f.Poll();
-        const auto inward=[&](float amount,unsigned ms){
-            grip.position.z+=amount;
+        const auto tilt=[&](float angle,unsigned ms){
+            f.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
             return f.Poll(ms);
         };
-        Check(!inward(.035F,62).unload,"first irregular sample cannot unload");
-        Check(!inward(-.035F,55).unload,"outward rebound cannot unload");
-        Check(!inward(.035F,61).unload,"two partial pulls with a rebound cannot sum to an unload");
-        Check(!inward(.04F,108).unload,"a sample gap cannot finish a stroke");
+        Check(!tilt(.65F,62).unload,"first irregular sample cannot unload");
+        Check(!tilt(.66F,108).unload,"a sample gap cannot finish a tilt");
+        Check(!tilt(.67F,60).unload,"a high pose after a gap needs a new neutral baseline");
+        Check(!tilt(0.F,61).cancel,"lowering after an interrupted tilt cannot close");
         for(int i=0;i<4;++i)(void)f.Poll();
-        Check(!inward(.036F,50).unload&&!inward(-.009F,50).unload&&!inward(.036F,50).unload,
-            "a return below the speed floor must subtract from net travel");
+        Check(!tilt(.66F,53).unload&&!tilt(.55F,50).unload&&!tilt(.67F,61).unload,
+            "separated threshold crossings cannot sum to an unload");
+        (void)tilt(0.F,50);
         for(int i=0;i<4;++i)(void)f.Poll();
-        Check(!inward(.037F,53).unload&&inward(.043F,72).unload,
-            "a fresh deliberate stroke works on either arm with irregular samples");
+        Check(!tilt(.65F,53).unload&&tilt(.67F,72).unload,
+            "a fresh rearward tilt works on either arm with irregular samples");
         // Native capacity refusal leaves counts and wait unchanged.
         f.s.raw.reload=true;
         const auto close=f.Poll();
@@ -294,6 +306,7 @@ void SchofieldInterruptedStroke(){
         f.s.raw.fire_left=f.s.raw.fire_right=false;
         f.s.admission=f.s.recovery;
         f.s.native.ammo_readback=f.s.native.loaded[0]=0;
+        f.s.armed_aim.orientation={0,0,0,1};
         (void)f.Poll();
         f.s.raw.reload=true;
         Check(f.Poll().start,"a fresh Square must reopen after the previous attempt");
@@ -301,12 +314,12 @@ void SchofieldInterruptedStroke(){
         f.s.raw.reload=false;
         f.s.native.probe_status=2;
         (void)f.Poll();
-        const auto forward_down=[&](){
+        const auto forward_down=[&](float angle){
             grip.position.y-=.027F;grip.position.z-=.034F;
-            return f.Poll(20);
+            return tilt(angle,20);
         };
-        Check(!forward_down().cancel,"one short closing sample committed prematurely");
-        const auto wrist_close=forward_down();
+        Check(!forward_down(-.16F).cancel,"one short closing sample committed prematurely");
+        const auto wrist_close=forward_down(-.40F);
         Check(wrist_close.cancel&&!wrist_close.unload&&
             std::strcmp(wrist_close.reason,"schofield_wrist_close")==0,
             "forward-down motion must close an empty Schofield in either hand");

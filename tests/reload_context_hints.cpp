@@ -20,11 +20,13 @@ struct Fixture {
 int main(){
     Fixture cylinder;
     cylinder.r.schofield_motion=true;
+    cylinder.s.native.ammo_readback=4;
     cylinder.r.gesture.pickup_hint.visible=false;
     (void)SetActionPromptLabel(cylinder.labels,PromptAction::reload,"Cuadrado");
     auto hint=cylinder.Frame();
     Check(cylinder.hints.Append(cylinder.s,cylinder.r,17,cylinder.labels,CoJUiLanguage::spanish,true,hint)&&
-        hint.text.interaction.view().find(u"muñeca")!=std::u16string_view::npos&&
+        hint.text.interaction.view().find(u"inclina el revólver hacia atrás")!=std::u16string_view::npos&&
+        hint.text.interaction.view().find(u"Vuelve a nivel")!=std::u16string_view::npos&&
         hint.text.interaction.view().find(u"Cuadrado")!=std::u16string_view::npos,
         "open Schofield coaching must explain the wrist close with the current reload binding");
     Fixture lever;

@@ -64,7 +64,7 @@ The next implementation work is distinct from testing the changes above:
 
 | Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — campaign gameplay and reloads | Use the bounded Schofield classifier and native-result traces to measure inward ejection and down-forward closure on both hands. Preserve the exercised Winchester insertion, native replay and Square closure. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
+| 1 — campaign gameplay and reloads | Use the bounded Schofield classifier and native-result traces to measure tilt-back ejection and down-forward closure on both hands. Preserve the exercised Winchester insertion, native replay and Square closure. Exercise other firearms during campaign play. | Qualify native transfer, miss and close/regrip, usable native fallback, and uninterrupted campaign progression. Establish cavity clearance and indexed port correspondence before admitting an interior or selected-barrel target. |
 | 2 — rendering stability | Isolate translucent flicker under capture pressure. Keep temporal reconstruction in the experimental track. | Use the callback route witness to correlate accepted and rejected native passes with desktop Present, then qualify the pixel-content witness. |
 | 3 — movie ownership and stability | Validate the movie-local positional reference and isolate Hunt01 subtitle fusion. | A recorded gameplay displacement reached the authored movie camera. Captured affected/control crops show one composed panel per eye and no visible native duplicate. Broader skip and theater transitions retain separate gates. |
 | 4 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix covers recovery after completion. Qualify contact and occlusion separately. |
@@ -81,7 +81,7 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
 - The exact base Schofield has an opt-in development route for opening,
-  unloading with a sharp pull toward the body, retained bundle insertion and
+  unloading with a back tilt, retained bundle insertion and
   a down-forward wrist flick to close. Qualify count conservation, closing/recovery, rear-view
   guide visibility and gesture comfort using the combined headset gate.
   Ordinary clips and variants retain automatic close on insertion.

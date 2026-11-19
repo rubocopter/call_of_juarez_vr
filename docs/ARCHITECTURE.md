@@ -1224,12 +1224,13 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a sharp pull toward the player to unload. A wrist flick
-down and forward closes at any load count. Classification uses the tracked aim
-elevation and the hand's horizontal reach relative to the player, independent
-of head yaw. An opposing
-stroke discards accumulated progress. A substantial reversal, classified
-gesture or broken stroke across a pose gap requires a fresh neutral hold.
+retained wait accepts a back tilt to unload. From a neutral baseline, two
+fresh samples above the rearward tilt threshold request one transfer.
+Returning from the tilt requires a brief neutral hold before closure can
+classify. A wrist flick down and forward closes at any load count.
+Classification uses the tracked aim elevation and the hand's horizontal reach
+relative to the player. A substantial reversal or broken stroke across a pose
+gap requires a fresh neutral hold.
 A partial drum can accept a bundle sized to the missing rounds and available reserve.
 An empty eject pulses the armed hand once per wait. Confirmed reserve transfers
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer

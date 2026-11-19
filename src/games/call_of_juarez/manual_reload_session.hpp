@@ -346,12 +346,17 @@ private:
             grip.position.y-s.head.position.y,grip.position.z-s.head.position.z};
         if(!Valid(s.armed_aim)){
             sample.state="aim_unavailable";
-            schofield_sweep_={};return SchofieldFlick::none;
+            schofield_sweep_={.locked=true};return SchofieldFlick::none;
         }
         const auto aim=runtime::RotateVector(runtime::NormalizeQuaternion(s.armed_aim.orientation),{0,0,-1});
         const float aim_pitch=std::asin(std::clamp(aim.y,-1.F,1.F));
         const auto prior=schofield_sweep_;
-        const SchofieldSweep baseline{.position=position,.last=s.now,.pitch=aim_pitch};
+        // Rearward tilt uses a positional gate with hysteresis. Closure
+        // uses a deliberate down-forward stroke only after returning to rest.
+        constexpr float eject_tilt_y=.57F; // about 35 degrees above level
+        constexpr float neutral_tilt_y=.26F; // about 15 degrees above level
+        const SchofieldSweep baseline{.position=position,.last=s.now,.pitch=aim_pitch,
+            .tilt_ready=aim.y<=neutral_tilt_y};
         schofield_sweep_.last=s.now;schofield_sweep_.position=position;schofield_sweep_.pitch=aim_pitch;
         const auto dt=s.now-prior.last;
         sample.aim_y=aim.y;
@@ -362,7 +367,7 @@ private:
         if(!prior.last||!dt||dt>90){
             sample.state=prior.last?"sweep_gap":"baseline";
             schofield_sweep_=baseline;
-            if(prior.locked||prior.direction!=SchofieldFlick::none)lock_until_rest();
+            if(prior.locked||prior.start||prior.raised_samples||aim.y>=eject_tilt_y)lock_until_rest();
             return SchofieldFlick::none;
         }
         const runtime::Vec3 step{position.x-prior.position.x,position.y-prior.position.y,position.z-prior.position.z};
@@ -380,37 +385,57 @@ private:
         }
         // Small returns below the speed floor still reduce net travel.
         constexpr float wrist_radius=.14F;
-        const float reverse=prior.direction==SchofieldFlick::eject?
-            -back:std::max({pitch*wrist_radius,step.y,back});
+        const float reverse=std::max({pitch*wrist_radius,step.y,back});
         if(prior.start&&reverse>0.F)
             schofield_sweep_.distance=std::max(0.F,prior.distance-reverse);
         sample.progress_m=schofield_sweep_.distance;
-        if(speed<=.20F&&std::abs(pitch)*velocity_scale<=.9F){
-            sample.state=prior.locked?"settling":"rest";
+        const bool settled=speed<=.20F&&std::abs(pitch)*velocity_scale<=.9F;
+        if(prior.locked){
+            if(aim.y<=neutral_tilt_y&&settled){
+                sample.state="settling";
+                if(!prior.rest_since)schofield_sweep_.rest_since=prior.last;
+                else if(s.now-prior.rest_since>=110)schofield_sweep_=baseline;
+            }else{
+                sample.state="locked_until_rest";
+                schofield_sweep_.rest_since=0;
+            }
+            return SchofieldFlick::none;
+        }
+        if(aim.y>=eject_tilt_y){
+            if(!prior.tilt_ready){
+                sample.state="tilt_needs_neutral";lock_until_rest();return SchofieldFlick::none;
+            }
+            sample.state="tilt_back";
+            // Require two distinct fresh samples above the threshold.
+            if(++schofield_sweep_.raised_samples<2)return SchofieldFlick::none;
+            sample.classified=true;lock_until_rest();return SchofieldFlick::eject;
+        }
+        if(prior.raised_samples){
+            sample.state="tilt_interrupted";lock_until_rest();return SchofieldFlick::none;
+        }
+        if(aim.y<=neutral_tilt_y)schofield_sweep_.tilt_ready=true;
+        if(settled){
+            sample.state="rest";
             if(!prior.rest_since)schofield_sweep_.rest_since=prior.last;
-            else if(s.now-prior.rest_since>=110)schofield_sweep_=baseline;
+            else if(s.now-prior.rest_since>=110){
+                const bool tilt_ready=schofield_sweep_.tilt_ready;
+                schofield_sweep_=baseline;schofield_sweep_.tilt_ready=tilt_ready;
+            }
             return SchofieldFlick::none;
         }
         schofield_sweep_.rest_since=0;
-        if(prior.locked){sample.state="locked_until_rest";return SchofieldFlick::none;}
-        // A pull toward the body owns the stroke at any muzzle angle.
-        // Closing is down and away, with a downward wrist flick also accepted
-        // when the hand is stationary or moving in the closing direction.
+        // Accept a downward wrist flick at the same position or while the
+        // hand moves down and away.
         const float down=-step.y,away=-back;
-        const float eject=back>=.65F*distance?back:0.F;
         constexpr float inverse_sqrt2=.70710678F;
         const float diagonal=(down+away)*inverse_sqrt2;
-        const float close_translation=away>0.F&&down>0.F&&diagonal>=.82F*distance&&
-            std::min(away,down)>=.25F*distance?diagonal:0.F;
         const bool closing_wrist=speed<=.20F||(back<=0.F&&down>=0.F&&diagonal>=.65F*distance);
-        const float close=std::max(close_translation,closing_wrist?-pitch*wrist_radius:0.F);
-        const auto direction=eject>=close?SchofieldFlick::eject:SchofieldFlick::close;
-        const float progress=std::max(eject,close);
+        const float progress=closing_wrist?-pitch*wrist_radius:0.F;
         const float axial_speed=progress*velocity_scale;
         if(prior.start){
             // Apply the speed floor to opposition even when it cannot issue
             // either command on its own.
-            if(reverse*velocity_scale>=.22F||(axial_speed>=.22F&&prior.direction!=direction)){
+            if(reverse*velocity_scale>=.22F){
                 sample.state="rebound";
                 schofield_sweep_=baseline;
                 if(prior.distance>=.025F)lock_until_rest();
@@ -425,15 +450,14 @@ private:
             schofield_sweep_.start=prior.last;schofield_sweep_.distance=0;
             schofield_sweep_.peak_speed=0;
         }
-        schofield_sweep_.direction=direction;
         schofield_sweep_.distance+=progress;
         schofield_sweep_.peak_speed=std::max(axial_speed,schofield_sweep_.peak_speed);
         sample.progress_m=schofield_sweep_.distance;
         sample.peak_mps=schofield_sweep_.peak_speed;
-        sample.state=direction==SchofieldFlick::close?"down_forward":"pull_in";
-        if(schofield_sweep_.distance<(direction==SchofieldFlick::close?.05F:.065F)||
+        sample.state="down_forward";
+        if(schofield_sweep_.distance<.05F||
             schofield_sweep_.peak_speed<.43F)return SchofieldFlick::none;
-        sample.classified=true;lock_until_rest();return direction;
+        sample.classified=true;lock_until_rest();return SchofieldFlick::close;
     }
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
         return owner.valid&&owner.SupportsManual()&&native.valid&&native.probe_valid&&
@@ -465,8 +489,8 @@ private:
         runtime::Vec3 position{};
         std::uint64_t last=0,start=0,rest_since=0;
         float pitch=0,distance=0,peak_speed=0;
-        SchofieldFlick direction=SchofieldFlick::none;
-        bool locked=false;
+        unsigned raised_samples=0;
+        bool tilt_ready=false,locked=false;
     } schofield_sweep_{};
     bool schofield_motion_=false,schofield_chambers_cleared_=false;
     std::uint8_t trigger_claims_=0;
