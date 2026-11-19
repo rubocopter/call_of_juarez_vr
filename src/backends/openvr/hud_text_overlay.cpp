@@ -188,6 +188,24 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
     return result.width && result.height;
 }
 
+bool FitControlHintPanel(const HudTextPanel& panel,const std::array<runtime::EyeView,2>& eyes,
+    const float lower_edge_m,HudPanelPlacement& result) noexcept {
+    result={};
+    if(!panel.width||!panel.height)return false;
+    for(float width=1.05F;width>=.65F;width*=.9F){
+        const float half=.5F*width*static_cast<float>(panel.height)/panel.width;
+        const HudPanelPlacement placement{width,lower_edge_m+half,1.85F};
+        const auto eye_fits=[&](const auto& eye){
+            ProjectedHudPanel projected{};
+            return ProjectHudPanel(panel,eye,1024,1024,placement,projected)&&
+                std::all_of(projected.clip_positions.begin(),projected.clip_positions.end(),
+                    [](const auto& c){return std::abs(c[0])<=.94F*c[3]&&std::abs(c[1])<=.94F*c[3];});
+        };
+        if(std::all_of(eyes.begin(),eyes.end(),eye_fits)){result=placement;return true;}
+    }
+    return false;
+}
+
 bool FitCriticalHudPanels(const std::array<const HudTextPanel*,3>& panels,
     const std::array<runtime::EyeView,2>& eyes,std::array<HudPanelPlacement,3>& result) noexcept {
     result={};float scale=1;
@@ -625,7 +643,17 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             critical_fits=FitCriticalHudPanels({&timer,&hint,&notices},overlay.eyes,fit);
             if(critical_fits){placement[8]=fit[0];if(hint.width)placement[0]=fit[1];placement[9]=fit[2];}
         }
-        if (subtitle.width && interaction.width) {
+        const bool generated_coaching=overlay.reload_instruction||tutorial_instruction;
+        bool coaching_fits=true;
+        if(generated_coaching&&interaction.width){
+            // Keep a fixed lower edge and the subtitle plane's depth across
+            // localized copy, status changes and stacked captions.
+            float lower_edge=-.31F;
+            if(subtitle.width)
+                lower_edge=std::max(lower_edge,placement[2].center_y_m+
+                    .5F*placement[2].width_m*subtitle.height/subtitle.width+.05F);
+            coaching_fits=FitControlHintPanel(interaction,overlay.eyes,lower_edge,placement[1]);
+        }else if (subtitle.width && interaction.width) {
             const float subtitle_top = placement[2].center_y_m +
                 .5F * placement[2].width_m * subtitle.height / subtitle.width;
             const float interaction_half_height =
@@ -651,6 +679,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         // alone move to the end, so their saved backgrounds include all HUD.
         for (std::size_t order = 0; order < placement.size()+2; ++order) {
             const auto part=order<placement.size()?order:order-placement.size();
+            if(part==1&&!coaching_fits)continue;
             if(impl_->replaying_controls&&(part>=2||!controlled[part]))continue;
             if(part<2&&((order<placement.size())==controlled[part]))continue;
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;

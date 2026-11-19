@@ -238,6 +238,18 @@ int main(int argc, char** argv) {
     right.eye_to_head.position.x = 0.032F;
     ProjectedHudPanel a{}, b{};
     Require(ProjectHudPanel(panel, left, 1600, 1600, {}, a) && ProjectHudPanel(panel, right, 1600, 1600, {}, b), "valid stereo optics must project");
+    HudPanelPlacement coaching{};
+    ProjectedHudPanel coaching_left{},coaching_right{};
+    Require(FitControlHintPanel(panel,{left,right},-.31F,coaching)&&
+        ProjectHudPanel(panel,left,1600,1600,coaching,coaching_left)&&
+        ProjectHudPanel(panel,right,1600,1600,coaching,coaching_right),
+        "generated coaching must fit both asymmetric eye projections");
+    Require(std::abs(coaching.center_y_m-.5F*coaching.width_m*panel.height/panel.width+.31F)<.0001F&&
+        coaching.distance_m==subtitle_placement.distance_m,"coaching uses a stable lower edge and the subtitle depth");
+    auto unknown_eye=right;unknown_eye.eye_to_head.position_valid=false;
+    HudPanelPlacement rejected_coaching{};
+    Require(!FitControlHintPanel(panel,{left,unknown_eye},-.31F,rejected_coaching),
+        "generated coaching cannot draw with only one valid eye");
     Require(a.left > b.left, "finite depth panel must have correct binocular disparity");
     ProjectedHudPanel subtitle_left{},subtitle_right{};
     Require(ProjectHudPanel(caption,left,1600,1600,subtitle_placement,subtitle_left) &&
@@ -1007,7 +1019,13 @@ int main(int argc, char** argv) {
         expect_pixels(priority_pixels,"optional reload art/text obscured a native hint");
         overlay.text.hint={};
         overlay.text.interaction=Text(u"Bring the round to the gun, then release Left Trigger.");
-        draw_reload();expect_pixels(full_text,"native interaction string was guessed as semantic coaching");
+        draw_reload();
+        const std::array<std::vector<std::uint32_t>,2> native_pixels{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        Require(native_pixels!=glyph_background,"native interaction text was hidden");
+        overlay.control_hint_prompts={};draw_reload();
+        expect_pixels(native_pixels,"native interaction string was guessed as semantic coaching");
     }
     // Reading panels keep the onset world pose while the captured head moves.
     {

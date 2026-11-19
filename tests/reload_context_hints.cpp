@@ -18,6 +18,30 @@ struct Fixture {
 };
 }
 int main(){
+    Fixture cylinder;
+    cylinder.r.schofield_motion=true;
+    cylinder.r.gesture.pickup_hint.visible=false;
+    (void)SetActionPromptLabel(cylinder.labels,PromptAction::reload,"Cuadrado");
+    auto hint=cylinder.Frame();
+    Check(cylinder.hints.Append(cylinder.s,cylinder.r,17,cylinder.labels,CoJUiLanguage::spanish,true,hint)&&
+        hint.text.interaction.view().find(u"muñeca")!=std::u16string_view::npos&&
+        hint.text.interaction.view().find(u"Cuadrado")!=std::u16string_view::npos,
+        "open Schofield coaching must explain the wrist close with the current reload binding");
+    Fixture lever;
+    lever.s.winchester_receiver=true;
+    lever.r.gesture.pickup_hint.visible=false;
+    hint=lever.Frame();
+    Check(lever.Draw(hint)&&hint.text.interaction.view().find(u"lever")!=std::u16string_view::npos,
+        "receiver wait must explain the free-hand lever");
+    lever.r.gesture.cartridge_held=true;lever.r.gesture.cartridge_hand=1;lever.r.gesture.claimed_hand=2;
+    lever.Step();hint=lever.Frame();
+    Check(lever.Draw(hint)&&hint.text.interaction.view().find(u"lever")!=std::u16string_view::npos,
+        "a replenished cartridge must leave the receiver lever instruction visible after replay");
+    lever.r.gesture.claimed_hand=1;lever.Step();hint=lever.Frame();
+    Check(lever.Draw(hint),"receiver carry instruction was missing");
+    const auto carry=hint.text.interaction;
+    lever.r.gesture.insertion_ready=true;lever.Step();hint=lever.Frame();
+    Check(lever.Draw(hint)&&hint.text.interaction==carry,"a contact transition changed the receiver text");
     Fixture refused;
     (void)SetActionPromptLabel(refused.labels,PromptAction::reload,"Reload Button");
     refused.r.unload_refusal=CoJReloadRefusal::reserve_full;

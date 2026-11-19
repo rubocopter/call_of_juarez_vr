@@ -235,12 +235,12 @@ public:
         }else if(fresh){
             const auto sweep=UpdateSchofieldSweep(s,out.schofield_sample);
             if(sweep==SchofieldFlick::close){
-                out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_rearward_close";
+                out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_wrist_close";
             }else if(sweep==SchofieldFlick::eject){
-                if(s.native.ammo_readback>0){out.unload=true;out.reason="schofield_downward_eject";}
+                if(s.native.ammo_readback>0){out.unload=true;out.reason="schofield_eject";}
                 else if(s.native.ammo_readback==0&&!schofield_chambers_cleared_){
                     out.eject_empty=true;
-                    out.reason="schofield_downward_eject";
+                    out.reason="schofield_eject";
                     schofield_chambers_cleared_=true;
                 }
             }
@@ -352,9 +352,12 @@ private:
         lever_stroke_.last=s.now;lever_stroke_.position=rel;
         lever_stroke_.hand_y=s.left.position.y;
         const auto elapsed=s.now-previous.last;
+        const bool ordinary=s.native.weapon_class&&std::string_view(s.native.weapon_class)=="WeaponRifleWinchester";
+        const float start_reach=ordinary?.18F:.12F;
+        const float stroke_reach=ordinary?.24F:.18F;
         if(!previous.last||!elapsed||elapsed>90||(previous.start&&s.now-previous.start>350)||
-            std::hypot(rel.x,rel.y,rel.z)>.18F){lever_stroke_.start=0;lever_stroke_.depth=0;return false;}
-        if(!previous.start&&std::hypot(previous.position.x,previous.position.y,previous.position.z)>.12F)return false;
+            std::hypot(rel.x,rel.y,rel.z)>stroke_reach){lever_stroke_.start=0;lever_stroke_.depth=0;return false;}
+        if(!previous.start&&std::hypot(previous.position.x,previous.position.y,previous.position.z)>start_reach)return false;
         const float down=previous.position.y-rel.y;
         const float side=std::hypot(rel.x-previous.position.x,rel.z-previous.position.z);
         const float minimum=(previous.start?.00008F:.0002F)*static_cast<float>(elapsed);
@@ -376,19 +379,21 @@ private:
             schofield_sweep_={};return SchofieldFlick::none;
         }
         const auto aim=runtime::RotateVector(runtime::NormalizeQuaternion(s.armed_aim.orientation),{0,0,-1});
+        const float aim_pitch=std::asin(std::clamp(aim.y,-1.F,1.F));
         const auto head_rear=runtime::RotateVector(runtime::NormalizeQuaternion(s.head.orientation),{0,0,1});
         const float horizontal=std::hypot(head_rear.x,head_rear.z);
         const auto prior=schofield_sweep_;
-        schofield_sweep_.last=s.now;schofield_sweep_.position=position;schofield_sweep_.aim=aim;
+        const SchofieldSweep baseline{.position=position,.last=s.now,.pitch=aim_pitch};
+        schofield_sweep_.last=s.now;schofield_sweep_.position=position;schofield_sweep_.pitch=aim_pitch;
         const auto dt=s.now-prior.last;
         sample.aim_y=aim.y;
         sample.interval_ms=prior.last?dt:0;
         const auto lock_until_rest=[&]{
-            schofield_sweep_={.position=position,.aim=aim,.last=s.now,.locked=true};
+            schofield_sweep_=baseline;schofield_sweep_.locked=true;
         };
         if(!prior.last||!dt||dt>90){
             sample.state=prior.last?"sweep_gap":"baseline";
-            schofield_sweep_={.position=position,.aim=aim,.last=s.now};
+            schofield_sweep_=baseline;
             if(prior.locked||prior.direction!=SchofieldFlick::none)lock_until_rest();
             return SchofieldFlick::none;
         }
@@ -396,33 +401,33 @@ private:
         const float distance=std::hypot(step.x,step.y,step.z);
         const float velocity_scale=1000.F/static_cast<float>(dt);
         const auto speed=distance*velocity_scale;
-        const float pitch=aim.y-prior.aim.y;
+        const float pitch=aim_pitch-prior.pitch;
         const float back=horizontal>=.12F?(step.x*head_rear.x+step.z*head_rear.z)/horizontal:0.F;
         sample.down_m=-step.y;sample.back_m=back;sample.pitch_delta=pitch;sample.step_m=distance;
         if(distance>.12F||speed>4.F){
             sample.state="pose_jump";lock_until_rest();return SchofieldFlick::none;
         }
         // Small returns below the speed floor still reduce net travel.
-        const bool wrist_only=speed<=.55F;
+        constexpr float wrist_radius=.14F;
         const float reverse=prior.direction==SchofieldFlick::eject?
-            std::max(step.y,wrist_only?pitch*.14F:0.F):
-            std::max(-back,wrist_only?-pitch*.14F:0.F);
+            std::max({step.y,-back,pitch*wrist_radius}):-pitch*wrist_radius;
         if(prior.start&&reverse>0.F)
             schofield_sweep_.distance=std::max(0.F,prior.distance-reverse);
         sample.progress_m=schofield_sweep_.distance;
         if(speed<=.20F&&std::abs(pitch)*velocity_scale<=.9F){
             sample.state=prior.locked?"settling":"rest";
             if(!prior.rest_since)schofield_sweep_.rest_since=prior.last;
-            else if(s.now-prior.rest_since>=110)schofield_sweep_={.position=position,.aim=aim,.last=s.now};
+            else if(s.now-prior.rest_since>=110)schofield_sweep_=baseline;
             return SchofieldFlick::none;
         }
         schofield_sweep_.rest_since=0;
         if(prior.locked){sample.state="locked_until_rest";return SchofieldFlick::none;}
-        // A tilted downward shake ejects. Pulling back or pitching the muzzle
-        // up in place closes. Large translation owns the sample over pitch.
-        const float eject=aim.y<=-.28F?std::max(-step.y>=.65F*distance?-step.y:0.F,
-            wrist_only?-pitch*.14F:0.F):0.F;
-        const float close=std::max(back>=.72F*distance?back:0.F,wrist_only?pitch*.14F:0.F);
+        // With the muzzle tipped down, a rearward or downward stroke ejects.
+        // Closing needs an upward wrist turn even if the hand also translates.
+        const float eject=aim.y<=-.28F?std::max({
+            -step.y>=.65F*distance?-step.y:0.F,
+            back>=.65F*distance?back:0.F,-pitch*wrist_radius}):0.F;
+        const float close=std::max(0.F,pitch*wrist_radius);
         const auto direction=eject>=close?SchofieldFlick::eject:SchofieldFlick::close;
         const float progress=std::max(eject,close);
         const float axial_speed=progress*velocity_scale;
@@ -430,10 +435,13 @@ private:
             // Apply the speed floor to opposition even when it cannot issue
             // either command on its own.
             if(reverse*velocity_scale>=.22F||(axial_speed>=.22F&&prior.direction!=direction)){
-                sample.state="rebound";lock_until_rest();return SchofieldFlick::none;
+                sample.state="rebound";
+                schofield_sweep_=baseline;
+                if(prior.distance>=.025F)lock_until_rest();
+                return SchofieldFlick::none;
             }
             if(s.now-prior.start>180){
-                sample.state="stroke_timeout";lock_until_rest();return SchofieldFlick::none;
+                sample.state="stroke_timeout";schofield_sweep_=baseline;return SchofieldFlick::none;
             }
         }
         if(axial_speed<.22F){sample.state="below_axis_speed";return SchofieldFlick::none;}
@@ -446,8 +454,8 @@ private:
         schofield_sweep_.peak_speed=std::max(axial_speed,schofield_sweep_.peak_speed);
         sample.progress_m=schofield_sweep_.distance;
         sample.peak_mps=schofield_sweep_.peak_speed;
-        sample.state=direction==SchofieldFlick::close?"rearward":"downward";
-        if(schofield_sweep_.distance<(direction==SchofieldFlick::close?.08F:.065F)||
+        sample.state=direction==SchofieldFlick::close?"wrist_up":"eject_stroke";
+        if(schofield_sweep_.distance<(direction==SchofieldFlick::close?.05F:.065F)||
             schofield_sweep_.peak_speed<.43F)return SchofieldFlick::none;
         sample.classified=true;lock_until_rest();return direction;
     }
@@ -483,9 +491,9 @@ private:
         float depth=0,hand_y=0;
     } lever_stroke_{};
     struct SchofieldSweep {
-        runtime::Vec3 position{},aim{};
+        runtime::Vec3 position{};
         std::uint64_t last=0,start=0,rest_since=0;
-        float distance=0,peak_speed=0;
+        float pitch=0,distance=0,peak_speed=0;
         SchofieldFlick direction=SchofieldFlick::none;
         bool locked=false;
     } schofield_sweep_{};

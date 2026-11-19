@@ -951,6 +951,10 @@ the process. Captured translated text carries its binding generation; the
 compositor hides stale control hints while preserving native subtitles. No native
 string, input binding or gameplay permission is changed. Text/status recovery is
 separate from graphical native HUD capture.
+Generated reload and duel coaching fits both captured eye projections on a
+common plane at subtitle depth. A fixed lower edge keeps changes in text
+length from shifting the panel's baseline. Reload coaching follows the
+active weapon route and the game's English or Spanish locale.
 
 The ordinary OpenVR route keeps native desktop pixels at Present for monitor
 viewing and screenshots. VR capture and luma diagnostics run before the
@@ -1221,13 +1225,13 @@ opening request to the exact base model and a fresh manual ticket. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
-retained wait accepts a downward shake with the muzzle tipped down to unload.
-A rearward pull or an upward wrist flick closes at any load count. Stroke
-classification uses the tracked aim and HMD-relative armed hand. An opposing
-stroke discards accumulated progress even when the return cannot classify as
-a separate command. Reversal and pose discontinuity require a fresh neutral
-hold before the next attempt. A partial
-drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
+retained wait accepts a downward shake or a rearward stroke with the muzzle
+tipped down to unload. An upward wrist flick closes at any load count.
+Classification uses the tracked aim elevation and HMD-relative armed hand.
+Wrist rotation can qualify during natural hand translation. An opposing
+stroke discards accumulated progress. A substantial reversal, classified
+gesture or broken stroke across a pose gap requires a fresh neutral hold.
+A partial drum can accept a bundle sized to the missing rounds and available reserve. An empty eject
 clears the outlines and pulses the armed hand. Confirmed reserve transfers also
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
 uses the verified quantity with one shared mesh and bounded stereo instances.

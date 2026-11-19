@@ -7053,7 +7053,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     <<";fire_left="<<raw_reload_input.fire_left<<";fire_right="<<raw_reload_input.fire_right
                     <<";square="<<raw_reload_input.reload<<";carried="<<carried_before
                     <<";state="<<motion.state<<";down_m="<<motion.down_m<<";back_m="<<motion.back_m
-                    <<";aim_y="<<motion.aim_y<<";pitch_delta="<<motion.pitch_delta<<";step_m="<<motion.step_m
+                    <<";aim_y="<<motion.aim_y<<";pitch_delta_rad="<<motion.pitch_delta<<";step_m="<<motion.step_m
                     <<";progress_m="<<motion.progress_m<<";peak_mps="<<motion.peak_mps
                     <<";intent="<<(motion.classified?manual_result.reason:"none");
                 EmitEvent("schofield_motion",motion.classified?"classified":"sampled",detail.str());
@@ -7069,7 +7069,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             (g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::ready||
              g_manual_reload.gesture_stage()==runtime::MotionReloadGestureStage::replenished_ready);
         if(manual_input.winchester_receiver&&manual_input.native.probe_status==2&&!carrying&&
-            (lever_close_requested||ShouldObserveBodyFrame(frame_sequence)))try{
+            (lever_close_requested||frame_sequence%8==0))try{
             const auto a=manual_input.left.position,b=manual_input.receiver.lever;
             const float distance=manual_input.receiver.lever_valid?std::hypot(a.x-b.x,a.y-b.y,a.z-b.z):-1.F;
             EmitEvent("winchester_lever_position","sampled",
@@ -7111,7 +7111,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     unsigned schofield_ejected_rounds=0;
     auto insertion_pose_native=manual_input.native;
     if(manual_result.cancel&&manual_reload_enabled){
-        const bool schofield_close=std::string_view(manual_result.reason)=="schofield_rearward_close";
+        const bool schofield_close=std::string_view(manual_result.reason)=="schofield_wrist_close";
         if(schofield_close||lever_close_requested){
             bool context_restored=true;
             const bool completed=DispatchWithRenderLevelContext(owner,[&]() noexcept {

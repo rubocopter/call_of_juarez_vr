@@ -39,6 +39,9 @@ struct HudPanelPlacement {
 
 // A fixed lower edge keeps successive one/two-line captions from jumping.
 [[nodiscard]] HudPanelPlacement BuildSubtitlePlacement(const HudTextPanel& subtitle) noexcept;
+// Fit generated coaching on one shared plane above the subtitle region.
+[[nodiscard]] bool FitControlHintPanel(const HudTextPanel& panel,
+    const std::array<runtime::EyeView,2>& eyes,float lower_edge_m,HudPanelPlacement& result) noexcept;
 
 struct ProjectedHudPanel {
     std::uint32_t left = 0, top = 0, width = 0, height = 0;

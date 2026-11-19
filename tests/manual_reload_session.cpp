@@ -97,17 +97,31 @@ void SchofieldMotionSession() {
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);
-        const auto first=move(f,{0,0,.044F});
-        Check(!first.cancel&&!first.unload,"short rearward step closed the drum");
-        const auto close=move(f,{0,0,.044F});
+        f.s.right.position.z+=.036F;
+        const auto first=pitch(f,.16F);
+        Check(!first.cancel&&!first.unload,"short wrist step closed the drum");
+        f.s.right.position.z+=.036F;
+        const auto close=pitch(f,.40F);
         Check(close.cancel&&!close.unload&&!close.supervise&&
-            std::strcmp(close.reason,"schofield_rearward_close")==0,
-            "rearward flick must close at every load count");
+            std::strcmp(close.reason,"schofield_wrist_close")==0,
+            "upward wrist flick with natural translation must close at every load count");
         f.s.raw.fire_right=true;f.s.native.probe_status=3;(void)f.Poll();
         Check(!f.mapped.fire_right,"closing leaked a held fire input");
         f.s.native.probe_status=4;(void)f.Poll();
         Check(!f.mapped.fire_right,"native retirement replayed a held fire input");
     }
+    Fixture toward;
+    open(toward,4,-.38F);
+    Check(!move(toward,{0,0,.034F}).unload,"short tilted rearward stroke unloaded");
+    const auto pull=move(toward,{0,0,.037F});
+    Check(pull.unload&&!pull.cancel,"tilted rearward stroke toward the chest must eject, leaving the drum open");
+    Check(!move(toward,{0,0,-.055F}).cancel,"return from rearward ejection closed the drum");
+    Fixture upright;
+    open(upright,6,.84F);
+    upright.s.right.position.y+=.043F;
+    Check(!pitch(upright,1.01F).cancel,"a small correction near vertical closed prematurely");
+    upright.s.right.position.y+=.043F;
+    Check(pitch(upright,1.26F).cancel,"a sharp wrist close near vertical was lost in the aim sine");
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded,-.36F);
@@ -220,7 +234,7 @@ void WinchesterReceiverSession(){
     l.lever_valid=true;l.lever=lever.s.left.position;
     (void)lever.Poll();l.lever.y+=.04F;
     Check(!lever.Poll().cancel,"moving the rifle alone closed it");
-    l.lever=lever.s.left.position;l.lever.x+=.11F;(void)lever.Poll();
+    l.lever=lever.s.left.position;l.lever.x+=.163F;(void)lever.Poll();
     lever.s.left.position.y-=.016F;
     Check(!lever.Poll().cancel,"short lever motion closed the rifle");
     lever.s.left.position.y-=.027F;

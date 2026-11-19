@@ -46,6 +46,22 @@ public:
         const auto support=s.native.armed_hand==0?runtime::PromptAction::left_fire:runtime::PromptAction::right_fire;
         const auto label=runtime::ResolveActionPrompt(prompts,support,es);
         switch(instruction_){
+        case Instruction::schofield_gestures:
+            if(s.native.ammo_readback>0)
+                add(es?u"Para vaciar, apunta abajo y tira hacia ti.\n":
+                    u"To empty, point down and flick toward you.\n");
+            add(es?u"Cierra con un giro de muñeca hacia arriba o con ":u"Flick your wrist up or press ");
+            add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
+            add(es?u".":u" to close.");break;
+        case Instruction::winchester_lever:
+            add(es?u"Baja la mano libre junto a la palanca o pulsa ":
+                u"Sweep your free hand down beside the lever or press ");
+            add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
+            add(es?u" para cerrar.":u" to close.");break;
+        case Instruction::receiver_carry:
+            add(es?u"Acerca la bala a la entrada lateral. Suelta ":
+                u"Bring the round to the side port. Release ");
+            add(label);add(es?u" cuando la guía esté verde.":u" when the guide turns green.");break;
         case Instruction::reserve_full:
         case Instruction::unload_refused:
             if(instruction_==Instruction::reserve_full)
@@ -57,7 +73,12 @@ public:
             add(es?u"Sin munición de reserva. Pulsa ":u"No reserve ammunition. Press ");
             add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
             add(es?u" para cerrar.":u" to close.");break;
-        case Instruction::pickup:add(es?u"Pulsa ":u"Press ");add(label);add(es?u" junto a la cadera para coger un cartucho.":u" at your hip to take a round.");break;
+        case Instruction::pickup:
+            add(es?u"Pulsa ":u"Press ");add(label);
+            if(r.schofield_motion)
+                add(es?u" junto a la cadera para coger la munición que falta.":u" at your hip to take the missing rounds.");
+            else add(es?u" junto a la cadera para coger un cartucho.":u" at your hip to take a round.");
+            break;
         case Instruction::release_first:add(es?u"Suelta ":u"Release ");add(label);add(es?u" antes de coger otro cartucho.":u" before taking a round.");break;
         case Instruction::carry:add(es?u"Lleva la munición al marcador. Cuando esté verde, suelta ":u"Bring the ammo to the marker. When green, release ");add(label);add(u".");break;
         case Instruction::insert:add(es?u"Suelta ":u"Release ");add(label);add(es?u" para cargar.":u" to load.");break;
@@ -68,25 +89,32 @@ public:
         out.reload_instruction=true;
         out.reload_result_notice=IsRefusal();
         out.reload_instruction_until_ms=started_>UINT64_MAX-3000?UINT64_MAX:started_+3000;
-        out.control_hint_action=instruction_==Instruction::empty_reserve||IsRefusal()?runtime::PromptAction::reload:support;
+        out.control_hint_action=instruction_==Instruction::empty_reserve||IsRefusal()||
+            instruction_==Instruction::schofield_gestures||instruction_==Instruction::winchester_lever?
+            runtime::PromptAction::reload:support;
         out.control_hint_prompts=prompts;
         return true;
     }
     void Reset() noexcept {have_=false;instruction_=Instruction::none;}
 private:
-    enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve,reserve_full,unload_refused};
+    enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve,reserve_full,
+        unload_refused,schofield_gestures,winchester_lever,receiver_carry};
     bool IsRefusal() const noexcept {
         return instruction_==Instruction::reserve_full||instruction_==Instruction::unload_refused;
     }
     static Instruction InstructionFor(const CoJManualReloadInput& s,const CoJManualReloadOutput& r) noexcept {
-        if(s.native.reserve_readback==0)return Instruction::empty_reserve;
+        if(s.native.reserve_readback==0)
+            return r.schofield_motion?Instruction::schofield_gestures:Instruction::empty_reserve;
         const auto& g=r.gesture;
         if(g.pickup_hint.visible)return g.pickup_hint.ready?Instruction::pickup:Instruction::release_first;
-        if(!g.cartridge_held||g.cartridge_hand!=1-s.native.armed_hand)return Instruction::none;
+        if(!g.cartridge_held||g.cartridge_hand!=1-s.native.armed_hand)
+            return r.schofield_motion?Instruction::schofield_gestures:
+                s.winchester_receiver?Instruction::winchester_lever:Instruction::none;
         if(g.claimed_hand!=g.cartridge_hand){
             const bool held=s.native.armed_hand==0?s.raw.fire_left:s.raw.fire_right;
-            return held?Instruction::release_first:Instruction::continuation;
+            return held?Instruction::release_first:s.winchester_receiver?Instruction::winchester_lever:Instruction::continuation;
         }
+        if(s.winchester_receiver)return Instruction::receiver_carry;
         return g.insertion_ready?Instruction::insert:Instruction::carry;
     }
     void Remember(const CoJManualReloadInput& s,std::uint64_t owner,std::uint64_t binding) noexcept {
