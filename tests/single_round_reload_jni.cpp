@@ -640,8 +640,12 @@ bool change_phase_during_read=false;
 void* geometry_probe_weapon=nullptr;
 int geometry_loaded=4,geometry_probe_hand=0;
 bool retire_geometry_probe=false;
+bool SchofieldGeometryWeapon() {
+    return weapon_class==&schofield_class || weapon_class==&schofield_a_class ||
+        weapon_class==&schofield_b_class;
+}
 void* JNI_CALL GeometryField(void*,void*,const char* name,const char* signature) {
-    if(weapon_class==&schofield_class&&std::strcmp(name,"m_fRotate")) {
+    if(SchofieldGeometryWeapon()&&std::strcmp(name,"m_fRotate")) {
         if(Fail())return nullptr;
         return const_cast<char*>(name);
     }
@@ -709,7 +713,7 @@ int JNI_CALL GeometryInteger(void* env, void* object, void* method, const Value*
     const bool peacemaker = weapon_class == &peacemaker_class;
     if (!std::strcmp(text,peacemaker ? "ColtDrum" : "GunDrum")) return drum_index;
     if (!std::strcmp(text,peacemaker ? "ColtLock" :
-        weapon_class==&schofield_class?"GunReleaser":"GunLoader")) return gate_index;
+        SchofieldGeometryWeapon()?"GunReleaser":"GunLoader")) return gate_index;
     Require(false,"unexpected named geometry element"); return -1;
 }
 void* JNI_CALL GeometryNew(void*, void* cls, void* constructor, const Value*) {
@@ -840,9 +844,9 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
 }
 
 void SchofieldGeometryChecks(JavaPlayerBridge& bridge) {
-    for(int sample=0;sample<5;++sample){
+    for (void* cls : {&schofield_class,&schofield_a_class,&schofield_b_class}) for(int sample=0;sample<5;++sample){
         GeometryReset(bridge,0,false);
-        weapon_class=&schofield_class;
+        weapon_class=cls;
         Set(95,SchofieldGeometryObjectField);Set(96,SchofieldGeometryBooleanField);
         Set(100,SchofieldGeometryIntField);
         geometry_probe_weapon=sample==1?&replacement:&weapon;
@@ -1491,7 +1495,7 @@ void ReloadGeometryTests(JavaPlayerBridge& bridge) {
             case 2: overlay.weapon=nullptr; break;
             case 3: overlay.weapon=&replacement; break;
             case 4: actual[hand]=nullptr; break;
-            case 5: weapon_class=&schofield_a_class; break;
+            case 5: weapon_class=&lemant_class; break;
             case 6: drum_index=-1; break;
             case 7: gate_index=-1; break;
             case 8: drum_index=5; break;
