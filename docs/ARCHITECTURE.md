@@ -1220,7 +1220,9 @@ exceeding its original constant-buffer limit. The bundle is a provisional count
 presentation, not an exact-calibre speedloader. Single-cartridge proximity
 diagnostics do not qualify bundle contact and are withheld for bundle samples.
 The optional development Schofield motion candidate scopes a direct native
-opening request to the exact base model and a fresh manual ticket. Both hands
+opening request to the exact base, A and B classes and a fresh manual ticket.
+The pinned A and B constructors inherit the same logic, ammunition and visual
+parameters. Both hands
 must pass the single-hand idle check. After the request the armed desired state
 21 must carry the original two-handed animation flag, with the actual weapon
 and empty support hand still verified. The
@@ -1490,10 +1492,10 @@ The manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
 It consumes rejected Square admission until release. In eligible native-only
 contexts, the exact firearm fallback verifies the current weapon, player,
 hand slots and native state before passing Square to normal action 31. It
-includes the sixteen manual profiles and six pinned legacy classes. The base
-Schofield, five single-round revolvers and the exact right-owned ordinary
-Winchester can hold one Square press for up to 450 ms in the coherent shot
-tail. The same owner must pass ordinary idle admission before the manual
+includes the sixteen manual profiles and six pinned legacy classes. The three
+exact Schofield classes, five single-round revolvers and both exact right-owned
+Winchester models can hold one Square press for up to 450 ms in the coherent
+shot tail. The same owner must pass ordinary idle admission before the manual
 request is dispatched. Invalid owner/context/poses/input availability,
 recenter, stale samples, incompatible actions or presentation failure close the
 session. Native-clock watchdog expiry is a recovery fallback, not a fixed mesh

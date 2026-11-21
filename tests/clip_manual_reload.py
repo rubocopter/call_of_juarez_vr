@@ -376,6 +376,23 @@ class SchofieldMotionTests(unittest.TestCase):
         self.assertEqual((vm.vector()[0][0], vm.vector()[1][2], vm.clip_calls), (5, 0, 1))
         self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
 
+    def test_constructor_only_variants_share_the_motion_transaction(self):
+        for kind in clips.CLIP_WEAPONS[1:]:
+            for hand in (0, 1):
+                with self.subTest(kind=kind, hand=hand):
+                    vm = SchofieldVM(loaded=5, reserve=94, kind=kind, hand=hand, waiting=False)
+                    self.assertTrue(vm.open())
+                    vm.machine.update(m_sCurrentState=vm.states[20], m_sDestState=vm.states[21])
+                    vm.update(.31); vm.update(.62)
+                    self.assertTrue(vm.unload())
+                    self.assertEqual(vm.vector(), ((0, 0), (10, 10, 99)))
+                    self.assertTrue(vm.insert_bundle())
+                    self.assertEqual(vm.vector(), ((6, 0), (10, 10, 93)))
+                    self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+                    vm.run('ArmedPlayerBeing', 'cojvrCancelReloadProbe', '()V', vm.player)
+                    vm.update(1.0); vm.update(1.4)
+                    self.assertEqual(vm.vector(), ((6, 0), (10, 10, 93)))
+
     def test_opens_full_or_zero_reserve_and_keeps_bundle_waiting_until_native_close(self):
         for hand in (0, 1):
             for loaded, reserve in ((5, 77), (1, 75), (6, 3), (2, 0), (6, 0), (0, 0)):
@@ -412,7 +429,7 @@ class SchofieldMotionTests(unittest.TestCase):
                        'occupied', 'carrying', 'dead', 'network', 'foreign_owner', 'not_owner',
                        'current', 'destiny', 'actual_state', 'desired_state', 'old_ticket'):
             with self.subTest(change=change):
-                vm = SchofieldVM(kind='WeaponPistolSchofield_A' if change == 'variant'
+                vm = SchofieldVM(kind='WeaponPistolSchofield_A_Old' if change == 'variant'
                                  else 'WeaponPistolSchofield', waiting=False)
                 if change == 'null': vm.player['cojvrManualReloadWeapon'] = None
                 if change == 'wrong_weapon': vm.player['cojvrManualReloadWeapon'] = dict(vm.weapon)
@@ -462,13 +479,12 @@ class SchofieldMotionTests(unittest.TestCase):
                 self.assertFalse(vm.open())
                 self.assertEqual(vm.vector(), before)
 
-    def test_bundle_is_base_only_and_lost_ticket_cannot_add_on_native_close(self):
-        for kind in clips.CLIP_WEAPONS[1:]:
+    def test_bundle_rejects_unknown_models_and_lost_ticket_cannot_add_on_native_close(self):
+        for kind in ('WeaponPistolSchofield_A_Old', 'WeaponPistolSchofield_B_Old',
+                     'WeaponPistolPeacemaker'):
             vm = SchofieldVM(kind=kind)
             self.assertFalse(vm.insert_bundle())
             self.assertEqual((vm.clip_calls, vm.events), (0, 0))
-            self.assertTrue(vm.insert_clip())
-            self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
 
         vm = SchofieldVM()
         vm.player['nAmmoPistol'] = 2
@@ -528,7 +544,7 @@ class OfflineUnloadTests(unittest.TestCase):
                 if change == 'full_reserve': vm.player['nAmmoPistol'] = 99
                 if change == 'bad_count': vm.weapon['m_iAmmo0Count'] = 7
                 if change == 'counter': vm.counters[2]['cOwner'] = {}
-                if change == 'wrong_model': vm.weapon['class'] = 'WeaponPistolSchofield_A'
+                if change == 'wrong_model': vm.weapon['class'] = 'WeaponPistolSchofield_A_Old'
                 if change == 'not_waiting': vm.machine['m_sCurrentState'] = vm.states[20]
                 before = vm.vector()
                 self.assertFalse(vm.unload())

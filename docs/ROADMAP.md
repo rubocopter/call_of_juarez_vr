@@ -80,11 +80,13 @@ campaign scenes are unavailable; batch physical checks during ordinary play.
 - Independent right-stick-back hammer cocking: hammer meshes/fire tracks do not
   establish a separate cock/hold/release callback. Native alternate fire is a
   different operation; duel aiming and ordinary turning already own this stick.
-- The exact base Schofield has an opt-in development route for opening,
+- The exact base, A and B Schofield classes have an opt-in development route for opening,
   unloading with a back tilt, retained bundle insertion and
   a down-forward wrist flick to close. Qualify count conservation, closing/recovery, rear-view
   guide visibility and gesture comfort using the combined headset gate.
-  Ordinary clips and variants retain automatic close on insertion.
+  The ordinary clip route closes automatically on insertion with the development
+  option off. Revolvers with different native loading mechanics retain their
+  unit, indexed or native paths.
 - Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
   per-calibre loose ammunition are not implemented by the manual transfer routes.
 - Explicit LeMat mode/port selection, dual-wield manual reload and legacy `_Old`
@@ -115,12 +117,12 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | Additional Frontier, Walker, Cogswell | Manual profiles host-tested. Cogswell presents the elongated rifle round from its rifle reserve. | Per-model physical unit transfer, geometry, ammunition appearance and recovery. |
 | Winchester | Receiver proximity has operator acceptance for ordinary-rifle manual loading. Native readback confirms intermediate transfers and replay and final-round closure. Square remains available for early closure. | Qualify missed release, early Square closure, support regrip and visible clearance. |
 | Remington / SawOff | Remington grasp accepted. Current manual source integrates selected-index shell accounting, shared shotgun reserve, distinct shell presentation, guarded body replay and supervised close. SawOff retains its either-hand policy. | Confirm shell appearance, per-barrel loading contact, native hand ownership and mechanical playback/recovery in the headset. The grip-zone loading target remains provisional. |
-| Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Current source shares Winchester manual unit/body-cycle accounting with separate exact-class admission; controller-only scope aim remains a host candidate. | Zoom reticle and actual shot impact were misaligned in .6 and are rejected. Correlate optical ray with native fired trajectory/impact/spread by pose and distance; separately check Focus exit/head tracking, manual loading, support regrip/recovery and exact mouth. |
+| Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Both Winchester models share manual unit transfer, body replay and deferred Square after firing, with separate exact-class and geometry checks. | Check side-port insertion and regrip in visor. Separately correlate the optical ray with native impact and check Focus exit/head tracking. |
 | Volcanic | Current manual source integrates the exact 8-round native unit/body-cycle route with pistol reserve and the shared pickup/carry/release gesture. | Physical animation, hand/port, per-model cartridge and recovery qualification. |
 | Henry 1863 | Exact pinned constructor-only Winchester alias now shares its 12-round right-owned rifle-reserve unit/body21 transaction; host regressions cover accounting and rejection. | Campaign reach, physical playback/recovery and model geometry remain unqualified; the shared provisional target is available, but no Winchester mouth geometry is inherited. |
 | Derringer | Current manual source integrates captured-index unit loading for two 1-round slots and one pistol reserve pool, preserving original whole-clip parameters. | Physical port/barrel presentation and recovery. Original setters implement a guarded selected-index composite; the native whole-clip loop is not used for each cartridge. |
 | Lemant / LeMat | Current manual source integrates captured-index loading, capacities 1/8 and distinct rifle/pistol presentation. Fresh pickup chooses the lowest eligible index and retains it until insertion or cancellation. | Explicit mode and port selection, physical visibility of both cartridge types, native playback and recovery. |
-| Schofield base/A/B | Base has exercised manual whole-clip functional acceptance and correlated native readback. Source replaces the rejected proxy bundle with imported textured cartridge instances and fixes held empty-trigger opening/closure. A/B remain host candidates. | Retry friction, textured bundle appearance/contact, native animation and broader recovery. No per-chamber insertion, exact-calibre model or measured speedloader is claimed. |
+| Schofield base/A/B | Base has scoped functional acceptance and live native readback for both gesture directions. A/B share the pinned mechanism and have host coverage for gesture opening, conserved reserve return, retained bundle insertion and close. | Check comfort and consistency of the shorter flick after loading a save and during normal play. Check variant presentation and recovery when encountered. |
 | Bow | Physical grab/pull/release has scoped functional acceptance. | Mesh/string/arrow/reticle, haptics, concentration optics and interruption evidence. Preserve native trajectory, ammo and concentration lifecycle. |
 | Duel instruction | Optional contextual EN/ES coach and exact paused EN overview are implemented/host-tested; existing native draw/raise/aim/fire controls remain authoritative. | Validate text timing, lower/raise sequence, binding labels and readability without promoting new duel mechanics or other localized resources. |
 | Hands / Bible / whip / dynamite / mounted weapons | Scoped Hands and Ray Bible/on-foot kick acceptance; other native routes retained. | Fist volume/guard/AI anticipation and exact permissions/contact for additional physical mechanics. |

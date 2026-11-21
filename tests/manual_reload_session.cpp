@@ -67,12 +67,13 @@ struct IndexedFixture:Fixture {
     CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
 };
 void SchofieldMotionSession() {
-    const auto open=[](Fixture& f,int loaded,float pitch=0.F){
+    const auto open=[](Fixture& f,int loaded,float pitch=0.F,
+        const char* weapon="WeaponPistolSchofield"){
         f.s.schofield_motion=true;
         f.s.right.position.z=-.55F;
         f.s.armed_aim=f.s.right;
         f.s.armed_aim.orientation={std::sin(pitch*.5F),0,0,std::cos(pitch*.5F)};
-        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.weapon_class=weapon;
         f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
         f.s.native.capacities[0]=6;
         f.s.native.ammo_readback=f.s.native.loaded[0]=loaded;
@@ -191,12 +192,30 @@ void SchofieldMotionSession() {
         ejections+=out.unload;
     }
     Check(ejections==1,"90 Hz tilt must eject once despite head yaw");
+
+    for(const auto* weapon:{"WeaponPistolSchofield","WeaponPistolSchofield_A","WeaponPistolSchofield_B"}){
+        Fixture f;
+        open(f,6,0.F,weapon);
+        // Representative short strokes from the finished headset run.
+        // Earlier policy demanded about 20 degrees even for a quick wrist turn.
+        float angle=0.F;
+        CoJManualReloadOutput close{};
+        for(int sample=0;sample<7;++sample){
+            angle-=.031F;
+            f.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+            close=f.Poll(12);
+            Check(!close.unload,"short closure stroke requested ejection");
+            if(sample<6)Check(!close.cancel,"minor pitch change closed the drum");
+        }
+        Check(close.cancel&&std::strcmp(close.reason,"schofield_wrist_close")==0,
+            "short intentional wrist flick did not close the exact Schofield");
+    }
 }
 
-void WinchesterReceiverSession(){
-    const auto open=[](Fixture& f){
+void WinchesterReceiverSession(const char* weapon){
+    const auto open=[weapon](Fixture& f){
         f.s.winchester_receiver=true;
-        f.s.native.weapon_class="WeaponRifleWinchester";
+        f.s.native.weapon_class=weapon;
         f.s.native.capacities[0]=12;
         f.s.native.loaded[0]=f.s.native.ammo_readback=10;
         f.s.native.native_body_cycle=true;
@@ -1046,6 +1065,7 @@ int main(){
     }
     SchofieldMotionSession();
     SchofieldInterruptedStroke();
-    WinchesterReceiverSession();
+    WinchesterReceiverSession("WeaponRifleWinchester");
+    WinchesterReceiverSession("WeaponRifleWinchesterScope");
     std::cout<<"manual reload session passed\n";
 }

@@ -116,7 +116,7 @@ void CheckSchofieldGuides() {
         case 16:view.origin_cm={0,0,0};view.right={-1,0,0};view.forward={0,0,-1};break;
         case 17:view.origin_cm={-50,0,48};view.right={0,0,1};view.forward={-1,0,0};break;
         case 18:out.frame_sequence++;break;
-        case 19:current.weapon_class="WeaponPistolSchofield_A";break;
+        case 19:current.weapon_class="WeaponPistolSchofield_A_Old";break;
         case 20:out.eyes[1].eye_to_head.position={.5F,0,0};
             out.eyes[1].eye_to_head.position_valid=true;break;
         }
@@ -124,6 +124,14 @@ void CheckSchofieldGuides() {
         Check(!AppendCoJSchofieldChamberGuides(view,snapshot,current,enabled,out)&&
             out.holster_guides.count==count&&out.holster_guides.zones[0].state==0,
             "Schofield guide changed output for a foreign, invalid or culled capture");
+    }
+    for(const auto* weapon:{"WeaponPistolSchofield_A","WeaponPistolSchofield_B"}){
+        auto variant=native;
+        variant.weapon_class=weapon;
+        auto out=overlay;
+        out.holster_guides={};
+        Check(AppendCoJSchofieldChamberGuides(frame,geometry,variant,true,out)&&
+            out.holster_guides.count==6,"Schofield variant lost the shared rear guide");
     }
 }
 

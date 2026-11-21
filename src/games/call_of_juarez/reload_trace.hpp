@@ -89,7 +89,7 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
     if(before.kind!=CoJManualReloadKind::indexed&&before.kind!=CoJManualReloadKind::clip)return false;
     const bool indexed=before.kind==CoJManualReloadKind::indexed;
     if(schofield_hold_open&&(indexed||!before.weapon_class||!after.weapon_class||
-        std::string_view(before.weapon_class)!="WeaponPistolSchofield"||
+        !IsCoJSchofield(before.weapon_class)||
         std::string_view(after.weapon_class)!=before.weapon_class))return false;
     const int index=indexed?(selected_index>=0?selected_index:before.selected_index):0;
     if((!indexed&&selected_index>0)||index<0||index>=before.index_count||

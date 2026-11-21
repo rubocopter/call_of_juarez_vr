@@ -154,7 +154,7 @@ public:
         const bool ordinary=s.admission.valid&&s.admission.SupportsManual()&&
             s.admission.weapon_id==weapon_&&s.admission.armed_hand==hand_&&s.admission.kind==kind_;
         const bool schofield=s.schofield_motion&&s.native.kind==CoJManualReloadKind::clip&&
-            s.native.weapon_class&&std::string_view(s.native.weapon_class)=="WeaponPistolSchofield";
+            s.native.weapon_class&&IsCoJSchofield(s.native.weapon_class);
         if(bound&&phase_==CoJManualReloadPhase::closing&&(!same||s.native.probe_status==4||s.native.probe_status==0)){
             phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;
         }else if(bound&&phase_!=CoJManualReloadPhase::closing){
@@ -455,8 +455,10 @@ private:
         sample.progress_m=schofield_sweep_.distance;
         sample.peak_mps=schofield_sweep_.peak_speed;
         sample.state="down_forward";
-        if(schofield_sweep_.distance<.05F||
-            schofield_sweep_.peak_speed<.43F)return SchofieldFlick::none;
+        // The finished Sense trace included coherent wrist strokes near
+        // 0.029–0.033 m of equivalent arc at 0.38–0.44 m/s.
+        if(schofield_sweep_.distance<.028F||
+            schofield_sweep_.peak_speed<.36F)return SchofieldFlick::none;
         sample.classified=true;lock_until_rest();return SchofieldFlick::close;
     }
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {

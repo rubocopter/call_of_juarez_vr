@@ -872,6 +872,13 @@ boundaries or establish occupied-chamber/ejection semantics.
 
 ### Base Schofield chamber presentation and unloading
 
+In the pinned Steam `code.pak`, `WeaponPistolSchofield_A` and
+`WeaponPistolSchofield_B` declare only a constructor, which calls the base
+constructor without overriding its parameters. Both inherit the same mesh,
+whole-clip logic and pistol ammunition storage. They share the development
+motion transaction and rear guide through exact-class admission. The
+`_Old` variants derive from `WeaponBullet` and keep their native route.
+
 The original Steam `Data0.pak` member
 `Data/Player/Equipment/Schofield/schofield.MSH` (SHA-256
 `3ef4c3a576e4c0937c6fad2985717cbb1ff3fcce940c360263637e4290475423`)
@@ -938,8 +945,8 @@ agree. A bundle accepted by the separate motion endpoint keeps the native
 body alive. A forward flick or Square requests the same native close while
 the retained body veto prevents a second transfer. Returning live rounds
 needs reserve headroom for the entire unload. Player installs use the
-ordinary whole-bundle completion path by default. The opt-in gameplay
-sequence and its rear-view chamber guide await live qualification.
+ordinary whole-bundle completion path by default. The base model has scoped
+live transaction evidence and the operator reports seeing the guide.
 
 The displayed-frame observer resolves the drum and gate by native element name,
 checks readback against the current controller-mapped child transaction and

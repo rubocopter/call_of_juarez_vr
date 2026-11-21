@@ -18,7 +18,7 @@ inline Vector Difference(Vector a, Vector b) noexcept {
 inline bool Waiting(const CoJReloadTraceSnapshot& native,
     const CoJReloadGeometrySnapshot& geometry) noexcept {
     return native.valid && native.probe_valid && native.probe_status==2 && native.reloading &&
-        native.weapon_class && std::string_view(native.weapon_class)=="WeaponPistolSchofield" &&
+        native.weapon_class && IsCoJSchofield(native.weapon_class) &&
         native.kind==CoJManualReloadKind::clip && native.index_count==1 &&
         native.selected_index==0 && native.capacities==std::array<int,2>{6,0} &&
         native.loaded==std::array<int,2>{geometry.schofield_loaded,0} &&

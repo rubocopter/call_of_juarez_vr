@@ -51,8 +51,8 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
     profiles=(weapon_class,) if isinstance(weapon_class,str) else tuple(weapon_class)
     if not profiles or any(name not in CLIP_WEAPONS for name in profiles):
         raise ValueError('No exact offline clip profile')
-    if keep_waiting and (not retained_close or profiles != CLIP_WEAPONS[:1]):
-        raise ValueError('Retained bundle wait requires the exact base Schofield')
+    if keep_waiting and not retained_close:
+        raise ValueError('Retained bundle wait requires the native close guard')
     e = ClassEdit(player)
     if retained_close:
         from coj_reload_cycle import _retained_completion_veto

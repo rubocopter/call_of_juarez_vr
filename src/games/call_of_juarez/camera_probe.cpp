@@ -7144,8 +7144,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         const bool same=g_java_player_bridge.TryObserveReloadTrace(after,true)&&after.valid&&after.probe_valid&&
             manual_input.player==g_java_player_bridge.being_generation()&&
             after.probe_status==2&&after.weapon_id==before.weapon_id&&after.armed_hand==before.armed_hand&&
-            after.kind==before.kind&&after.capacities==before.capacities&&after.weapon_class&&
-            std::string_view(after.weapon_class)=="WeaponPistolSchofield";
+            after.kind==before.kind&&after.capacities==before.capacities&&before.weapon_class&&
+            after.weapon_class&&IsCoJSchofield(before.weapon_class)&&
+            std::string_view(after.weapon_class)==before.weapon_class;
         auto reserve=before.reserves;
         const auto expected_reserve=static_cast<std::int64_t>(reserve[0])+before.ammo_readback;
         const bool confirmed=completed&&unload==CoJSchofieldUnloadResult::returned_to_reserve&&

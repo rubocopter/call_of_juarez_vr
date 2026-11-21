@@ -405,24 +405,21 @@ void NativeReloadContinuationIntegration() {
 }
 void NativeFallbackRegression() {
     using namespace cojvr::runtime;
-    {
-        Reset();weapon_class=&winchester_class;current[0]=32;
+    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class)}){
+        Reset();weapon_class=cls;current[0]=32;
         for(auto& flags:two)flags[0]=true;
         CoJMotionReloadOwner after_shot{};
         Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&
             after_shot.valid&&after_shot.armed_hand==0&&after_shot.SupportsManual()&&
             !after_shot.single_round_supported&&after_shot.kind==CoJManualReloadKind::unit&&
             after_shot.weapon_id==static_cast<std::uint32_t>(weapon_id)&&refs==0&&!pending,
-            "ordinary right-owned Winchester post-shot Square must wait for manual idle");
+            "both right-owned Winchester models must wait for manual idle after a shot");
         current[0]=1;
         Require(ReadCoJMotionReloadOwner(&holder,&player,after_shot)&&after_shot.SupportsManual(),
             "the same Winchester must remain eligible through ordinary idle admission");
-    }
-    for(auto hand:{0,1}){
-        Reset(hand);weapon_class=hand==0?&scoped_class:&winchester_class;current[hand]=32;
-        CoJMotionReloadOwner after_shot{};
+        Reset(1);weapon_class=cls;current[1]=32;
         Require(ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid,
-            "scoped or left-owned Winchester should retain the existing shot-tail fallback");
+            "left-owned Winchester should retain the existing shot-tail fallback");
     }
     Reset();weapon_class=&winchester_class;current[0]=32;
     actual[1]=active[1]=desired[1]=&weapon_alias;
@@ -436,9 +433,15 @@ void NativeFallbackRegression() {
             after_shot.armed_hand==hand&&after_shot.weapon_id==static_cast<std::uint32_t>(weapon_id)&&
             after_shot.kind==CoJManualReloadKind::clip&&refs==0&&!pending,
             "exact Schofield shot tail did not defer the positively observed owner");
-        Reset(hand);weapon_class=&schofield_a_class;current[hand]=32;
+        Reset(hand);weapon_class=&old_schofield_a_class;current[hand]=32;
         Require(ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid,
-            "a different Schofield class lost native fallback");
+            "a legacy Schofield class lost native fallback");
+        for(void* cls:{static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class)}){
+            Reset(hand);weapon_class=cls;current[hand]=32;
+            Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&after_shot.valid&&
+                after_shot.kind==CoJManualReloadKind::clip&&after_shot.armed_hand==hand,
+                "Schofield variant dropped the shot-tail reload press");
+        }
         Reset(hand);weapon_class=&schofield_class;current[hand]=32;
         fail_lookup="cOwner";after_shot.valid=true;
         Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid&&refs==0&&!pending,

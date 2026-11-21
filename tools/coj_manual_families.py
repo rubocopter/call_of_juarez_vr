@@ -87,7 +87,7 @@ def append_runtime_families(player:bytes)->bytes:
     player=_append_indexed_session(player,helper_name='cojvrInsertManualIndexedRound',
                                    runtime=True,cycle_animation=True)
     player=_add_offline_clip(player,CLIP_WEAPONS,retained_close=True)
-    player=_add_offline_clip(player,CLIP_WEAPONS[0],helper_name='cojvrInsertSchofieldBundle',
+    player=_add_offline_clip(player,CLIP_WEAPONS,helper_name='cojvrInsertSchofieldBundle',
                              retained_close=True,keep_waiting=True)
     player=_append_unload(player)
     player=_append_open(player)

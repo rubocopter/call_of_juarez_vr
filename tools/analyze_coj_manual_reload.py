@@ -1305,8 +1305,7 @@ def family_readback_reported(f):
     native_body_cycle=f.get('native_body_cycle')=='1'
     if not indexed and native_body_cycle:return False
     hold_open=f.get('schofield_hold_open','0')
-    if hold_open not in ('0','1') or (hold_open=='1' and
-            (indexed or f.get('weapon_class')!='WeaponPistolSchofield')):return False
+    if hold_open not in ('0','1') or (hold_open=='1' and indexed):return False
     allowed_status=(2,3) if indexed else (2,) if hold_open=='1' else (3,)
     def vector(key,size):
         parts=f.get(key,'').split(',')

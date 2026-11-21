@@ -529,7 +529,7 @@ switch ($Action) {
             Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental exact-profile cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Legacy paced continuation has bounded live evidence; native animation still owns its hands. Persistent manual reload requires -ManualReload. See docs/VALIDATION.md#cartridge-paced-reload-acceptance."
         }
         if ($SchofieldMotion) {
-            Write-Host "Base Schofield motion candidate: Square opens with one armed hand. Pick up a bundle for missing rounds. Tilt the revolver back to eject. Return to level, pause briefly, then flick the wrist down and forward to close at any load count. Square can also close."
+            Write-Host "Schofield base/A/B motion candidate: Square opens with one armed hand. Pick up a bundle for missing rounds. Tilt the revolver back to eject. Return to level, pause briefly, then flick the wrist down and forward to close at any load count. Square can also close."
         }
         if ($WinchesterReceiver) {
             Write-Host 'Winchester receiver candidate: release the support grip and press Square. Pick up one round at the hip, bring its tip near the side loading port and release at the green guide. After the native loading animation, pick up another round or press Square to close early. The final cartridge closes natively.'

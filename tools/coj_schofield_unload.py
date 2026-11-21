@@ -1,4 +1,4 @@
-"""Exact base Schofield opening and held ammunition return for explicit dispatch."""
+"""Exact Schofield opening and held ammunition return for explicit dispatch."""
 import hashlib
 import io
 import zipfile
@@ -119,7 +119,7 @@ def _append_open(player: bytes) -> bytes:
     c.emit(0x4d, 0x2c); c.branch(0xc6, 'decline')
     from coj_manual_reload import _exact_class_branch
     from coj_clip_reload import CLIP_WEAPONS
-    _exact_class_branch(e, c, lambda c: c.emit(0x2c), CLIP_WEAPONS[:1], 'exact')
+    _exact_class_branch(e, c, lambda c: c.emit(0x2c), CLIP_WEAPONS, 'exact')
     c.branch(0xa7, 'decline'); c.label('exact')
     c.emit(0x2a, 0x1b); call('GetHandStateMashine', '(I)LPlayerStateMashine;')
     c.emit(0x3a, 4, 0x19, 4); c.branch(0xc6, 'decline')
@@ -186,11 +186,10 @@ def _append_unload(player: bytes) -> bytes:
     c.emit(0x1c); c.branch(0x9b, 'decline')
     c.emit(0x1c, 0x04); c.branch(0xa3, 'decline')
     _emit_retained_wait(e, c, 1, 2, 3, 'decline')
-    c.emit(0x2b); call('java/lang/Object', 'getClass', '()Ljava/lang/Class;')
-    call('java/lang/Class', 'getName', '()Ljava/lang/String;')
-    c.ref(0x13, e.append(b'\x08' + e.utf8('WeaponPistolSchofield').to_bytes(2, 'big')))
-    call('java/lang/String', 'equals', '(Ljava/lang/Object;)Z')
-    c.branch(0x99, 'decline')
+    from coj_manual_reload import _exact_class_branch
+    from coj_clip_reload import CLIP_WEAPONS
+    _exact_class_branch(e, c, lambda c: c.emit(0x2b), CLIP_WEAPONS, 'exact')
+    c.branch(0xa7, 'decline'); c.label('exact')
     # A native callback can retire the mutable probe even before the first
     # heartbeat. The borrowed body's original transfer must stay vetoed.
     _emit_retained_wait(e, c, 1, 2, 3, 'decline')

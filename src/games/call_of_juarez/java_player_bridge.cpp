@@ -2940,7 +2940,7 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     const std::string_view name{class_name};
     const auto model=name=="WeaponPistolPeacemaker"?CoJReloadModel::peacemaker:
         name=="WeaponPistolFrontier1878_Regular"?CoJReloadModel::frontier:
-        name=="WeaponPistolSchofield"?CoJReloadModel::schofield:CoJReloadModel::unknown;
+        IsCoJSchofield(name)?CoJReloadModel::schofield:CoJReloadModel::unknown;
     if(model==CoJReloadModel::unknown)return false;
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
     const auto method_fn=EnvFunction<GetMethodIdFn>(env,kGetMethodId);

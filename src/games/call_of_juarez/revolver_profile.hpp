@@ -1,6 +1,10 @@
 #pragma once
 #include <array>
+#include <string_view>
 namespace cojvr::games::call_of_juarez {
+inline constexpr bool IsCoJSchofield(std::string_view name) noexcept {
+    return name=="WeaponPistolSchofield"||name=="WeaponPistolSchofield_A"||name=="WeaponPistolSchofield_B";
+}
 // Exact concrete classes in the pinned CoJ archive. Never admit subclasses by
 // prefix or assume every pistol has the same reload/ammunition contract.
 enum class CoJManualReloadKind { unit,indexed,clip };
