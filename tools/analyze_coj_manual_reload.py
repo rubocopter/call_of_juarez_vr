@@ -25,6 +25,7 @@ GESTURE_SAMPLES = {'schofield_motion', 'winchester_receiver_contact', 'wincheste
 GESTURE_NATIVE = {'schofield_open', 'schofield_unload', 'schofield_close', 'winchester_lever_close',
                   'native_reload_dispatch', 'manual_reload_insertion'}
 GESTURE_FEEDBACK = {'schofield_refusal_notice', 'schofield_empty_eject', 'schofield_ejection_mesh'}
+SCHOFIELD_CLASSES = ('WeaponPistolSchofield', 'WeaponPistolSchofield_A', 'WeaponPistolSchofield_B')
 RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
@@ -1292,8 +1293,7 @@ def family_readback_reported(f):
               'WeaponRifleRemingtonSawOff':((1,1),(2,2)),
               'WeaponPistolDerringer':((1,1),(0,0)),
               'WeaponPistolLemant':((1,8),(1,0)),
-              **{name:((6,0),(0,0)) for name in
-                 ('WeaponPistolSchofield','WeaponPistolSchofield_A','WeaponPistolSchofield_B')}}
+              **{name:((6,0),(0,0)) for name in SCHOFIELD_CLASSES}}
     profile=profiles.get(f.get('weapon_class'))
     if profile is None or mode not in ('indexed','clip'):return False
     indexed=mode=='indexed'
@@ -1334,6 +1334,30 @@ def family_readback_reported(f):
     except (ValueError,TypeError,IndexError):return False
 
 
+def schofield_unload_readback(entry):
+    """Assess the reported synchronous counts from one unload call."""
+    fields, result = entry['fields'], entry['result']
+    if result == 'uncertain':
+        return 'uncertain'
+    keys = ('weapon_id', 'armed_hand', 'loaded_before', 'loaded_after',
+            'reserve_before', 'reserve_after', 'native_call_completed', 'same_wait_owner', 'reason')
+    if any(key not in fields for key in keys):
+        return 'inconclusive'
+    weapon, hand, before, after, reserve, next_reserve = (integer(fields, key) for key in keys[:6])
+    coherent = (weapon is not None and 0 < weapon < 0xffffffff and hand in (0, 1)
+                and ('weapon_class' not in fields or fields['weapon_class'] in SCHOFIELD_CLASSES)
+                and before is not None and 0 < before <= 6 and after is not None and 0 <= after <= 6
+                and reserve is not None and reserve >= 0 and next_reserve is not None and next_reserve >= 0
+                and yes(fields, 'native_call_completed') and yes(fields, 'same_wait_owner'))
+    if coherent:
+        reason = fields['reason']
+        if result == 'accepted' and reason == 'returned_to_reserve' and after == 0 and next_reserve == reserve + before:
+            return 'return_readback_reported'
+        if result == 'declined' and reason in ('reserve_full', 'native_guard') and (after, next_reserve) == (before, reserve):
+            return 'refusal_readback_reported'
+    return 'invalid_unload_readback'
+
+
 def reload_gesture_observations(events):
     """Group reported receipts by capture frame without inferring a later outcome."""
     frames = {}
@@ -1346,6 +1370,8 @@ def reload_gesture_observations(events):
             layer = 'samples'
         elif name in GESTURE_NATIVE:
             layer = 'native'
+            if name == 'schofield_unload':
+                entry = dict(entry, readback_assessment=schofield_unload_readback(entry))
         elif name in GESTURE_FEEDBACK or (name == 'openvr_reload_haptic' and
                                           fields.get('event') in ('ejected', 'unload_refused')):
             layer = 'feedback'
@@ -1556,6 +1582,9 @@ def analyze_evidence(directory):
             values = [integer(f, 'ammo_readback_before'), integer(f, 'ammo_readback_after'), trace_reserve(f, 'before'), trace_reserve(f, 'after')]
             if trace_reserve_kind(f, 'before') == trace_reserve_kind(f, 'after') and all(v is not None and v >= 0 for v in values) and (values[1] > values[0] or values[3] < values[2]):
                 issues.append(dict(line=e['line'], kind='reload_readback_change_without_insertion'))
+    gestures = reload_gesture_observations(events)
+    unload_readbacks = Counter(receipt['readback_assessment'] for frame in gestures
+                               for receipt in frame['native'] if receipt['event'] == 'schofield_unload')
     return dict(schemaVersion=1, analysis_type='cojvr-offline-manual-reload', manual_candidate=manual,
                 headset_validated=False, provenance=dict(verified=True, runId=evidence['runId'],
                     buildManifestId=evidence['buildManifestId'], inventoried_files=len(paths),
@@ -1565,6 +1594,7 @@ def analyze_evidence(directory):
                     unit_readbacks=sum(r['assessment'] == 'unit_readback_observed' for r in insertions),
                     indexed_unit_readbacks_reported=sum(r['assessment']=='indexed_unit_readback_reported' for r in insertions),
                     clip_readbacks_reported=sum(r['assessment']=='clip_readback_reported' for r in insertions),
+                    schofield_unload_readbacks=dict(unload_readbacks),
                     native_wait_entries=waiting_entries, issue_count=len(issues),
                     zone_entries=reported['manual_reload_zone','entered'],
                     zone_exits=reported['manual_reload_zone','exited'],
@@ -1602,7 +1632,7 @@ def analyze_evidence(directory):
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 rifle_support_observations=rifle_samples,
-                reload_gesture_observations=reload_gesture_observations(events),
+                reload_gesture_observations=gestures,
                 winchester_reload_observations=winchester_samples,
                 winchester_loading_observations=loading_samples,
                 remington_loading_observations=remington_samples,

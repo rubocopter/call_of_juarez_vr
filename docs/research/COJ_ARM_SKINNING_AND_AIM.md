@@ -544,8 +544,11 @@ with further reported improvement, while residual anatomy remains rejected.
 Native crouch lowers the camera independently of physical HMD descent. Applying
 both caused a duplicate view-height drop. An actor-relative native camera-height
 reference now compensates that drop for physical crouch and its pose recovery,
-with the same correction in arm anchors and controller aim origins. Explicit
-controller crouch remains native-owned; generation/recenter resets the reference.
+with the same correction in arm anchors and controller aim origins. While
+explicit controller crouch lowers the camera, the measured actor-relative
+native drop and tracked head descent share their overlapping portion. This
+preserves the greater descent while the native controller owns the posture.
+Generation/recenter resets the reference.
 No vertical actor or pelvis translation is introduced. The exercised on-foot physical-crouch regression has operator acceptance;
 mounted behavior and broader recovery remain separate gates.
 

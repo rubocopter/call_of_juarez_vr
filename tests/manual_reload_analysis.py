@@ -63,6 +63,30 @@ class GestureEvidenceTests(unittest.TestCase):
         self.assertEqual(observations[2]['native'], [])
         self.assertEqual(observations[3]['native'][0]['fields']['ammo_after'], '11')
 
+    def test_schofield_readback_checks_conservation_and_same_wait_owner(self):
+        complete = dict(frame_sequence='90', weapon_id='42', armed_hand='1',
+                        native_call_completed='1', same_wait_owner='1')
+        accepted = dict(complete, reason='returned_to_reserve', loaded_before='4',
+                        loaded_after='0', reserve_before='54', reserve_after='58')
+        declined = dict(complete, reason='reserve_full', loaded_before='6',
+                        loaded_after='6', reserve_before='97', reserve_after='97')
+        cases = [
+            ('accepted', accepted, 'return_readback_reported'),
+            ('declined', declined, 'refusal_readback_reported'),
+            ('declined', dict(declined, reason='native_guard'), 'refusal_readback_reported'),
+            ('accepted', dict(accepted, reserve_after='57'), 'invalid_unload_readback'),
+            ('accepted', dict(accepted, same_wait_owner='0'), 'invalid_unload_readback'),
+            ('declined', dict(declined, loaded_after='5'), 'invalid_unload_readback'),
+            ('declined', dict(declined, loaded_before='-1'), 'invalid_unload_readback'),
+            ('uncertain', dict(complete, reason='native_fault'), 'uncertain'),
+            ('accepted', dict(frame_sequence='90'), 'inconclusive'),
+        ]
+        for result, fields, status in cases:
+            with self.subTest(result=result, fields=fields):
+                entry = dict(event='schofield_unload', result=result, fields=fields)
+                observations = analysis.reload_gesture_observations([entry])
+                self.assertEqual(observations[0]['native'][0]['readback_assessment'], status)
+
 
 def insertion(frame=3, result='accepted', **extra):
     fields = dict(frame_sequence=frame, weapon_id=42, ammo_before=2, ammo_after=3,

@@ -240,7 +240,8 @@ L3 keeps a neutral manual toggle and merges it with physical crouch through
 native action 16. Action 17 is not suitable here: ToggleDuck flips persistent
 m_bToggleDuck, clears toggle-run/walk, and has no release undo; physical
 Duck(true) clears that latch. VR action-16 ownership remains releasable at
-context loss, and explicit crouch keeps the established camera-height policy.
+context loss. The camera accounts for overlapping native and tracked descents
+when L3 is active.
 
 Synthetic manual and physical Duck require a fresh known on-foot owner. Native
 action 16 shares the category-1 target chain with HorseController, whose inherited

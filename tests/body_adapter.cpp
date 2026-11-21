@@ -1430,23 +1430,23 @@ int main() {
     }
     CoJPhysicalViewHeightState physical_view;
     CoJPhysicalViewHeightState crouch_owner_view;
-    (void)crouch_owner_view.Update(1155,1000,false,false,true);
-    const float before_mount=crouch_owner_view.Update(1105,1000,true,false,false);
+    (void)crouch_owner_view.Update(1155,1000, 0, false,false,true);
+    const float before_mount=crouch_owner_view.Update(1105,1000, 0, true,false,false);
     if (!Near(before_mount,50) ||
         !Near(crouch_owner_view.RevalidateCorrection(before_mount,true,false,false),0) ||
-        !Near(crouch_owner_view.Update(1105,1000,true,false,false),50)) {
+        !Near(crouch_owner_view.Update(1105,1000, 0, true,false,false),50)) {
         std::cerr << "transient owner loss applied a stale correction or forgot standing height\n";
         return 1;
     }
     if (!Near(crouch_owner_view.RevalidateCorrection(before_mount,true,true,true),0) ||
-        !Near(crouch_owner_view.Update(1120,1000,false,false,false),0) ||
-        !Near(crouch_owner_view.Update(1080,1000,true,false,false),40)) {
+        !Near(crouch_owner_view.Update(1120,1000, 0, false,false,false),0) ||
+        !Near(crouch_owner_view.Update(1080,1000, 0, true,false,false),40)) {
         std::cerr << "synchronous mount retained the old scalar or standing reference\n";
         return 1;
     }
     if (!Near(crouch_owner_view.RevalidateCorrection(40,false,true,false),0) ||
-        !Near(crouch_owner_view.Update(2140,2000,false,false,false),0) ||
-        !Near(crouch_owner_view.Update(2100,2000,true,false,false),40)) {
+        !Near(crouch_owner_view.Update(2140,2000, 0, false,false,false),0) ||
+        !Near(crouch_owner_view.Update(2100,2000, 0, true,false,false),40)) {
         std::cerr << "new owner inherited the previous view height\n";
         return 1;
     }
@@ -1455,25 +1455,43 @@ int main() {
         std::cerr << "owner revalidation accepted a non-finite correction\n";
         return 1;
     }
-    if (!Near(physical_view.Update(1155, 1000, false, false, true), 0) ||
-        !Near(physical_view.Update(1105, 1000, true, false, false), 50) ||
-        !Near(physical_view.Update(1205, 1100, true, false, false), 50) ||
-        !Near(physical_view.Update(1230, 1100, false, false, false), 25) ||
-        !Near(physical_view.Update(1255, 1100, false, false, false), 0)) {
+    if (!Near(physical_view.Update(1155, 1000, 0, false, false, true), 0) ||
+        !Near(physical_view.Update(1105, 1000, 0, true, false, false), 50) ||
+        !Near(physical_view.Update(1205, 1100, 0, true, false, false), 50) ||
+        !Near(physical_view.Update(1230, 1100, 0, false, false, false), 25) ||
+        !Near(physical_view.Update(1255, 1100, 0, false, false, false), 0)) {
         std::cerr << "physical crouch doubled native camera descent or lost actor vertical motion\n";
         return 1;
     }
-    if (!Near(physical_view.Update(1205, 1100, false, true, false), 0) ||
-        !Near(physical_view.Update(1205, 1100, false, false, false), 0) ||
-        !Near(physical_view.Update(1255, 1100, false, false, false), 0) ||
-        !Near(physical_view.Update(1205, 1100, true, false, false), 50) ||
-        !Near(physical_view.Update(1205, 1100, true, false, true), 0)) {
+    if (!Near(physical_view.Update(1205, 1100, 0, false, true, false), 0) ||
+        !Near(physical_view.Update(1205, 1100, 0, false, false, false), 0) ||
+        !Near(physical_view.Update(1255, 1100, 0, false, false, false), 0) ||
+        !Near(physical_view.Update(1205, 1100, 0, true, false, false), 50) ||
+        !Near(physical_view.Update(1205, 1100, 0, true, false, true), 0)) {
         std::cerr << "physical view compensation interfered with explicit crouch/recenter\n";
         return 1;
     }
     if (!Near(physical_view.Update(
-            std::numeric_limits<float>::quiet_NaN(), 1100, true, false, false), 0)) {
+            std::numeric_limits<float>::quiet_NaN(), 1100, 0, true, false, false), 0)) {
         std::cerr << "physical view compensation accepted a non-finite native camera\n";
+        return 1;
+    }
+    CoJPhysicalViewHeightState combined_view;
+    (void)combined_view.Update(1155, 1000, 0, false, false, true);
+    if (!Near(combined_view.Update(1105, 1000, 0, false, true, false), 0) ||
+        !Near(combined_view.Update(1105, 1000, -18, false, true, false), 18) ||
+        !Near(combined_view.Update(1105, 1000, -30, true, true, false), 30) ||
+        !Near(combined_view.Update(1105, 1000, -60, true, true, false), 50) ||
+        !Near(combined_view.Update(1205, 1100, -60, true, true, false), 50) ||
+        !Near(combined_view.Update(1205, 1100, 0, false, true, false), 0)) {
+        std::cerr << "physical crouch stacked below an already lowered controller view\n";
+        return 1;
+    }
+    if (!Near(combined_view.Update(1210, 1100, -15, false, false, false), 15) ||
+        !Near(combined_view.Update(1205, 1100, -30, true, false, false), 50) ||
+        !Near(combined_view.Update(1205, 1100, -30, true, true, false), 30) ||
+        !Near(combined_view.Update(1205, 1100, 5, false, true, false), 0)) {
+        std::cerr << "crouch overlap broke controller release, physical-first engagement or a head rise\n";
         return 1;
     }
     // Body translation must share the demonstrated skeleton convention (-Z

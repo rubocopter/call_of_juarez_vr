@@ -134,6 +134,26 @@ void SchofieldMotionSession() {
     Check(!upright.Poll().unload,"opening already tilted must not eject");
     Check(!pitch(upright,1.09F).cancel&&!pitch(upright,.70F).cancel&&!pitch(upright,0.F).cancel,
         "lowering a drum opened in the tilt position must not close it");
+    for(bool interrupted:{false,true}){
+        Fixture raised;
+        open(raised,3,interrupted?0.F:.43F);
+        const auto aim=[&](float angle,unsigned ms){
+            raised.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+            return raised.Poll(ms);
+        };
+        if(interrupted){
+            const auto first=aim(.43F,108);
+            Check(!first.unload&&!first.cancel,"a gap sample must only establish a baseline");
+        }
+        for(float angle:{.31F,.19F,.07F,0.F}){
+            const auto lower=aim(angle,15);
+            Check(!lower.unload&&!lower.cancel,
+                "return from a raised opening or gap baseline must not close the drum");
+        }
+        for(int i=0;i<4;++i)(void)raised.Poll();
+        Check(!aim(-.11F,15).cancel&&aim(-.25F,15).cancel,
+            "a fresh short close must work once the raised baseline has settled");
+    }
     for(int loaded:{0,3,6}){
         Fixture f;
         open(f,loaded);

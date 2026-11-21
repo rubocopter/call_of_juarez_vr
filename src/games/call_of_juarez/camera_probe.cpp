@@ -4820,7 +4820,7 @@ bool ApplyTrackedWeapons(
 
 float UpdatePhysicalViewHeight(
     const CameraRenderStateSnapshot& natural_render_state,
-    const bool input_active, const bool physical_crouch,
+    const bool input_active, const float tracked_head_y_m, const bool physical_crouch,
     const bool controller_crouch, const bool recentered,
     const bool mounted_available, const bool mounted,
     const std::uint64_t frame_sequence) noexcept {
@@ -4846,7 +4846,7 @@ float UpdatePhysicalViewHeight(
     }
     const auto generation = g_java_player_bridge.being_generation();
     const float correction = g_physical_view_height_state.Update(
-        camera_position.y, actor.y, physical_crouch, controller_crouch,
+        camera_position.y, actor.y, tracked_head_y_m * kGameUnitsPerMeter, physical_crouch, controller_crouch,
         recentered || generation != g_physical_view_height_generation);
     g_physical_view_height_generation = generation;
     if (ShouldObserveBodyFrame(frame_sequence)) {
@@ -4857,6 +4857,7 @@ float UpdatePhysicalViewHeight(
                    << ";controller_crouch=" << (controller_crouch ? "true" : "false")
                    << ";native_camera_y=" << camera_position.y
                    << ";actor_y=" << actor.y
+                   << ";tracked_head_y_m=" << tracked_head_y_m
                    << ";native_height_correction=" << correction
                    << ";height_owner=physical_hmd;actor_write=false";
             EmitEvent("physical_view_height", "observed", detail.str());
@@ -6630,8 +6631,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         gameplay_input.crouch, physical_crouch, mounted_available, mounted);
     float physical_view_correction = UpdatePhysicalViewHeight(
         natural_render_state,
-        gameplay_input.active && !loading_ui_input.suppress_gameplay,
-        physical_crouch, sample.gameplay.crouch, recentered,
+        gameplay_input.active && !loading_ui_input.suppress_gameplay && relative_head_pose.position_valid,
+        relative_head_pose.position.y, physical_crouch, sample.gameplay.crouch, recentered,
         mounted_available, mounted, frame_sequence);
     float head_relative_move_yaw_degrees = 0.0F;
     bool head_relative_move_valid = false;
@@ -7176,6 +7177,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         try{
             EmitEvent("schofield_unload",confirmed?"accepted":declined?"declined":"uncertain",
                 "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(before.weapon_id)+
+                ";weapon_class="+before.weapon_class+
                 ";armed_hand="+std::to_string(before.armed_hand)+";reason="+reason+
                 ";loaded_before="+std::to_string(before.ammo_readback)+";loaded_after="+std::to_string(after.ammo_readback)+
                 ";reserve_before="+std::to_string(before.reserve_readback)+";reserve_after="+std::to_string(after.reserve_readback)+

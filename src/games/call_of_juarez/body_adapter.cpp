@@ -1699,21 +1699,23 @@ float CoJPhysicalViewHeightState::RevalidateCorrection(
 }
 
 float CoJPhysicalViewHeightState::Update(
-    const float native_camera_y, const float actor_y, const bool physical_crouch,
-    const bool controller_crouch, const bool reset) noexcept {
+    const float native_camera_y, const float actor_y, const float tracked_head_y_cm,
+    const bool physical_crouch, const bool controller_crouch, const bool reset) noexcept {
     if (reset) Reset();
     const float height = native_camera_y - actor_y;
     if (!std::isfinite(native_camera_y) || !std::isfinite(actor_y) ||
-        !std::isfinite(height)) {
+        !std::isfinite(height) || !std::isfinite(tracked_head_y_cm)) {
         Reset();
         return 0;
     }
+    const float native_drop = reference_valid_ ? std::max(0.0F, reference_height_ - height) : 0.0F;
+    const float overlap = std::min(native_drop, std::max(0.0F, -tracked_head_y_cm));
     if (controller_crouch) {
         // Keep the existing standing reference while native crouch owns the
         // view; releasing the button must not calibrate against its low pose.
         compensating_ = false;
         controller_recovery_ = true;
-        return 0;
+        return overlap;
     }
     if (!reference_valid_) {
         reference_height_ = height;
@@ -1724,14 +1726,13 @@ float CoJPhysicalViewHeightState::Update(
         compensating_ = true;
     } else if (controller_recovery_) {
         // Explicit crouch keeps its native transition after release as well.
-        if (reference_height_ - height > 0.02F) return 0;
+        if (native_drop > 0.02F) return overlap;
         controller_recovery_ = false;
     }
     if (compensating_) {
-        const float correction = std::max(0.0F, reference_height_ - height);
         // Native pose recovery may lag the HMD/controller action release.
         // Retain compensation until the camera reaches its captured height.
-        if (physical_crouch || correction > 0.02F) return correction;
+        if (physical_crouch || native_drop > 0.02F) return native_drop;
         compensating_ = false;
     }
     reference_height_ = height;

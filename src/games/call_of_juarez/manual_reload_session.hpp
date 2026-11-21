@@ -367,7 +367,9 @@ private:
         if(!prior.last||!dt||dt>90){
             sample.state=prior.last?"sweep_gap":"baseline";
             schofield_sweep_=baseline;
-            if(prior.locked||prior.start||prior.raised_samples||aim.y>=eject_tilt_y)lock_until_rest();
+            // A raised baseline has no observed outward stroke. Lowering it
+            // to level must first re-arm the detector, even below eject tilt.
+            if(!baseline.tilt_ready||prior.locked||prior.start||prior.raised_samples)lock_until_rest();
             return SchofieldFlick::none;
         }
         const runtime::Vec3 step{position.x-prior.position.x,position.y-prior.position.y,position.z-prior.position.z};

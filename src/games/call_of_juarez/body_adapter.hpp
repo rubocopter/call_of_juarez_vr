@@ -125,12 +125,12 @@ private:
 };
 
 // Native crouch lowers the camera as well as the avatar. Physical HMD height
-// already owns that descent, so compensate only the native camera drop while
-// retaining actor vertical movement and explicit controller crouch.
+// already owns that descent. With controller crouch on, remove the overlap
+// between both drops while retaining actor vertical movement.
 class CoJPhysicalViewHeightState final {
 public:
     [[nodiscard]] float Update(
-        float native_camera_y, float actor_y, bool physical_crouch,
+        float native_camera_y, float actor_y, float tracked_head_y_cm, bool physical_crouch,
         bool controller_crouch, bool reset) noexcept;
     // Revalidate the cached pair correction after synchronous native input.
     // Unknown same-owner state suspends output while retaining standing height.

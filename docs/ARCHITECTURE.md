@@ -1064,7 +1064,11 @@ Room-scale camera and controller targets share tracking-Z/yaw conventions.
 Only horizontal room-scale displacement enters the render-only pelvis overlay;
 vertical actor position stays native. Physical crouch height uses a calibrated
 hysteresis and compensates duplicate native camera descent without altering
-collision. Recenter/player/mount changes invalidate the relevant references.
+collision. While L3 owns crouch, the camera uses the greater of the physically
+tracked descent and the native crouch drop. On L3 release, the same rule
+covers native recovery until the physical crouch owns the view or the
+native camera reaches its standing reference. The correction reaches controller and interaction
+anchors. Recenter/player/mount changes invalidate the relevant references.
 Physical-walk animation remains unresolved; root updates affect child animation
 and gameplay events. The offline ANM sampler evaluates bounded original cubic
 channels, native rotation modes and local-times-parent matrices without invoking
@@ -1232,7 +1236,9 @@ Returning from the tilt requires a brief neutral hold before closure can
 classify. A wrist flick down and forward closes at any load count.
 Classification uses the tracked aim elevation and the hand's horizontal reach
 relative to the player. A substantial reversal or broken stroke across a pose
-gap requires a fresh neutral hold.
+gap requires a fresh neutral hold. If the first sample in native wait or the
+first sample after a gap is already above the neutral tilt threshold, the
+classifier also requires a neutral hold before interpreting another motion.
 A partial drum can accept a bundle sized to the missing rounds and available reserve.
 An empty eject pulses the armed hand once per wait. Confirmed reserve transfers
 queue a short 3D cartridge fall from the sampled rear drum face. The renderer
@@ -1244,6 +1250,9 @@ short notice with the reload binding even when Weapon Guides are Off. An
 uncertain native result retires the session. Square keeps the normal close
 route. Optional reload telemetry samples the classifier only during this
 session, with phase changes and classified requests recorded immediately.
+The offline analyzer checks the reported synchronous unload counts and
+same-wait owner, preserving classification samples and player feedback as
+separate observations.
 The native watchdog and ownership retirement still
 control the animation lifecycle. A visual guide projects the six measured
 radial positions onto the positive-Z drum face and shows the aggregate live
