@@ -27,7 +27,7 @@ void* Ptr(int value) { return reinterpret_cast<void*>(static_cast<std::uintptr_t
 struct Action { int id; };
 std::array<Action,48> actions{};
 int controller, targets, item, player, digital_type, analog_type, game_type, settings_type, exception;
-void* env_table[174]{};
+void* env_table[228]{};
 void** env_holder = env_table;
 void* vm_table[8]{};
 void** vm_holder = vm_table;
@@ -91,6 +91,21 @@ std::uint8_t __stdcall MountedBoolean(void*,void* owner,void* method,const JValu
 constexpr const char* shot_fields[]{"cojvrShotSerial","cojvrHitSerial","cojvrFxSerial",
     "cojvrFxStatus","cojvrShotSuppressEffects","cojvrCombHandle","cojvrSmokeHandle"};
 constexpr int shot_values[]{12,9,12,63,0,101,202};
+constexpr const char* dynamite_integers[]{"BeginSerial", "ReleaseSerial", "BeginId",
+    "Spark", "Smoke", "ReleaseId"};
+constexpr const char* dynamite_floats[]{"FuseSeconds", "OriginX", "OriginY", "OriginZ",
+    "VelocityX", "VelocityY", "VelocityZ"};
+std::array<int, 6> dynamite_counters{};
+int dynamite_payload_reads=0;
+bool dynamite_read_fault=false;
+int dynamite_controller_type, dynamite_controller, second_dynamite;
+void* dynamite_candidate=nullptr;
+void* dynamite_controlled=nullptr;
+bool fail_dynamite_release=false;
+bool reject_dynamite_press=false;
+bool dynamite_id_fault=false;
+std::int32_t dynamite_observed_id=static_cast<std::int32_t>(0xf0000001U);
+std::int32_t dynamite_second_id=0x40000002;
 std::array<int,48> accepted{}, rejected{};
 std::array<int,2> native_hand_attacks{};
 std::vector<float> native_turns;
@@ -156,6 +171,30 @@ std::int32_t __stdcall ObserveOwner(void*,void* owner,void* method,const JValue*
     if (shot_owner_fault) { pending=true; return 0; }
     return 0x30000000;
 }
+void* __stdcall DynamiteField(void*,void*,const char* name,const char* signature) {
+    constexpr char prefix[]="cojvrDynamite";
+    if (std::strncmp(name,prefix,sizeof(prefix)-1)==0) {
+        const auto* member=name+sizeof(prefix)-1;
+        if (std::strcmp(signature,"I")==0)
+            for (int i=0;i<6;++i) if (std::strcmp(member,dynamite_integers[i])==0) return Ptr(600+i);
+        if (std::strcmp(signature,"F")==0)
+            for (int i=0;i<7;++i) if (std::strcmp(member,dynamite_floats[i])==0) return Ptr(610+i);
+    }
+    pending=true;
+    return nullptr;
+}
+std::int32_t __stdcall DynamiteInteger(void*,void*,void* field) {
+    const auto index=reinterpret_cast<std::uintptr_t>(field)-600;
+    if (index>=2) ++dynamite_payload_reads;
+    return dynamite_counters.at(index);
+}
+float __stdcall DynamiteFloat(void*,void*,void* field) {
+    ++dynamite_payload_reads;
+    const auto index=reinterpret_cast<std::uintptr_t>(field)-610;
+    if (dynamite_read_fault && index==6) pending=true;
+    constexpr std::array values{1.5F,11.0F,22.0F,33.0F,100.0F,200.0F,300.0F};
+    return values.at(index);
+}
 void* __stdcall ObserveObject(void*,void*,void*,const JValue* args) {
     return args[0].i==0 ? &observed_weapon : nullptr;
 }
@@ -165,6 +204,14 @@ std::uint8_t __stdcall Boolean(void* env, void* owner, void* method, const JValu
     if (method==Ptr(eligible_method)) return 1;
     if (method==Ptr(translate_method)) {
         const int action=static_cast<Action*>(owner)->id;
+        if (action==10 && args[3].z && reject_dynamite_press) {
+            reject_dynamite_press=false;
+            ++rejected[action];
+            return 0;
+        }
+        if (action==10 && !args[3].z && fail_dynamite_release) {
+            fail_dynamite_release=false; pending=true; return 0;
+        }
         if (action==fail_digital_action) { fail_digital_action=-1; pending=true; return 0; }
         if (action==16) native_crouched=args[3].z!=0;
         if (!args[3].z) { ++releases[action]; return 1; }
@@ -178,6 +225,42 @@ std::uint8_t __stdcall Boolean(void* env, void* owner, void* method, const JValu
     }
     return 1;
 }
+void* __stdcall DynamiteFind(void*,const char* name) {
+    return std::strcmp(name,"PlayerController")==0 ? &dynamite_controller_type : nullptr;
+}
+void* __stdcall DynamiteMethod(void*,void*,const char* name,const char* signature) {
+    if (std::strcmp(name,"cojvrGetDynamiteMotionOwner")==0 &&
+        std::strcmp(signature,"()LWeapon;")==0) return Ptr(701);
+    return std::strcmp(name,"GetThisID")==0 && std::strcmp(signature,"()I")==0 ? Ptr(703) : nullptr;
+}
+void* __stdcall DynamiteObject(void*,void* owner,void* method,const JValue*) {
+    return owner==&player && method==Ptr(701) ? dynamite_candidate : nullptr;
+}
+std::int32_t __stdcall DynamiteId(void*,void* owner,void* method,const JValue* args) {
+    if (method!=Ptr(703) || args ||
+        (owner!=&observed_weapon && owner!=&second_dynamite) || dynamite_id_fault) {
+        pending=true;
+        return 0;
+    }
+    return owner==&observed_weapon ? dynamite_observed_id : dynamite_second_id;
+}
+void* __stdcall DynamiteControllerField(void* env,void* cls,const char* name,const char* signature) {
+    if (cls==&dynamite_controller_type && std::strcmp(name,"m_cControlledPlayer")==0 &&
+        std::strcmp(signature,"LIControlledPlayer;")==0) return Ptr(702);
+    return Field(env,cls,name,signature);
+}
+void* __stdcall DynamiteObjectField(void* env,void* owner,void* field) {
+    if (owner==&dynamite_controller && field==Ptr(702)) return dynamite_controlled;
+    if (owner==&item && field==Ptr(target_field)) return &dynamite_controller;
+    return ObjectField(env,owner,field);
+}
+std::uint8_t __stdcall DynamiteInstance(void* env,void* owner,void* type) {
+    if (owner==&dynamite_controller)
+        return type==&dynamite_controller_type || type==&game_type;
+    return Instance(env,owner,type);
+}
+std::uint8_t __stdcall DynamiteSame(void*,void* a,void* b) { return a==b; }
+void* __stdcall DynamiteWeak(void*,void* object) { return object; }
 void __stdcall Void(void*, void*, void* method, const JValue* args) {
     if(method==Ptr(rotate_method)){
         native_turns.push_back(args[0].f);
@@ -220,6 +303,121 @@ void Bind(JavaPlayerBridge& bridge) {
 bool Check(bool condition, const char* message) {
     if (!condition) std::cerr << message << '\n';
     return condition;
+}
+bool TestDynamiteFireRoute() {
+    const auto saved_releases=releases,saved_accepted=accepted,saved_rejected=rejected;
+    const auto saved_attacks=native_hand_attacks;
+    const std::pair<std::size_t,void*> overrides[]{
+        {6,reinterpret_cast<void*>(&DynamiteFind)}, {24,reinterpret_cast<void*>(&DynamiteSame)},
+        {32,reinterpret_cast<void*>(&DynamiteInstance)}, {33,reinterpret_cast<void*>(&DynamiteMethod)},
+        {36,reinterpret_cast<void*>(&DynamiteObject)}, {51,reinterpret_cast<void*>(&DynamiteId)},
+        {94,reinterpret_cast<void*>(&DynamiteControllerField)},
+        {95,reinterpret_cast<void*>(&DynamiteObjectField)}, {226,reinterpret_cast<void*>(&DynamiteWeak)},
+        {227,reinterpret_cast<void*>(&Delete)}};
+    std::array<void*,std::size(overrides)> saved{};
+    for (std::size_t i=0;i<saved.size();++i) {
+        saved[i]=env_table[overrides[i].first];
+        env_table[overrides[i].first]=overrides[i].second;
+    }
+
+    JavaPlayerBridge bridge;
+    Bind(bridge);
+    bridge.being_=&player;
+    bridge.being_generation_=51;
+    dynamite_candidate=&observed_weapon;
+    dynamite_controlled=&player;
+    cojvr::runtime::GameplayInputState input{.active=true};
+    CoJFirePresses press;
+    const auto apply=[&](std::uint64_t token) {
+        return bridge.TryApplyGameplayInput(input,nullptr,CoJInputDispatchPhase::fire,0,0,nullptr,&press,token);
+    };
+    bool ok=Check(apply(0),"failed to initialize ordinary fire");
+    const int base_releases=releases[10], base_right=native_hand_attacks[0], base_left=native_hand_attacks[1];
+    std::uint64_t token=0,same_token=0;
+    std::uint32_t native_id=0,same_native_id=0;
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        bridge.TryObserveDynamiteMotionOwner(same_token,&same_native_id) && token==same_token &&
+        native_id==0xf0000001U && same_native_id==native_id,"dynamite identity was unstable or lost the high bit");
+    ok &= Check(apply(token) && press.dynamite_motion && !press.right && !press.left &&
+        native_hand_attacks[0]==base_right+1 && releases[10]==base_releases+1 &&
+        native_hand_attacks[1]==base_left,"gesture was not one native action 10 press and release");
+
+    dynamite_candidate=&second_dynamite;
+    ok &= Check(apply(token) && !press.dynamite_motion && native_hand_attacks[0]==base_right+1,
+        "old stick authorized a throw after replacement");
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id) && token!=same_token &&
+        native_id==static_cast<std::uint32_t>(dynamite_second_id),
+        "replacement stick reused the previous identity or native ID");
+    // A reused Java weapon wrapper may point at a different native weapon.
+    // Its old gesture must not authorize a throw after the native ID changes.
+    dynamite_candidate=&observed_weapon;
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id),
+        "restored dynamite wrapper was not observable");
+    const auto previous_native_token=token;
+    dynamite_observed_id=static_cast<std::int32_t>(0xf0000002U);
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token!=previous_native_token && native_id==0xf0000002U,
+        "native ID replacement retained a stale dynamite gesture owner");
+    ok &= Check(apply(previous_native_token) && !press.dynamite_motion &&
+        native_hand_attacks[0]==base_right+1,
+        "stale gesture fired a different native weapon through the same wrapper");
+    dynamite_observed_id=static_cast<std::int32_t>(0xf0000001U);
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token!=previous_native_token && native_id==0xf0000001U,
+        "original native weapon ID failed to recover after replacement");
+    dynamite_controlled=&observed_weapon;
+    ok &= Check(apply(token) && !press.dynamite_motion && native_hand_attacks[0]==base_right+1,
+        "foreign PlayerController accepted a synthetic press");
+    dynamite_controlled=&player;
+
+    input.fire_left=true;
+    ok &= Check(apply(token) && press.left && !press.dynamite_motion &&
+        native_hand_attacks[0]==base_right+1 && native_hand_attacks[1]==base_left+1,
+        "gesture competed with raw L2");
+    input.fire_left=false;
+    input.fire_right=true;
+    ok &= Check(apply(token) && press.right && !press.dynamite_motion &&
+        native_hand_attacks[0]==base_right+2,"gesture blocked or duplicated raw R2");
+    input.fire_right=false;
+    ok &= Check(apply(0),"ordinary trigger release failed");
+
+    const int before_rejection_releases=releases[10];
+    reject_dynamite_press=true;
+    ok &= Check(!apply(token) && !press.dynamite_motion &&
+        native_hand_attacks[0]==base_right+2 &&
+        releases[10]==before_rejection_releases+1 && !pending,
+        "rejected native dynamite press was reported as a successful throw");
+
+    fail_dynamite_release=true;
+    ok &= Check(!apply(token) && press.dynamite_motion && native_hand_attacks[0]==base_right+3 &&
+        !pending,"failed gesture release replayed or lost the press receipt");
+    input.fire_right=true;
+    ok &= Check(apply(0) && press.right && native_hand_attacks[0]==base_right+4,
+        "pending synthetic release prevented the next raw R2 press");
+
+    dynamite_candidate=&observed_weapon;
+    dynamite_observed_id=0;
+    native_id=123;
+    ok &= Check(!bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token==0 && native_id==0 && !pending,"zero native weapon ID retained a dynamite owner");
+    dynamite_observed_id=-1;
+    native_id=123;
+    ok &= Check(!bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token==0 && native_id==0 && !pending,"sentinel native weapon ID retained a dynamite owner");
+    dynamite_id_fault=true;
+    native_id=123;
+    ok &= Check(!bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token==0 && native_id==0 && !pending,"JNI GetThisID failure left a pending exception or owner");
+    dynamite_id_fault=false;
+    dynamite_observed_id=static_cast<std::int32_t>(0xf0000001U);
+    ok &= Check(bridge.TryObserveDynamiteMotionOwner(token,&native_id) &&
+        token!=same_token && native_id==0xf0000001U && !pending,
+        "valid weapon did not recover after failed native ID observations");
+    bridge.ClearDynamiteMotionOwner(&env_holder);
+    for (std::size_t i=0;i<saved.size();++i) env_table[overrides[i].first]=saved[i];
+    releases=saved_releases; accepted=saved_accepted; rejected=saved_rejected;
+    native_hand_attacks=saved_attacks;
+    return ok;
 }
 int campaign_game,campaign_single,campaign_step,campaign_fail,campaign_globals,campaign_locals;
 bool campaign_return_ref;
@@ -348,8 +546,44 @@ int main() {
         diagnostics.values==std::array<int,5>{} && diagnostics.fx_handles==std::array<int,2>{} && !pending,
         "GetIntField failure retained partial counters or JNI exception");
     shot_read_fault=false;
+    {
+        JavaPlayerBridge dynamite;
+        Bind(dynamite);
+        dynamite.being_=&player;
+        dynamite.being_generation_=41;
+        const auto field=env_table[94], integer=env_table[100];
+        env_table[94]=reinterpret_cast<void*>(&DynamiteField);
+        env_table[100]=reinterpret_cast<void*>(&DynamiteInteger);
+        env_table[102]=reinterpret_cast<void*>(&DynamiteFloat);
+        CoJDynamiteTrace trace{};
+        ok &= Check(dynamite.TryObserveDynamiteTrace(trace) && trace.player_generation==41 &&
+            !trace.begin_serial && !trace.release_serial && !dynamite_payload_reads,
+            "empty native dynamite trace read a payload");
+        dynamite_counters={2,1,71,81,91,71};
+        dynamite_read_fault=true;
+        ok &= Check(!dynamite.TryObserveDynamiteTrace(trace) && !trace.begin_serial &&
+            !trace.release_serial && !pending, "dynamite read failure published partial data");
+        dynamite_read_fault=false;
+        ok &= Check(dynamite.TryObserveDynamiteTrace(trace) && trace.begin_serial==2 &&
+            trace.release_serial==1 && trace.begin_weapon==71 && trace.released_weapon==71 &&
+            trace.fuse_seconds==1.5F && trace.spark_handle==81 && trace.smoke_handle==91 &&
+            trace.origin_cm.y==22.0F && trace.velocity_cm_s.z==300.0F,
+            "native dynamite begin and release receipts lost their payload");
+        const int payload_reads=dynamite_payload_reads;
+        ok &= Check(dynamite.TryObserveDynamiteTrace(trace) && dynamite_payload_reads==payload_reads,
+            "unchanged dynamite serials reread a payload");
+        dynamite.being_generation_=42;
+        dynamite_counters={};
+        ok &= Check(dynamite.TryObserveDynamiteTrace(trace) && trace.player_generation==42 &&
+            !trace.begin_weapon && !trace.released_weapon && trace.fuse_seconds<0,
+            "new player inherited a previous dynamite receipt");
+        env_table[94]=field;
+        env_table[100]=integer;
+        env_table[102]=nullptr;
+    }
     ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(1,diagnostics) && !diagnostics.valid,
         "empty hand acquired actual shot counters");
+    ok &= TestDynamiteFireRoute();
     CoJContextualShoulderState shoulder;
     cojvr::runtime::GameplayInputState r1{};r1.active=true;
     shoulder.Update(r1,true,true,1); // available released sample
@@ -961,7 +1195,8 @@ int main() {
             accepted[39]==kick_before,"physical holster leaked Action/Kick or repeated equipment");
     }
     {
-        std::array<void*,174> saved{};std::copy(std::begin(env_table),std::end(env_table),saved.begin());
+        std::array<void*,std::size(env_table)> saved{};
+        std::copy(std::begin(env_table),std::end(env_table),saved.begin());
         env_table[23]=reinterpret_cast<void*>(&HolsterDelete);
         env_table[31]=reinterpret_cast<void*>(&HolsterClass);
         env_table[33]=reinterpret_cast<void*>(&HolsterMethod);

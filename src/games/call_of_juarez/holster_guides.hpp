@@ -16,6 +16,9 @@ inline bool BuildCoJHolsterGuides(const CoJVirtualHolsterSample& s,bool enabled,
         return n>.0001F?runtime::Vec3{v.x/n,v.y/n,v.z/n}:runtime::Vec3{};};
     const auto cross=[](runtime::Vec3 a,runtime::Vec3 b){return runtime::Vec3{
         a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+    using Kind=runtime::GestureGuideKind;
+    constexpr std::array kinds{Kind::holster_pistol,Kind::holster_pistol,
+        Kind::holster_long_gun,Kind::holster_bow};
     for(unsigned i=0;i<kCoJVirtualHolsterZones.size();++i){
         const auto zone=kCoJVirtualHolsterZones[i];const auto bit=1U<<zone.channel;
         if(!(s.inventory.owned_mask&bit)||!CoJVirtualHolsterPoseValid(s.grips[zone.hand]))continue;
@@ -26,7 +29,9 @@ inline bool BuildCoJHolsterGuides(const CoJVirtualHolsterSample& s,bool enabled,
         if(right.x*right.x+right.y*right.y+right.z*right.z<.5F)right=unit(cross({0,0,1},normal));
         const auto up=cross(normal,right);
         auto& surface=out.holster_guides.zones[out.holster_guides.count++];
+        surface.kind=kinds[i];
         const bool ready=s.native_ready&&(s.inventory.available_mask&bit)!=0&&
+            (s.ready_hands&(1U<<zone.hand))!=0&&
             !s.selection_blocked&&(zone.shoulder||!CoJVirtualHolsterWorldInteraction(s.interaction))&&
             !CoJVirtualHolsterInputConflict(s.raw,s.raw);
         surface.state=!ready?2:CoJVirtualHolsterZoneForHand(s.head,s.grips[zone.hand],zone.hand)==zone.channel?1:0;

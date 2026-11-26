@@ -27,7 +27,7 @@ def _patch_indexed_player(player,weapon):
     return _patch_class(player,(weapon,),_whole_clip_expected=_profile(weapon)[3])
 
 
-def _emit_retained_wait(e,c,weapon,hand,machine,failure,*,desired=True,move_local=None):
+def _emit_retained_wait(e,c,weapon,hand,machine,failure,*,desired=True,move_local=None,paired=False):
     """Callback-free proof of exact Java ticket/hand/state fields and clock."""
     own='ArmedPlayerBeing'
     def field(owner,name,desc):return e.ref(owner,name,desc,9)
@@ -72,17 +72,20 @@ def _emit_retained_wait(e,c,weapon,hand,machine,failure,*,desired=True,move_loca
         else:local(move_local,True)
         c.branch(0xa0,failure)
     else:c.emit(0x57)
+    c.emit(0x2a);c.ref(0xb4,field(own,'ActiveWeapon','[LWeapon;'));local(hand,True);c.emit(0x32)
+    local(weapon);c.branch(0xa6,failure)
+    if paired:
+        empty_support='empty_support_'+str(len(c.data))
+        support_verified='support_verified_'+str(len(c.data))
+        c.emit(0x2a);c.ref(0xb4,field(own,'cojvrDualSchofieldWeapon','LWeapon;'));c.branch(0xc6,empty_support)
+        c.emit(0x2a);c.ref(0xb6,e.ref(own,'cojvrDualSchofieldProbeMatches','()Z'));c.branch(0x99,failure)
+        c.branch(0xa7,support_verified);c.label(empty_support)
     for state in ('m_cActualState','m_cDesiredState'):
         slot(True);c.ref(0xb4,field('ArmedPlayerBeing$HandStateMashine',state,'LArmedPlayerBeing$HandState;'))
         c.ref(0xb4,field('ArmedPlayerBeing$HandState','m_cWeapon','LWeapon;'));c.branch(0xc7,failure)
-    for other in (False,True):
-        c.emit(0x2a);c.ref(0xb4,field(own,'ActiveWeapon','[LWeapon;'))
-        if other:c.emit(0x04)
-        local(hand,True)
-        if other:c.emit(0x64)
-        c.emit(0x32)
-        if other:c.branch(0xc7,failure)
-        else:local(weapon);c.branch(0xa6,failure)
+    c.emit(0x2a);c.ref(0xb4,field(own,'ActiveWeapon','[LWeapon;'));c.emit(0x04);local(hand,True)
+    c.emit(0x64,0x32);c.branch(0xc7,failure)
+    if paired:c.label(support_verified)
 
 
 def _emit_retained_closed(e,c,weapon,hand,machine,failure):

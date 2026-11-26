@@ -14,6 +14,28 @@ namespace cojvr::backends::openvr {
 using Microsoft::WRL::ComPtr;
 
 namespace {
+using GuideKind=runtime::GestureGuideKind;
+constexpr std::size_t kFirstGuidePanel=12;
+constexpr std::size_t kGuideStates=3;
+// Slot hints compose below the more local, actionable hand/weapon markers.
+constexpr std::array kGuideDrawOrder{
+    GuideKind::holster,GuideKind::holster_pistol,GuideKind::holster_long_gun,GuideKind::holster_bow,
+    GuideKind::support_grip,GuideKind::ammunition_pickup,GuideKind::bow_string,GuideKind::loading_mouth,
+    GuideKind::spent_case};
+static_assert(kGuideDrawOrder.size()==static_cast<std::size_t>(GuideKind::count));
+constexpr std::size_t kHudPanelCount=kFirstGuidePanel+kGuideStates*kGuideDrawOrder.size();
+
+const std::array<HudTextPanel,kGuideStates>& GuidePanels(GuideKind kind) {
+    switch(kind){
+    case GuideKind::support_grip:return SupportGripGuidePanels();
+    case GuideKind::ammunition_pickup:return AmmunitionPickupGuidePanels();
+    case GuideKind::bow_string:return BowStringGuidePanels();
+    case GuideKind::loading_mouth:return LoadingMouthGuidePanels();
+    case GuideKind::spent_case:return SpentCaseGuidePanels();
+    default:return EquipmentHolsterGuidePanels(kind);
+    }
+}
+
 struct GdiDc {
     HDC value = CreateCompatibleDC(nullptr);
     ~GdiDc() { if (value) DeleteDC(value); }
@@ -279,8 +301,8 @@ struct HudTextCompositor::Impl {
         return placement;
     }
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 27> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 27> images;
+    std::array<std::uint64_t, kHudPanelCount> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, kHudPanelCount> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -606,7 +628,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         if(!impl_->replaying_controls)
             impl_->UpdateReadingAnchor(*texts[0],*texts[4],!texts[3]->view().empty(),
                 overlay.feedback_context_token,render_hmd_pose);
-        std::array<HudPanelPlacement, 27> placement{{{1.15F, .48F, 1.5F},
+        std::array<HudPanelPlacement, kHudPanelCount> placement{{{1.15F, .48F, 1.5F},
             {.85F, -.22F, 1.5F}, {}, {.44F,0,1.0F}, {}, {}, {}, {},
             {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
@@ -682,17 +704,14 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             if(part==1&&!coaching_fits)continue;
             if(impl_->replaying_controls&&(part>=2||!controlled[part]))continue;
             if(part<2&&((order<placement.size())==controlled[part]))continue;
-            const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
-            const bool loading_guide=part>=24;
-            const bool bow_guide=part>=21&&!loading_guide,ammunition_guide=part>=18&&!bow_guide&&!loading_guide;
-            const bool support_guide=part>=15&&!ammunition_guide&&!bow_guide&&!loading_guide;
-            const auto guide_kind=loading_guide?runtime::GestureGuideKind::loading_mouth:bow_guide?runtime::GestureGuideKind::bow_string:
-                ammunition_guide?runtime::GestureGuideKind::ammunition_pickup:
-                support_guide?runtime::GestureGuideKind::support_grip:runtime::GestureGuideKind::holster;
-            const auto guide_state=guide?(part-12)%3:0;
+            const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=kFirstGuidePanel;
+            const auto guide_slot=guide?part-kFirstGuidePanel:0;
+            const auto guide_kind=kGuideDrawOrder[guide_slot/kGuideStates];
+            const auto guide_state=guide_slot%kGuideStates;
             if(guide&&!guide_data)continue;
-            if((ammunition_guide||loading_guide)&&(!reload_owner_token||reload_owner_token!=overlay.reload_feedback.owner_token))continue;
-            if(bow_guide&&(!bow_owner_token||bow_owner_token!=overlay.bow_feedback.owner_token))continue;
+            if((guide_kind==GuideKind::ammunition_pickup||guide_kind==GuideKind::loading_mouth)&&
+                (!reload_owner_token||reload_owner_token!=overlay.reload_feedback.owner_token))continue;
+            if(guide_kind==GuideKind::bow_string&&(!bow_owner_token||bow_owner_token!=overlay.bow_feedback.owner_token))continue;
             if(guide&&!std::any_of(overlay.holster_guides.zones.begin(),
                 overlay.holster_guides.zones.begin()+overlay.holster_guides.count,
                 [&](const auto& zone){return zone.kind==guide_kind&&zone.state==guide_state;}))continue;
@@ -701,7 +720,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             const auto style=text_index==3?HudTextRasterStyle::compact:
                 text_index==2?HudTextRasterStyle::subtitle:HudTextRasterStyle::standard;
             const auto& panel = part==1?interaction:(part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],style) :
-                guide?(loading_guide?LoadingMouthGuidePanels()[guide_state]:bow_guide?BowStringGuidePanels()[guide_state]:ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
+                guide?GuidePanels(guide_kind)[guide_state]:threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=part==1?impl_->ui_raster.control_decoration_revision():

@@ -22,7 +22,7 @@ from runtime_manual_families import FamilyVM
 from reload_wait_probe import VM
 
 
-def clip_verifier_class():
+def clip_verifier_class(target_classes=('ArmedPlayerBeing',)):
     """Tiny Java 1.4 main: load/verify ArmedPlayerBeing without game startup."""
     pool = []
     def add(raw):
@@ -37,15 +37,16 @@ def clip_verifier_class():
         return add(b'\x0a' + u2(cls(owner)) + u2(signature))
     this, parent = cls('VerifyManualClip'), cls('java/lang/Object')
     main, signature, code_name = utf('main'), utf('([Ljava/lang/String;)V'), utf('Code')
-    target = add(b'\x08' + u2(utf('ArmedPlayerBeing')))
     loader = method('java/lang/ClassLoader', 'getSystemClassLoader', '()Ljava/lang/ClassLoader;')
     for_name = method('java/lang/Class', 'forName',
                       '(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;')
     methods = method('java/lang/Class', 'getDeclaredMethods', '()[Ljava/lang/reflect/Method;')
     code = Code()
-    code.ref(0x13, target); code.emit(0x03)
-    code.ref(0xb8, loader); code.ref(0xb8, for_name)
-    code.ref(0xb6, methods); code.emit(0x57, 0xb1)
+    for name in target_classes:
+        code.ref(0x13, add(b'\x08' + u2(utf(name)))); code.emit(0x03)
+        code.ref(0xb8, loader); code.ref(0xb8, for_name)
+        code.ref(0xb6, methods); code.emit(0x57)
+    code.emit(0xb1)
     body = u2(4) + u2(1) + u4(len(code.finish())) + code.finish() + u2(0) + u2(0)
     return (bytes.fromhex('cafebabe0000002e') + u2(len(pool) + 1) + b''.join(pool) +
             u2(0x21) + u2(this) + u2(parent) + u2(0) + u2(0) + u2(1) +
@@ -324,6 +325,7 @@ class SchofieldVM(FamilyVM):
         self.unload_calls = 0
         self.requests = []
         self.on_request = None
+        self.dry_sounds = []
         self.weapon['m_iAmmo0Count'] = loaded
         self.player['nAmmoPistol'] = reserve
         if waiting:
@@ -355,11 +357,19 @@ class SchofieldVM(FamilyVM):
             self.unload_calls += 1
             return VM.run(self, 'PawnInventory', name, '(LWeapon;Z)Z', owner, args)
         if name == 'min': return min(args)
-        if name == 'PlaySound2D': return 0
+        if name == 'CanAttack': return not self.player.get('dry_attack_denied',False)
+        if name == 'IsWeaponReloading': return self.machine['m_sCurrentState']['id'] in (20,21,22)
+        if name == 'GetWeaponAmmoCount':
+            weapon=self.slots[args[0]][0]
+            return weapon.get('m_iAmmo0Count',0) if weapon else 0
+        if name == 'PlaySound2D': self.dry_sounds.append(args[0]); return 0
         return super()._native(owner, name, args)
 
     def unload(self):
-        return self.run('ArmedPlayerBeing', 'cojvrUnloadSchofield', '()I', self.player) == 1
+        return self.unload_result() == 1
+
+    def unload_result(self):
+        return self.run('ArmedPlayerBeing', 'cojvrUnloadSchofield', '()I', self.player)
 
     def open(self, hand=None):
         return self.run('ArmedPlayerBeing', 'cojvrOpenSchofield', '(I)Z',
@@ -496,6 +506,191 @@ class SchofieldMotionTests(unittest.TestCase):
         self.assertIn(22, vm.transitions)
         self.assertEqual((vm.vector()[0], vm.vector()[1][2], vm.clip_calls, vm.events),
                          (before[0], before[1][2]+3, 1, 1))
+
+
+class DualSchofieldVM(SchofieldVM):
+    def __init__(self, *, hand=0, kind='WeaponPistolSchofield', reserve=10):
+        super().__init__(hand=hand, kind=kind, reserve=reserve, waiting=False)
+        self.partner = {'class': 'WeaponPistolSchofield_B', 'cOwner': self.player,
+                        'm_iAmmo0Count': 4}
+        for slot in range(3):
+            self.slots[1-hand][slot] = self.partner
+        for key in ('m_cActualState', 'm_cDesiredState'):
+            self.player['m_aHandStateMashine'][1-hand][key]['m_iState'] = 1
+        self.other.update(m_sCurrentState=self.states[1], m_sDestState=self.states[1])
+
+    def native(self, owner, name, args):
+        # This fixture executes the shipped hand-state setters directly.
+        # The base fixture mirrors its mocked setter over the native fields.
+        return self._native(owner,name,args)
+
+    def _native(self, owner, name, args):
+        if name=='IsWeaponOperatedTwoHand' and args[1]==1:
+            return False  # The exact single-handed normal move case in the original switch.
+        methods = {'SetDesiredWeaponState': '(II)V' if len(args) == 2 else '(IIZ)V',
+                   'IsWeaponOperatedTwoHand': '(LWeapon;I)Z',
+                   'CheckDesiredWeaponState': '(I)V', 'SetActualWeaponFromDesired': '(I)V'}
+        if name in methods:
+            result = self.run('ArmedPlayerBeing', name, methods[name], owner, args)
+            if name == 'SetDesiredWeaponState':
+                self.desired_state = self.row(self.hand)['m_cDesiredState']['m_iState']
+            return result
+        if name == 'IsSingleHanded': return True
+        if name == 'IsDesiredWeaponOperatedTwoHand':
+            return self.row(args[0])['m_cDesiredState'].get('m_bTwoHanded', False)
+        if name == 'GetDesiredWeaponState': return self.row(args[0])['m_cDesiredState']['m_iState']
+        if name == 'GetHandImportantState': return 0
+        if name == 'CheckActualWeaponState': return None
+        if name == 'IsEmpty': return args[0] == 0
+        return super()._native(owner, name, args)
+
+    def row(self, hand):
+        return self.player['m_aHandStateMashine'][hand]
+
+    def open_dual(self, hand=None):
+        return self.run('ArmedPlayerBeing', 'cojvrOpenDualSchofield', '(I)Z',
+                        self.player, [self.hand if hand is None else hand])
+
+    def enter_wait(self):
+        self._native(self.player, 'SetActualWeaponFromDesired', [self.hand])
+        self.machine.update(m_sCurrentState=self.states[20], m_sDestState=self.states[21])
+        self.update(.31); self.update(.62)
+
+    def cancel(self):
+        self.run('ArmedPlayerBeing', 'cojvrCancelReloadProbe', '()V', self.player)
+
+    def partner_state(self):
+        row = self.row(1-self.hand)
+        return (tuple(id(self.slots[1-self.hand][i]) for i in range(3)),
+                tuple([id(row[key]), row[key].get('m_iState'), row[key].get('m_bTwoHanded'),
+                       row[key].get('m_fDuration')] for key in ('m_cActualState', 'm_cDesiredState')),
+                id(self.other['m_sCurrentState']), id(self.other['m_sDestState']),
+                self.partner['m_iAmmo0Count'])
+
+
+class DualSchofieldTests(unittest.TestCase):
+    def test_only_confirmed_player_debits_create_spent_cases(self):
+        from coj_schofield_unload import patch_schofield_case_classes
+        from patch_coj_weapon_consumers import patch_fire_class
+
+        class ShotVM(SchofieldVM):
+            def _native(self, owner, name, args):
+                if name == 'SetAmmoCount':
+                    if self.special_class == 'WeaponFire':
+                        return None
+                    return self.run('WeaponFireAmmo', name, '(II)V', owner, args)
+                return super()._native(owner, name, args)
+
+        vm = ShotVM(loaded=6)
+        vm.player['class'] = 'ArmedPlayerBeing'
+        classes = patch_schofield_case_classes(
+            patch_fire_class(original('WeaponFire')), original('WeaponFireAmmo'))
+        for cls, data in zip(('WeaponFire', 'WeaponFireAmmo'), classes):
+            pool, methods = parse_class(data)
+            vm.classes[cls] = pool, {(m.name, m.descriptor): m for m in methods}
+        for i in range(1, 7):
+            vm.run('WeaponFire', 'cojvrDebitShotAmmo', '(II)V', vm.weapon, [0, 6-i])
+            self.assertEqual((vm.weapon['m_iAmmo0Count'], vm.weapon['cojvrSchofieldSpent']), (6-i, i))
+        vm.run('WeaponFireAmmo', 'SetAmmoCount', '(II)V', vm.weapon, [0, 0])
+        self.assertEqual(vm.weapon['cojvrSchofieldSpent'], 6)
+        vm.run('WeaponFireAmmo', 'SetAmmoCount', '(II)V', vm.weapon, [0, 3])
+        self.assertEqual(vm.weapon['cojvrSchofieldSpent'], 0)
+        vm.weapon['cOwner'] = {'class': 'PawnInventory'}
+        vm.run('WeaponFire', 'cojvrDebitShotAmmo', '(II)V', vm.weapon, [0, 2])
+        self.assertEqual((vm.weapon['m_iAmmo0Count'], vm.weapon['cojvrSchofieldSpent']), (2, 0))
+
+    def test_spent_cases_block_insertion_and_eject_without_giving_ammo(self):
+        for loaded, reserve, expected in ((0, 3, 1), (2, 99, 2), (2, 3, 1)):
+            with self.subTest(loaded=loaded, reserve=reserve):
+                vm = DualSchofieldVM(reserve=reserve)
+                vm.weapon.update(m_iAmmo0Count=loaded, cojvrSchofieldSpent=4)
+                self.assertTrue(vm.open_dual())
+                vm.enter_wait()
+                partner = vm.partner_state()
+                self.assertFalse(vm.insert_bundle())
+                self.assertEqual(vm.unload_result(), expected)
+                self.assertEqual(vm.weapon['cojvrSchofieldSpent'], 0)
+                self.assertEqual(vm.partner_state(), partner)
+                returned = loaded if expected == 1 else 0
+                self.assertEqual((vm.vector()[0][0], vm.vector()[1][2], vm.unload_calls),
+                                 (loaded-returned, reserve+returned, int(returned > 0)))
+                self.assertTrue(vm.insert_bundle())
+
+    def test_empty_click_uses_only_the_chosen_weapon_and_preserves_reserve(self):
+        vm=DualSchofieldVM()
+        vm.weapon['m_iAmmo0Count']=0
+        before=vm.vector()
+        def click(hand):return vm.run('ArmedPlayerBeing','cojvrPlayManualDryFire','(I)Z',vm.player,[hand])
+        self.assertTrue(click(0));self.assertFalse(click(1));self.assertTrue(click(0))
+        self.assertEqual(vm.dry_sounds,['Data/Sounds/weapon/Schofield/Schofield_Empty.wav']*2)
+        self.assertEqual(vm.vector(),before)
+        self.assertEqual(vm.requests,[])
+        vm.player['dry_attack_denied']=True
+        self.assertFalse(click(0))
+
+    def test_selected_bundle_and_native_close_preserve_the_other_hand(self):
+        for hand, kind in enumerate(clips.CLIP_WEAPONS[:2]):
+            with self.subTest(hand=hand, kind=kind):
+                vm = DualSchofieldVM(hand=hand, kind=kind, reserve=3)
+                partner = vm.partner_state()
+                self.assertFalse(vm.open())
+                self.assertTrue(vm.open_dual())
+                self.assertIsNone(vm.player['cojvrManualReloadWeapon'])
+                self.assertEqual(vm.player['cojvrReloadProbeStatus'], 1)
+                self.assertFalse(vm.row(hand)['m_cDesiredState']['m_bTwoHanded'])
+                self.assertEqual(vm.partner_state(), partner)
+                self.assertFalse(vm.insert_bundle())
+                vm.enter_wait()
+                self.assertFalse(vm.row(hand)['m_cActualState']['m_bTwoHanded'])
+                self.assertFalse(vm.insert_clip())
+                self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+                self.assertTrue(vm.boolean('cojvrKeepManualReloadAlive'))
+                self.assertTrue(vm.insert_bundle())
+                self.assertFalse(vm.insert_bundle())
+                self.assertEqual((vm.vector()[0][0], vm.vector()[1][2], vm.events), (5, 0, 1))
+                self.assertEqual(vm.partner_state(), partner)
+                self.assertEqual(vm.unload(), 1)
+                self.assertEqual((vm.vector()[0][0], vm.vector()[1][2]), (0, 5))
+                self.assertEqual(vm.partner_state(), partner)
+                vm.cancel(); self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                vm.update(1.0); vm.update(1.4)
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 1)
+                self.assertEqual(vm.partner_state(), partner)
+                self.assertEqual((vm.clip_calls, vm.unload_calls, vm.events), (1, 1, 1))
+
+    def test_open_refuses_alias_replacement_and_non_idle_partner(self):
+        for reason in ('same object', 'wrong class', 'desired', 'owner', 'dest', 'machine'):
+            with self.subTest(reason=reason):
+                vm = DualSchofieldVM()
+                if reason == 'same object':
+                    for slot in range(3): vm.slots[1][slot] = vm.weapon
+                if reason == 'wrong class': vm.partner['class'] = 'WeaponPistolSchofield_B_Old'
+                if reason == 'desired': vm.slots[1][2] = None
+                if reason == 'owner': vm.partner['cOwner'] = {}
+                if reason == 'dest': vm.other['m_sDestState'] = vm.states[20]
+                if reason == 'machine': vm.row(1)['m_cStateMashine'] = vm.machine
+                self.assertFalse(vm.open_dual())
+                self.assertEqual(vm.requests, [])
+
+    def test_pair_loss_and_probe_loss_close_without_transfer(self):
+        for loss in ('active', 'replacement pair', 'probe'):
+            with self.subTest(loss=loss):
+                vm = DualSchofieldVM()
+                self.assertTrue(vm.open_dual()); vm.enter_wait()
+                if loss == 'active': vm.slots[1][1] = None
+                if loss == 'replacement pair':
+                    replacement = dict(vm.partner)
+                    for slot in range(3): vm.slots[1][slot] = replacement
+                if loss == 'probe':
+                    vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [0])
+                before, partner = vm.vector(), vm.partner_state()
+                self.assertFalse(vm.unload())
+                self.assertFalse(vm.boolean('cojvrKeepManualReloadAlive'))
+                self.assertFalse(vm.insert_bundle())
+                vm.update(1.0); vm.update(1.4)
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 1)
+                self.assertEqual((vm.vector(), vm.partner_state(), vm.clip_calls, vm.events),
+                                 (before, partner, 0, 0))
 
 
 class OfflineUnloadTests(unittest.TestCase):

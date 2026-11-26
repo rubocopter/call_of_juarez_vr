@@ -78,6 +78,9 @@ $Control = [ordered]@{
     schofieldMotion = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['schofieldMotion'] -and
         [bool]$ExistingControl.schofieldMotion
+    dynamiteMotion = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['dynamiteMotion'] -and
+        [bool]$ExistingControl.dynamiteMotion
     winchesterReceiver = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['winchesterReceiver'] -and
         [bool]$ExistingControl.winchesterReceiver

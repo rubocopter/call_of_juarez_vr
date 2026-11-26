@@ -1,7 +1,9 @@
 #pragma once
 #include "backends/openvr/hud_text_overlay.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <span>
 
 namespace cojvr::backends::openvr {
 // Small immutable translucent hint textures; no game assets or scene depth.
@@ -47,17 +49,79 @@ inline const std::array<HudTextPanel,3>& HolsterGuidePanels() {
     }();
     return panels;
 }
+
+namespace guide_art {
+struct Stroke {
+    float x0, y0, x1, y1, radius;
+};
+
+inline void Paint(HudTextPanel& panel, std::span<const Stroke> strokes,
+                  std::uint32_t color, unsigned opacity) {
+    for (const auto& stroke : strokes) {
+        const auto margin = stroke.radius + 1.F;
+        const auto x0 = std::max(0, static_cast<int>(std::floor(std::min(stroke.x0, stroke.x1) - margin)));
+        const auto y0 = std::max(0, static_cast<int>(std::floor(std::min(stroke.y0, stroke.y1) - margin)));
+        const auto x1 = std::min(static_cast<int>(panel.width),
+            static_cast<int>(std::ceil(std::max(stroke.x0, stroke.x1) + margin)));
+        const auto y1 = std::min(static_cast<int>(panel.height),
+            static_cast<int>(std::ceil(std::max(stroke.y0, stroke.y1) + margin)));
+        const float dx = stroke.x1 - stroke.x0, dy = stroke.y1 - stroke.y0;
+        const float length_squared = dx*dx + dy*dy;
+        for (int y=y0; y<y1; ++y) for (int x=x0; x<x1; ++x) {
+            const float px=x+.5F-stroke.x0, py=y+.5F-stroke.y0;
+            const float t=std::clamp((px*dx+py*dy)/length_squared,0.F,1.F);
+            const float distance=std::hypot(px-t*dx,py-t*dy);
+            const float coverage=std::clamp(stroke.radius+.5F-distance,0.F,1.F);
+            const auto alpha=static_cast<unsigned>(coverage*opacity+.5F);
+            auto& pixel=panel.pixels[y*panel.width+x];
+            if(alpha>(pixel>>24))pixel=(alpha<<24)|color;
+        }
+    }
+}
+} // namespace guide_art
+
+inline const std::array<HudTextPanel,3>& EquipmentHolsterGuidePanels(runtime::GestureGuideKind kind) {
+    using guide_art::Stroke;
+    static constexpr Stroke pistol[]{{54,95,67,95,3.8F},{67,94,78,94,2.1F},
+        {56,95,50,106,3.F},{58,99,65,101,1.1F},{65,101,68,97,1.1F}};
+    static constexpr Stroke long_gun[]{{45,100,51,96,3.F},{51,96,67,96,2.8F},
+        {67,95,84,95,1.5F},{63,98,61,103,1.1F},{61,103,56,102,1.1F}};
+    static constexpr Stroke bow[]{{58,87,64,88,1.6F},{64,88,71,93,1.6F},{71,93,74,98,1.6F},
+        {74,98,71,103,1.6F},{71,103,64,108,1.6F},{64,108,58,109,1.6F},
+        {58,87,58,109,1.F},{51,98,72,98,.85F}};
+    static const auto build=[](std::span<const Stroke> strokes) {
+        auto out=HolsterGuidePanels();
+        constexpr std::array<std::uint32_t,3> colors{0xD8AA60U,0x70DDA0U,0x9A8274U};
+        constexpr std::array<unsigned,3> opacity{130,200,70};
+        for(unsigned state=0;state<out.size();++state)
+            guide_art::Paint(out[state],strokes,colors[state],opacity[state]);
+        return out;
+    };
+    using Kind=runtime::GestureGuideKind;
+    switch(kind){
+    case Kind::holster_pistol: { static const auto panels=build(pistol); return panels; }
+    case Kind::holster_long_gun: { static const auto panels=build(long_gun); return panels; }
+    case Kind::holster_bow: { static const auto panels=build(bow); return panels; }
+    default: return HolsterGuidePanels();
+    }
+}
+
 inline const std::array<HudTextPanel,3>& SupportGripGuidePanels() {
     static const auto panels=[] {
-        auto out=GlyphGuideBackgroundPanels();
+        using guide_art::Stroke;
+        std::array<HudTextPanel,3> out{};
         constexpr std::array<std::uint32_t,3> colors{0x68DAE8U,0x70DDA0U,0x9A8274U};
-        constexpr unsigned glyphs[2][7]{{16,16,16,16,16,16,31},{4,12,4,4,4,4,14}};
+        constexpr std::array<unsigned,3> bracket_opacity{150,225,80};
+        constexpr Stroke brackets[]{{17,18,11,18,1.2F},{11,18,11,46,1.2F},{11,46,17,46,1.2F},
+            {47,18,53,18,1.2F},{53,18,53,46,1.2F},{53,46,47,46,1.2F}};
+        constexpr Stroke label[]{{21,24,21,40,1.5F},{21,40,29,40,1.5F},
+            {35,28,40,24,1.5F},{40,24,40,40,1.5F},{35,40,45,40,1.5F}};
         for(unsigned state=0;state<3;++state){
-            for(auto& pixel:out[state].pixels)pixel=(pixel&0xff000000U)|colors[state];
-            for(unsigned letter=0;letter<2;++letter)for(unsigned row=0;row<7;++row)
-                for(unsigned col=0;col<5;++col)if(glyphs[letter][row]&(1U<<(4-col)))
-                    for(unsigned y=0;y<3;++y)for(unsigned x=0;x<3;++x)
-                        out[state].pixels[(21+row*3+y)*64+16+letter*18+col*3+x]=0xe0000000U|colors[state];
+            auto& panel=out[state];
+            panel.width=panel.height=64;
+            panel.pixels.resize(64*64);
+            guide_art::Paint(panel,brackets,colors[state],bracket_opacity[state]);
+            guide_art::Paint(panel,label,colors[state],state==2?140:230);
         }
         return out;
     }();
@@ -90,6 +154,20 @@ inline const std::array<HudTextPanel,3>& LoadingMouthGuidePanels() {
         for(int y=8;y<56;++y)for(int x=8;x<56;++x){
             const int dx=2*x-63,dy=2*y-63,r2=dx*dx+dy*dy;
             if(r2<47*47)loaded[y*64+x]=r2<13*13?0xE08F622FU:0xE0EAC67AU;
+        }
+        return out;
+    }();
+    return panels;
+}
+inline const std::array<HudTextPanel,3>& SpentCaseGuidePanels() {
+    static const auto panels=[] {
+        std::array<HudTextPanel,3> out{};
+        out[2]=LoadingMouthGuidePanels()[2];
+        for(auto& pixel:out[2].pixels){
+            const auto color=pixel&0xffffffU;
+            const auto brass=color==0x8F622FU?0x382519U:
+                color==0xEAC67AU?0x946435U:0x73502CU;
+            pixel=(pixel&0xff000000U)|brass;
         }
         return out;
     }();

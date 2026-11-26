@@ -34,6 +34,7 @@ O horse,horse_icon,horse_fatigue;
 O countdown_title,damage,direction,damage_array,direction_array,hit,miss,hit_icon,miss_icon,hit_position,miss_position;
 O objective,objective_window,objective_info,tip_objectives,tip_logs,tip_text,logs_text;
 O cross,warning,starts,ends,start,end,can_fire,reasons,ages,collisions,collision;
+O whip,whip_mesh,whip_anchor,clutchable,in_range,valid_target;
 std::vector<O*> all{&hud_class,&exception,&player,&other,&hud,&components,&slots,&objects,&pistol,&hands,
     &slot0,&slot1,&compass,&waypoints_manager,&waypoints,&wp,&wp2,&rotor,&rotors,&rotor0,&rotor1,
     &sprite,&sprite2,&pos,&forward,&left,&target,&target2,&label,&label2,&carried};
@@ -99,9 +100,18 @@ signed char __stdcall ByteField(void* e,void* o,void* id){return static_cast<sig
 unsigned char __stdcall BoolField(void* e,void* o,void* id){return IntField(e,o,id)!=0;}
 float __stdcall FloatField(void*,void* o,void* id){return static_cast<O*>(o)->floats[Name(id)];}
 union V{long long align;void* object;int integer;};
-unsigned char __stdcall CallBool(void*,void* o,void* id,const V*){Require(Name(id)=="IsActuallyVisible","game mutation method requested");return static_cast<O*>(o)->visible;}
+unsigned char __stdcall CallBool(void*,void* o,void* id,const V*){
+    const auto name=Name(id);
+    if(name=="IsActuallyVisible")return static_cast<O*>(o)->visible;
+    Require(name=="IsClutched"||name=="IsHangingOnWhip","game mutation method requested");
+    return static_cast<O*>(o)->ints[name]!=0;
+}
 int __stdcall CallInt(void*,void* o,void* id,const V*){Require(Name(id)=="size","non-read-only int call");return static_cast<int>(static_cast<O*>(o)->items.size());}
-void* __stdcall CallObject(void*,void* o,void* id,const V* args){auto a=static_cast<O*>(o);if(Name(id)=="GetActualWeaponNotEmpty"){Require(args[0].integer==0||args[0].integer==1,"invalid hand lookup");return Local(a->objects[args[0].integer==0?"rightWeapon":"leftWeapon"]);}Require(Name(id)=="get"||Name(id)=="elementAt","gameplay method requested");Require(args[0].integer>=0&&static_cast<std::size_t>(args[0].integer)<a->items.size(),"unchecked collection index");return Local(a->items[args[0].integer]);}
+void* __stdcall CallObject(void*,void* o,void* id,const V* args){auto a=static_cast<O*>(o);if(Name(id)=="GetActualWeaponNotEmpty"||Name(id)=="GetActiveWeapon"){
+    Require(args[0].integer==0||args[0].integer==1,"invalid hand lookup");
+    if(Name(id)=="GetActiveWeapon")return Local(a->objects[args[0].integer==0?"activeRightWeapon":"activeLeftWeapon"]);
+    return Local(a->objects[args[0].integer==0?"rightWeapon":"leftWeapon"]);
+}Require(Name(id)=="get"||Name(id)=="elementAt","gameplay method requested");Require(args[0].integer>=0&&static_cast<std::size_t>(args[0].integer)<a->items.size(),"unchecked collection index");return Local(a->items[args[0].integer]);}
 int __stdcall Length(void*,void* o){auto a=static_cast<O*>(o);if(!a->booleans.empty())return static_cast<int>(a->booleans.size());if(!a->integers.empty())return static_cast<int>(a->integers.size());if(!a->decimals.empty())return static_cast<int>(a->decimals.size());return static_cast<int>(a->items.size());}
 void* __stdcall Element(void*,void* o,int i){auto a=static_cast<O*>(o);Require(i>=0&&static_cast<std::size_t>(i)<a->items.size(),"unchecked array index");return Local(a->items[i]);}
 int __stdcall StringLength(void*,void* o){return static_cast<int>(static_cast<O*>(o)->text.size());}
@@ -153,6 +163,7 @@ void Init(){
     horse.ints["m_nHealthLevel"]=75;horse.floats["m_fLastTiredness"]=40;
     for(auto o:{&poses,&standing,&crouched})all.push_back(o);
     for(auto o:{&cross,&warning,&starts,&ends,&start,&end,&can_fire,&reasons,&ages,&collisions,&collision})all.push_back(o);
+    for(auto o:{&whip,&whip_mesh,&whip_anchor,&clutchable,&in_range,&valid_target})all.push_back(o);
     Set(222,Critical);Set(223,Unpin);
     cross.type="HUDCrosshairHand";warning.type="Sprite";cross.ints["m_iHand"]=0;
     cross.objects["m_Being"]=&player;cross.objects["m_cHUDManager"]=&hud;cross.objects["dontShoot"]=&warning;
@@ -374,6 +385,63 @@ int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;
     ReadCoJNoShoot(&holder,&player,0,no);Require(!no.valid,"wrong hand crosshair accepted");Clean();cross.ints["m_iHand"]=0;
     Require(!ReadCoJNoShoot(nullptr,&player,0,no)&&!no.valid&&!ReadCoJNoShoot(&holder,&player,2,no),"invalid reader entry accepted");
     Require(ReadCoJNoShoot(&holder,&player,0,no)&&no.warning_visible,"reader did not recover after denied/faulted reads");Clean();
+    // Same owned whip in the active slot, independently fresh native aim and
+    // actual clutch state. A missing collision mesh may represent terrain.
+    whip.type="WeaponWhip";whip.objects["cOwnerAPB"]=&player;
+    whip.objects["m_cClutchedMesh"]=&whip_mesh;whip.objects["m_vLocalElemClutchPos"]=&whip_anchor;
+    whip.ints["m_bInHands"]=1;whip.ints["IsClutched"]=1;player.ints["IsHangingOnWhip"]=1;
+    whip.ints["m_iClutchElem"]=3;whip.ints["m_iCurrentWhipPartInHand"]=10;
+    whip.ints["m_iDestinyWhipPartInHand"]=8;whip_anchor.floats["fX"]=42;
+    clutchable.booleans={1,0};in_range.booleans={1,0};valid_target.booleans={1,0};
+    player.objects["m_abTargetClutchable"]=&clutchable;
+    player.objects["m_abTargetInRange"]=&in_range;
+    player.objects["m_abValidTarget"]=&valid_target;
+    player.objects["activeRightWeapon"]=&whip;
+    player.objects["cojvrRightTargetWeapon"]=&whip;
+    CoJWhipSnapshot ws{};
+    Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&ws.aim_valid&&
+        ws.clutched&&ws.hanging&&ws.clutch_eligible&&ws.in_range&&ws.target_valid&&
+        ws.collision_present&&ws.anchor_mesh_present&&ws.local_anchor_valid&&
+        ws.local_anchor_cm.x==42&&ws.current_part_in_hand==10&&
+        ws.destination_part_in_hand==8&&ws.clutch_element==3&&ws.trace_end_cm.z==1000,
+        "owned whip clutch and native trace state lost");Clean();
+    whip.objects["m_cClutchedMesh"]=nullptr;
+    Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&ws.clutched&&
+        !ws.anchor_mesh_present,"terrain clutch rejected without mesh object");Clean();
+    whip.objects["m_cClutchedMesh"]=&whip_mesh;
+    for(auto changed:{&other,&pistol}){
+        whip.objects["cOwnerAPB"]=changed;
+        Require(!ReadCoJWhip(&holder,&player,&whip,0,ws)&&!ws.valid,"foreign whip owner accepted");Clean();
+    }whip.objects["cOwnerAPB"]=&player;
+    whip.ints["m_bInHands"]=0;
+    Require(!ReadCoJWhip(&holder,&player,&whip,0,ws)&&!ws.valid,"stowed whip accepted");Clean();
+    whip.ints["m_bInHands"]=1;
+    player.objects["activeRightWeapon"]=&pistol;
+    Require(!ReadCoJWhip(&holder,&player,&whip,0,ws)&&!ws.valid,"stale active whip accepted");Clean();
+    player.objects["activeRightWeapon"]=&whip;
+    player.objects["cojvrRightTargetWeapon"]=&pistol;
+    Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&ws.clutched&&
+        !ws.aim_valid,"foreign trace credited to owned whip");Clean();
+    player.objects["cojvrRightTargetWeapon"]=&whip;
+    for(float age:{-.1F,.26F,std::numeric_limits<float>::quiet_NaN()}){
+        ages.decimals[0]=age;
+        Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&ws.clutched&&
+            !ws.aim_valid,"stale native aim marked fresh");Clean();
+    }ages.decimals[0]=.01F;
+    clutchable.booleans.push_back(1);
+    Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&
+        !ws.aim_valid,"unknown clutch array shape admitted");Clean();
+    clutchable.booleans.pop_back();
+    fail="critical";
+    Require(ReadCoJWhip(&holder,&player,&whip,0,ws)&&ws.valid&&
+        !ws.aim_valid,"primitive failure leaked clutch eligibility");Clean();fail.clear();
+    fail="IsClutched";
+    Require(!ReadCoJWhip(&holder,&player,&whip,0,ws)&&!ws.valid,
+        "failed native clutch getter retained state");Clean();fail.clear();
+    Require(!ReadCoJWhip(&holder,&player,&whip,1,ws)&&!ws.valid&&
+        !ReadCoJWhip(nullptr,&player,&whip,0,ws),"invalid whip hand/JNI accepted");Clean();
+    player.objects["cojvrRightTargetWeapon"]=&pistol;
+    player.objects["activeRightWeapon"]=nullptr;
     Require(ReadCoJGameplayUi(&holder,&player,out),"native inventory and objective owners must be readable");
     Require(out.inventory.valid&&out.inventory.owned_mask==0xC2&&out.inventory.available_mask==0xC2,"only owned right pistol/hands/discard permitted");
     Require(out.compass_valid&&out.compass_visible&&out.map_angle_degrees==123&&out.waypoint_count==2&&out.waypoints[0].label.view()==label.text,"native multiple waypoint guidance/heading lost");Clean();

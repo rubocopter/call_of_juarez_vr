@@ -68,6 +68,10 @@ struct Reader {
         if(!o||!ok)return false;auto id=Id(o,"IsActuallyVisible","()Z",true);
         bool v=ok&&Fn<CallBool>(env,39)(env,o,id,nullptr)!=0;Check();return v&&ok;
     }
+    bool MethodBool(void* o,const char* name) noexcept {
+        auto id=Id(o,name,"()Z",true);
+        bool v=ok&&Fn<CallBool>(env,39)(env,o,id,nullptr)!=0;Check();return v&&ok;
+    }
     int Size(void* o,bool array=false) noexcept {
         if(!o||!ok)return 0;int n=0;
         if(array)n=Fn<int(__stdcall*)(void*,void*)>(env,171)(env,o);
@@ -82,6 +86,10 @@ struct Reader {
     }
     Local WeaponForHand(void* player,int hand) noexcept {
         auto id=Id(player,"GetActualWeaponNotEmpty","(I)LWeapon;",true);Value a{.integer=hand};
+        auto v=ok?Fn<CallObject>(env,36)(env,player,id,&a):nullptr;Check();return {*this,v};
+    }
+    Local ActiveWeaponForHand(void* player,int hand) noexcept {
+        auto id=Id(player,"GetActiveWeapon","(I)LWeapon;",true);Value a{.integer=hand};
         auto v=ok?Fn<CallObject>(env,36)(env,player,id,&a):nullptr;Check();return {*this,v};
     }
     template<class T> bool PrimitivePair(void* player,const char* name,const char* signature,std::array<T,2>& out) noexcept {
@@ -538,5 +546,62 @@ bool ReadCoJNoShoot(void* env, void* player, int hand, CoJNoShootSnapshot& out) 
     value.hand=hand;value.reason=reasons[hand];value.age_seconds=age;
     value.warning_visible=visible&&!can_fire[hand]&&(value.reason==1||value.reason==3);
     if(!r.ok)return false;value.valid=true;out=value;return true;
+}
+bool ReadCoJWhip(void* env,void* player,void* owned_whip,int hand,CoJWhipSnapshot& out) noexcept {
+    out={};
+    if(!env||!player||!owned_whip||hand!=0||!*static_cast<void***>(env))return false;
+    constexpr std::size_t required[]{6,15,17,23,24,31,32,33,36,39,94,95,96,100,102,171,173,222,223};
+    for(auto i:required)if(!(*static_cast<void***>(env))[i])return false;
+    Reader r{env};if(!r.Check()||!r.Instance(owned_whip,"WeaponWhip"))return false;
+    auto active=r.ActiveWeaponForHand(player,hand);
+    if(!r.Same(active,owned_whip))return false;
+    auto owner=r.Get(owned_whip,"cOwnerAPB","LArmedPlayerBeing;");
+    if(!r.Same(owner,player)||!r.Bool(owned_whip,"m_bInHands"))return false;
+
+    CoJWhipSnapshot value{};
+    value.clutched=r.MethodBool(owned_whip,"IsClutched");
+    value.hanging=r.MethodBool(player,"IsHangingOnWhip");
+    value.current_part_in_hand=r.Int(owned_whip,"m_iCurrentWhipPartInHand");
+    value.destination_part_in_hand=r.Int(owned_whip,"m_iDestinyWhipPartInHand");
+    value.clutch_element=r.Int(owned_whip,"m_iClutchElem");
+    auto mesh=r.Get(owned_whip,"m_cClutchedMesh","LMeshObject;");
+    value.anchor_mesh_present=mesh.value!=nullptr;
+    auto anchor=r.Get(owned_whip,"m_vLocalElemClutchPos","LVector;");
+    if(anchor.value){value.local_anchor_cm=r.Vector(anchor);value.local_anchor_valid=r.ok;}
+    if(!r.ok)return false;
+    value.valid=true;
+
+    // Native aim data may be absent or stale while the rope remains clutched.
+    // Never refresh the trace or infer attachment from a target permission.
+    Reader aim{env};
+    auto tagged=aim.Get(player,"cojvrRightTargetWeapon","LWeapon;");
+    if(!aim.Same(tagged,owned_whip)){out=value;return true;}
+    std::array<float,2> ages{};
+    std::array<std::uint8_t,2> can_fire{},in_range{},clutchable{},valid{};
+    if(!aim.PrimitivePair(player,"m_afLastAimCheckTime","[F",ages)||
+       !aim.PrimitivePair(player,"m_abCanFireAtTarget","[Z",can_fire)||
+       !aim.PrimitivePair(player,"m_abTargetInRange","[Z",in_range)||
+       !aim.PrimitivePair(player,"m_abTargetClutchable","[Z",clutchable)||
+       !aim.PrimitivePair(player,"m_abValidTarget","[Z",valid)){
+        out=value;return true;
+    }
+    if(!std::isfinite(ages[hand])||ages[hand]<0||ages[hand]>.25F){out=value;return true;}
+    auto starts=aim.Get(player,"m_vLCStart","[LVector;");
+    auto ends=aim.Get(player,"m_vLCEnd","[LVector;");
+    auto collisions=aim.Get(player,"m_cLastCollision","[LCollision;");
+    if(!starts.value||!ends.value||!collisions.value||aim.Size(starts,true)!=2||
+        aim.Size(ends,true)!=2||aim.Size(collisions,true)!=2){out=value;return true;}
+    auto start=aim.At(starts,hand,true),end=aim.At(ends,hand,true);
+    auto collision=aim.At(collisions,hand,true);
+    if(!start.value||!end.value){out=value;return true;}
+    const auto trace_start=aim.Vector(start),trace_end=aim.Vector(end);
+    if(aim.ok){
+        value.trace_start_cm=trace_start;value.trace_end_cm=trace_end;
+        value.trace_age_seconds=ages[hand];value.can_fire=can_fire[hand]!=0;
+        value.in_range=in_range[hand]!=0;value.clutch_eligible=clutchable[hand]!=0;
+        value.target_valid=valid[hand]!=0;value.collision_present=collision.value!=nullptr;
+        value.aim_valid=true;
+    }
+    out=value;return true;
 }
 }

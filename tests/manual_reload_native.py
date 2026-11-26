@@ -191,14 +191,15 @@ class ManualReloadNativeTests(unittest.TestCase):
             if java.is_file():
                 from clip_manual_reload import clip_verifier_class
                 import subprocess
-                (Path(temp)/'VerifyManualClip.class').write_bytes(clip_verifier_class())
+                (Path(temp)/'VerifyManualClip.class').write_bytes(clip_verifier_class(
+                    ('ArmedPlayerBeing','WeaponFire','WeaponFireAmmo')))
                 verified=subprocess.run([str(java),'-Xverify:all','-cp',temp+';'+str(output),
                     'VerifyManualClip'],capture_output=True,text=True,timeout=30)
                 self.assertEqual(verified.returncode,0,verified.stdout+verified.stderr)
             with zipfile.ZipFile(source) as before,zipfile.ZipFile(output) as after:
                 self.assertEqual(before.namelist(),after.namelist())
                 changed={n for n in before.namelist() if before.read(n)!=after.read(n)}
-                self.assertEqual(changed,{'ArmedPlayerBeing.class','StateMashine.class','WeaponFire.class',
+                self.assertEqual(changed,{'ArmedPlayerBeing.class','StateMashine.class','WeaponFire.class','WeaponFireAmmo.class',
             'BeingTriggered.class','LawmanModuleSingle.class','WeaponWhip.class','WeaponMelee.class',
             'MenuOptionsGame.class','LawmanModule.class','MenuBackgroundModule.class','MenuSaveLoad.class','GameUILoading.class','FXEmitter.class','FireEmitterCore.class','FPPCamera.class'})
             with self.assertRaises(ValueError):
@@ -207,10 +208,14 @@ class ManualReloadNativeTests(unittest.TestCase):
 
     def test_all_manual_symbols_resolve_and_branches_retain_native_save_order(self):
         from reload_wait_probe import ReloadWaitProbeTests
+        from coj_schofield_unload import patch_schofield_case_classes
         old=patch.patch_reload_probe_classes
         try:
             patch.patch_reload_probe_classes=patch.patch_manual_reload_classes
-            ReloadWaitProbeTests.test_every_probe_symbol_resolves_against_shipped_hierarchy(self)
+            _, ammo = patch_schofield_case_classes(
+                patch.patch_fire_class(original('WeaponFire')), original('WeaponFireAmmo'))
+            ReloadWaitProbeTests.test_every_probe_symbol_resolves_against_shipped_hierarchy(
+                self, {'WeaponFireAmmo': ammo})
             ReloadWaitProbeTests.test_probe_branch_targets_and_native_save_order(self)
         finally: patch.patch_reload_probe_classes=old
 

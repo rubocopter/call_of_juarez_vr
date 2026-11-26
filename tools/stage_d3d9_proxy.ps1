@@ -20,6 +20,7 @@ param(
     [switch]$SchofieldMotion,
     [switch]$WinchesterReceiver,
     [switch]$RenderResourceProbe,
+    [switch]$DynamiteMotion,
     [switch]$SampledSceneDepth,
     [switch]$TemporalSequence,
     [switch]$HeadTrackedAudio,
@@ -268,6 +269,9 @@ if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
 if ($RenderResourceProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
     throw 'RenderResourceProbe requires native stereo with independent hands.'
 }
+if ($DynamiteMotion -and (-not $IsNativeStereo -or -not $IndependentHands)) {
+    throw 'DynamiteMotion requires native stereo with independent hands.'
+}
 if ($SampledSceneDepth -and (-not $IsNativeStereo -or -not $IndependentHands -or
     $IndependentEyeResolution -ne 'off' -or $RenderResourceProbe)) {
     throw 'SampledSceneDepth requires ordinary native stereo with independent hands and no resource census.'
@@ -478,6 +482,9 @@ $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n 
 if ($RenderResourceProbe) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "renderResourceProbeEnabled": true')
 }
+if ($DynamiteMotion) {
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "dynamiteMotion": true')
+}
 if ($SampledSceneDepth) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "sampledSceneDepthEnabled": true')
 }
@@ -580,6 +587,8 @@ if ($IsNativeStereo) {
         $PatchArguments = @($CodeArchive, $PatchedCodeSource)
         if ($ReloadWaitProbe) { $PatchArguments += '--reload-wait-probe' }
         if ($ManualReload) { $PatchArguments += '--manual-reload' }
+        if ($RenderResourceProbe) { $PatchArguments += '--dynamite-trace' }
+        if ($DynamiteMotion) { $PatchArguments += '--dynamite-motion' }
         $TutorialDataEn = Join-Path $GameDirectory 'DataEn.pak'
         if (Test-Path -LiteralPath $TutorialDataEn -PathType Leaf) {
             $PatchArguments += @('--tutorial-data-en', $TutorialDataEn)
@@ -754,6 +763,7 @@ if ($HadOriginal) {
         schofieldMotion = $SchofieldMotion.IsPresent
         winchesterReceiver = $WinchesterReceiver.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+        dynamiteMotion = $DynamiteMotion.IsPresent
         sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
         sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent
         frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
@@ -851,6 +861,7 @@ if ($HadOriginal) {
             schofieldMotion = $SchofieldMotion.IsPresent
             winchesterReceiver = $WinchesterReceiver.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+            dynamiteMotion = $DynamiteMotion.IsPresent
             sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
             sampledTemporalSequenceEnabled = $TemporalSequence.IsPresent
             frameLumaProbeEnabled = $FrameLumaProbe.IsPresent

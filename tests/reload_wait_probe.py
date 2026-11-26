@@ -389,10 +389,10 @@ class ReloadWaitProbeTests(unittest.TestCase):
         self.assertNotIn('WeaponReload(', helpers)
         self.assertNotIn('nAmmoPistol', helpers)
 
-    def test_every_probe_symbol_resolves_against_shipped_hierarchy(self):
+    def test_every_probe_symbol_resolves_against_shipped_hierarchy(self, extra_classes=None):
         from inspect_java_bytecode import Reader, parse_constant_pool
         armed, machine = patch.patch_reload_probe_classes(original('ArmedPlayerBeing'), original('StateMashine'))
-        patched = {'ArmedPlayerBeing': armed, 'StateMashine': machine}
+        patched = {'ArmedPlayerBeing': armed, 'StateMashine': machine, **(extra_classes or {})}
         cache = {}
         def declared(cls):
             if cls in cache: return cache[cls]

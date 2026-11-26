@@ -138,15 +138,20 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
         for slot in (1,7):load(c,slot);c.branch(0xc6,'not_ready')
         number(c,8);c.branch(0x9b,'not_ready')
         number(c,8);c.emit(0x04);c.branch(0xa3,'not_ready')
-        _emit_retained_wait(e,c,1,8,7,'not_ready')
+        _emit_retained_wait(e,c,1,8,7,'not_ready',paired=keep_waiting)
         if keep_waiting:
             check_class(c, 'not_ready')
-            _emit_retained_wait(e,c,1,8,7,'not_ready')
+            _emit_retained_wait(e,c,1,8,7,'not_ready',paired=True)
         arm_completion(c,1,8,7)
     check_wait('not_ready')
     emit_field(c, probe_weapon); c.emit(0x4c)  # retained weapon, local 1
     load(c, 1); c.branch(0xc6, 'not_ready')
     check_class(c, 'not_ready')
+    if keep_waiting:
+        from coj_schofield_unload import AMMO_CLASS, SPENT_FIELD
+        load(c, 1); c.ref(0xc0, e.cls(AMMO_CLASS))
+        c.ref(0xb4, e.ref(AMMO_CLASS, SPENT_FIELD, 'I', 9))
+        c.branch(0x9a, 'not_ready')
     # Literal type/capacity are independently proven for each exact Schofield.
     load(c, 1); c.emit(0x03); c.ref(0xb6, ammo_type)
     c.emit(0x05); c.branch(0xa0, 'not_ready')  # original pistol reserve type 2
@@ -183,7 +188,8 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
 
     def final_fields(label,*,closed=False,transferred=True):
         from coj_indexed_reload_session import _emit_retained_wait, _emit_retained_closed
-        ( _emit_retained_closed if closed else _emit_retained_wait )(e,c,1,8,7,label)
+        if closed:_emit_retained_closed(e,c,1,8,7,label)
+        else:_emit_retained_wait(e,c,1,8,7,label,paired=keep_waiting)
         load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','cOwner','LPawnInventory;',9))
         c.emit(0x2a);c.branch(0xa6,label)
         load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','nMaxAmount','I',9))
@@ -192,6 +198,10 @@ def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertMa
         c.ref(0xb4,e.ref('WeaponFireAmmo','m_iAmmo0Count','I',9));number(c,3)
         if transferred:number(c,5);c.emit(0x60)
         c.branch(0xa0,label)
+        if keep_waiting:
+            load(c, 1); c.ref(0xc0, e.cls(AMMO_CLASS))
+            c.ref(0xb4, e.ref(AMMO_CLASS, SPENT_FIELD, 'I', 9))
+            c.branch(0x9a, label)
         c.emit(0x2a);c.ref(0xb4,e.ref('PawnInventory','nAmmoPistol','I',9));number(c,4)
         if transferred:number(c,5);c.emit(0x64)
         c.branch(0xa0,label)

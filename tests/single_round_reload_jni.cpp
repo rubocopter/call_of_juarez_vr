@@ -1372,17 +1372,19 @@ void WinchesterLoadingSampleTests(JavaPlayerBridge& bridge) {
     Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
 }
 void RemingtonLoadingSampleRetainsPickupIndex(JavaPlayerBridge& bridge) {
-    for(const bool held:{false,true}){
+    struct Scenario { bool held; int retained_index, expected_index; };
+    for(const auto [held,retained_index,expected_index]:
+        {Scenario{false,-1,0},Scenario{true,1,1},Scenario{false,1,1}}){
         const auto source=CoJReloadGeometrySource::post_overlay;
         SampleReset(bridge,false,source,held);
         weapon_class=&remington_class;
         const auto setup_writes=pinch_writes;
         CoJRemingtonLoadingSample sample{};std::string error;
-        const bool observed=bridge.TryObserveRemingtonLoadingSample(0,source,42,1,held?1:-1,sample,&error);
+        const bool observed=bridge.TryObserveRemingtonLoadingSample(0,source,42,1,retained_index,held,sample,&error);
         if(!observed)std::cerr<<"Remington retained-index fixture failed: "<<error<<'\n';
         Require(observed&&sample.valid&&sample.native.loaded==std::array<int,2>{0,0}&&
-            sample.native.selected_index==(held?1:0)&&sample.tip.valid==held,
-            "shotgun observer discarded retained index while the first slot was eligible");
+            sample.native.selected_index==expected_index&&sample.tip.valid==held,
+            "shotgun observation lost the retained index or used a released pinch");
         Require(refs==0&&!pending&&writes==0&&pinch_writes==setup_writes&&global_creates==0&&global_deletes==0,
             "shotgun aggregate sample mutated state or leaked JNI ownership");
         if(held)Require(bridge.hand_overlays_[1].frames.Restore({},nullptr,PinchRead,PinchWrite),

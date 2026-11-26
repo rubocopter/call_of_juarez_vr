@@ -1,11 +1,37 @@
 #include "games/call_of_juarez/remington_loading_probe.hpp"
+#include "games/call_of_juarez/reload_mouth_preview.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 using namespace cojvr::games::call_of_juarez;
 void Check(bool ok,const char* why){if(!ok){std::cerr<<why<<'\n';std::exit(1);}}
 bool Near(float a,float b){return std::abs(a-b)<.0002F;}
+void CheckMouthTraceBudget() {
+    CoJReloadMouthTraceBudget budget;
+    CoJReloadTraceSnapshot native{};
+    native.armed_hand=0;
+    native.weapon_class="WeaponRifleWinchester";
+    for(unsigned sample=0;sample<20;++sample)
+        Check(budget.Record(native,false),"held Winchester sample lost before its budget");
+    Check(!budget.CanSample(native,false)&&!budget.Record(native,false),
+        "held Winchester samples exceeded their budget");
+    for(unsigned sample=0;sample<10;++sample)
+        Check(budget.Record(native,true),"held samples exhausted the dedicated release budget");
+    Check(!budget.CanSample(native,true),"Winchester release budget did not stop");
+    for(const char* type:{"WeaponRifleWinchesterScope","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+        native.weapon_class=type;
+        Check(budget.Record(native,false)&&budget.Record(native,true),
+            "one exact class starved another class's samples");
+    }
+    native.armed_hand=1;
+    Check(budget.Record(native,true),"left-hand SawOff trace was excluded");
+    native.weapon_class="WeaponRifleRemington";
+    Check(!budget.CanSample(native,true)&&!budget.Record(native,true),"left-hand Remington trace admitted");
+    native.weapon_class="WeaponRifleHenry";
+    Check(!budget.CanSample(native,true),"unsupported model acquired a trace budget");
+}
 int main(){
+    CheckMouthTraceBudget();
     ElementWorldBasisTarget f{{100,200,300},{0,0,1},{1,0,0},true};
     CoJRemingtonLoadingGeometry g{};
     g.model=CoJRemingtonLoadingModel::ordinary;g.source=CoJReloadGeometrySource::post_overlay;

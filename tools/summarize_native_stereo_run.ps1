@@ -53,9 +53,56 @@ function Get-IntegerField([string]$Line, [string]$Field) {
     if ([string]::IsNullOrWhiteSpace($Line)) { return $null }
     $Match = [regex]::Match(
         $Line,
-        "(?:^|[ ;])" + [Regex]::Escape($Field) + "=([0-9]+)")
+        "(?:^|[ ;])" + [Regex]::Escape($Field) + "=([0-9]+)(?:[ ;]|$)")
     if (-not $Match.Success) { return $null }
-    return [uint64]::Parse($Match.Groups[1].Value, $InvariantCulture)
+    $Value = [uint64]0
+    if (-not [uint64]::TryParse($Match.Groups[1].Value, [ref]$Value)) { return $null }
+    return $Value
+}
+
+function Get-SubmissionFrameAges([string[]]$Lines) {
+    $NewAges = [System.Collections.Generic.List[double]]::new()
+    $RepeatedAges = [System.Collections.Generic.List[double]]::new()
+    $Pending = $null
+    foreach ($Line in $Lines) {
+        if ($Line.StartsWith('native_stereo_presenter_timing:')) {
+            # A new timing record supersedes an unmatched sample. The pose log
+            # follows on the same presenter thread, with the same source IDs.
+            $Pending = $null
+            if (-not $Line.StartsWith('native_stereo_presenter_timing: status=ok ') -or
+                $Line -notmatch '(?:^|[ ;])presentation_mode=native_stereo(?:;|$)' -or
+                $Line -notmatch '(?:^|[ ;])content=(new|repeated)(?:;|$)') { continue }
+            $Content = $Matches[1]
+            $Submit = Get-IntegerField $Line 'submit_sequence'
+            $Capture = Get-IntegerField $Line 'capture_sequence'
+            $Pose = Get-IntegerField $Line 'render_pose_sequence'
+            if ($null -eq $Submit -or $Submit -eq 0 -or
+                $null -eq $Capture -or $Capture -eq 0 -or
+                $null -eq $Pose -or $Pose -eq 0) { continue }
+            $Pending = @{ capture = $Capture; pose = $Pose; content = $Content }
+            continue
+        }
+        if (-not $Line.StartsWith('native_stereo_pose_telemetry:') -or $null -eq $Pending) {
+            continue
+        }
+        $Sample = $Pending
+        $Pending = $null
+        if (-not $Line.StartsWith('native_stereo_pose_telemetry: status=ok;') -or
+            $Line -notmatch '(?:^|[ ;])presentation_mode=native_stereo(?:;|$)' -or
+            $Line -notmatch '(?:^|[ ;])capture_time_valid=true(?:;|$)' -or
+            (Get-IntegerField $Line 'frame_sequence') -ne $Sample.capture -or
+            (Get-IntegerField $Line 'render_pose_sequence') -ne $Sample.pose) { continue }
+        $AgeMatch = [regex]::Match($Line, '(?:^|[ ;])pose_age_ms=([-+0-9.eE]+)(?:[ ;]|$)')
+        if (-not $AgeMatch.Success) { continue }
+        $Age = 0.0
+        if (-not [double]::TryParse($AgeMatch.Groups[1].Value,
+                [System.Globalization.NumberStyles]::Float,
+                $InvariantCulture, [ref]$Age) -or
+            -not [double]::IsFinite($Age) -or $Age -lt 0) { continue }
+        if ($Sample.content -eq 'new') { $NewAges.Add($Age) }
+        else { $RepeatedAges.Add($Age) }
+    }
+    return @{ new = $NewAges.ToArray(); repeated = $RepeatedAges.ToArray() }
 }
 
 function Get-VectorMagnitudes(
@@ -143,6 +190,8 @@ $GpuTransportText = if ($GpuTransportLine.Count -gt 0) {
 } else {
     ""
 }
+# Sampled successful submission source ages, not estimated headset latency.
+$SubmissionFrameAges = Get-SubmissionFrameAges $Lines
 
 $Report = [ordered]@{
     schemaVersion = 2
@@ -168,6 +217,8 @@ $Report = [ordered]@{
         consumerGpuCopyQueue = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "consumer_gpu_copy_queue_ms")
         consumerWait = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "consumer_wait_ms")
         frameAge = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "frame_age_ms")
+        newSubmissionFrameAge = Get-Stats $SubmissionFrameAges.new
+        repeatedSubmissionFrameAge = Get-Stats $SubmissionFrameAges.repeated
         waitPose = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "wait_pose_ms")
         submit = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "submit_ms")
     }
@@ -252,6 +303,7 @@ if ($Report.displayTiming.configuredRefreshHz.Count -gt 0) {
 foreach ($MetricName in @(
         "renderPacing", "deferredReadback", "cpuCopy", "producerCollect", "producerWait",
         "sharedOpen", "consumerGpuCopyQueue", "consumerWait", "frameAge",
+        "newSubmissionFrameAge", "repeatedSubmissionFrameAge",
         "d3d11Upload", "waitPose", "submit")) {
     $Stats = $Report.metricsMs[$MetricName]
     if ($null -eq $Stats) { continue }

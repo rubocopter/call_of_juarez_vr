@@ -129,6 +129,39 @@ void SchofieldMotionSession() {
     for(int i=0;i<4;++i)(void)toward.Poll();
     Check(!pitch(toward,-.18F).cancel&&pitch(toward,-.41F).cancel,
         "a separate downward flick after neutral did not close the drum");
+    Fixture right_after_eject;
+    open(right_after_eject,4);
+    (void)pitch(right_after_eject,.66F);
+    Check(pitch(right_after_eject,.70F).unload,"right cylinder did not eject");
+    const auto right_wrist=[&](float angle){
+        right_after_eject.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+        return right_after_eject.Poll(12);
+    };
+    Check(!right_wrist(.36F).cancel&&!right_wrist(.01F).cancel,
+        "return from the eject pose must not close");
+    for(int i=0;i<14;++i){
+        const float neutral=i%4==2?.021F:0.F;
+        Check(!right_wrist(neutral).cancel,"neutral settling jitter closed the cylinder");
+    }
+    bool right_closed=false;
+    for(int i=1;i<=7;++i){
+        const auto flick=right_wrist(-.031F*i);
+        Check(i>=5||!flick.cancel,"flick closed prematurely");
+        right_closed|=flick.cancel;
+    }
+    Check(right_closed,"brief neutral jitter kept the right cylinder locked");
+    Fixture rest_clock;
+    open(rest_clock,4);
+    (void)pitch(rest_clock,.66F);
+    Check(pitch(rest_clock,.70F).unload,"uneven rest fixture did not eject");
+    (void)pitch(rest_clock,0.F);
+    (void)rest_clock.Poll(89);
+    (void)rest_clock.Poll(22);
+    for(int i=1;i<=7;++i){
+        const float angle=-.031F*i;
+        rest_clock.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+        Check(!rest_clock.Poll(12).cancel,"rest counted time before the first settled observation");
+    }
     Fixture upright;
     open(upright,6,1.26F);
     Check(!upright.Poll().unload,"opening already tilted must not eject");
@@ -229,6 +262,203 @@ void SchofieldMotionSession() {
         }
         Check(close.cancel&&std::strcmp(close.reason,"schofield_wrist_close")==0,
             "short intentional wrist flick did not close the exact Schofield");
+    }
+}
+
+void SchofieldChestSession(){
+    for(int hand:{0,1}){
+        Fixture f;
+        f.s.schofield_motion=true;
+        f.s.native.armed_hand=f.s.admission.armed_hand=f.s.recovery.armed_hand=hand;
+        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+        f.s.native.capacities[0]=6;
+        f.s.native.ammo_readback=f.s.native.loaded[0]=2;
+        auto& grip=hand==0?f.s.right:f.s.left;
+        grip=At({0,1.26F,-.21F});f.s.armed_aim=grip;
+        f.Open();
+        Check(!f.Poll().insert,"opening already at chest loaded the cylinder");
+        const auto move=[&](float z){grip.position.z=z;return f.Poll();};
+        Check(!move(-.30F).insert&&!move(-.40F).insert&&!move(-.50F).insert,
+            "exiting the chest zone loaded the cylinder");
+        Check(!move(-.42F).insert&&!move(-.36F).insert,"an approach loaded before entering the chest zone");
+        const auto crossed=move(-.30F);
+        Check(crossed.insert&&crossed.chest_insert&&!crossed.unload&&!crossed.cancel&&
+            !crossed.gesture.cartridge_held,"one native clip request is required on deliberate chest entry");
+        Check(!move(-.25F).insert&&!f.Poll().insert,"chest hold repeated the request");
+        Check(!move(-.50F).insert&&!move(-.22F).insert,"tracking jump loaded at chest");
+        Check(!f.Poll().insert,"stationary grip rearmed after a tracking jump");
+        Check(!move(-.31F).insert&&!move(-.41F).insert&&!move(-.49F).insert,
+            "rearming the chest route must not load");
+        f.s.native.reserve_readback=0;
+        Check(!move(-.41F).insert&&!move(-.33F).insert&&!move(-.25F).insert,
+            "chest gesture tried to load without reserve");
+        f.s.native.reserve_readback=6;
+        Check(!f.Poll().insert,"reserve reappearing inside the chest zone loaded the cylinder");
+        Check(!move(-.33F).insert&&!move(-.43F).insert&&!move(-.50F).insert,
+            "preparing the head-motion test loaded the cylinder");
+        for(int i=1;i<=5;++i){
+            f.s.head.position.z=-.05F*i;
+            Check(!f.Poll().insert,"head motion alone loaded a stationary cylinder");
+        }
+        for(int i=4;i>=0;--i){
+            f.s.head.position.z=-.05F*i;
+            Check(!f.Poll().insert,"straightening the head loaded a stationary cylinder");
+        }
+        int slow_entries=0;
+        for(int i=1;i<=95;++i){
+            grip.position.z=-.50F+.002F*i;
+            slow_entries+=f.Poll(11).insert;
+        }
+        Check(slow_entries==1,"a slow, deliberate chest approach should still load once");
+        Check(!move(-.41F).insert&&!move(-.51F).insert&&!move(-.41F).insert&&
+            !move(-.325F).insert,"stopping outside the chest loaded the cylinder");
+        f.s.head.position.z-=.01F;
+        Check(!move(-.324F).insert,"a head-driven crossing plus slight grip motion loaded the cylinder");
+        f.s.head.position.z=0.F;
+        grip.position.z=-.52F;
+        for(int i=0;i<5;++i)(void)f.Poll();
+        f.s.armed_aim.orientation={std::sin(.34F),0,0,std::cos(.34F)};
+        (void)f.Poll();
+        Check(f.Poll().unload,"chest lock fixture did not eject");
+        Check(!move(-.51F).insert&&!move(-.48F).insert&&!move(-.40F).insert,
+            "chest lock fixture inserted outside the inner zone");
+        auto refill=move(-.31F);
+        Check(refill.chest_insert,"raised cylinder could not enter the chest zone");
+        f.session.CompleteInsertion(true,true,refill);
+        for(float angle:{.24F,.09F,-.08F,-.26F}){
+            f.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+            Check(!f.Poll(16).cancel,"chest insertion discarded the post-eject closure lock");
+        }
+    }
+}
+
+void DualSchofieldChestOnly(){
+    for(int hand:{0,1}){
+        Fixture f;
+        f.s.schofield_motion=true;
+        f.s.native.armed_hand=f.s.admission.armed_hand=f.s.recovery.armed_hand=hand;
+        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+        f.s.native.capacities[0]=6;
+        f.s.native.ammo_readback=f.s.native.loaded[0]=2;
+        f.s.admission.support_weapon_id=f.s.recovery.support_weapon_id=f.s.native.support_weapon_id=43;
+        auto& grip=hand==0?f.s.right:f.s.left;
+        auto& support=hand==0?f.s.left:f.s.right;
+        grip=At({0,1.26F,-.52F});f.s.armed_aim=grip;
+        support=At({.2F,1.05F,-.1F});
+        f.Open();
+        bool& trigger=hand==0?f.s.raw.fire_left:f.s.raw.fire_right;
+        trigger=true;
+        const auto pressed=f.Poll();
+        Check(pressed.tracked&&!pressed.gesture.cartridge_held&&!pressed.insert&&
+            !f.mapped.fire_left&&!f.mapped.fire_right,"paired Schofield offered a hip cartridge or fired the other gun");
+        trigger=false;
+        (void)f.Poll();
+        f.s.armed_aim.orientation={std::sin(.34F),0,0,std::cos(.34F)};
+        Check(!f.Poll().unload&&f.Poll().unload,"paired waiting must allow a deliberate tilt to unload");
+        f.session.NoteSchofieldUnloadConfirmed();
+        f.s.native.ammo_readback=f.s.native.loaded[0]=0;
+        f.s.armed_aim.orientation={0,0,0,1};
+        (void)f.Poll();
+        for(float depth:{-.51F,-.42F,-.37F}){
+            grip.position.z=depth;
+            Check(!f.Poll().insert,"paired chest requested early");
+        }
+        grip.position.z=-.31F;
+        const auto entry=f.Poll();
+        Check(entry.insert&&entry.chest_insert,"paired Schofield missed deliberate chest-only insertion");
+        f.s.native.support_weapon_id=44;
+        const auto replaced=f.Poll();
+        Check(replaced.cancel&&!replaced.insert,"replacement companion weapon inherited the paired session");
+    }
+    Fixture f;
+    f.s.schofield_motion=true;
+    f.s.native.weapon_class="WeaponPistolSchofield";
+    f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+    f.s.native.ammo_readback=0;f.s.native.support_loaded=3;
+    f.s.native.support_weapon_id=f.s.admission.support_weapon_id=43;
+    (void)f.Poll();
+    f.s.raw.fire_right=f.s.raw.fire_left=true;
+    const auto mixed=f.Poll();
+    Check(mixed.dry_fire_mask==1&&!mixed.start&&!f.mapped.fire_right&&f.mapped.fire_left,
+        "the empty hand must click while the loaded companion retains fire");
+    f.s.raw.fire_right=f.s.raw.fire_left=false;
+    (void)f.Poll();
+    f.s.native.support_loaded=0;
+    f.s.raw.fire_right=f.s.raw.fire_left=true;
+    const auto both=f.Poll();
+    Check(both.dry_fire_mask==3&&!both.start&&!f.mapped.fire_right&&!f.mapped.fire_left,
+        "both empty hands must produce independent click intents");
+    Check(!f.Poll().dry_fire_mask,"a held dual trigger replayed a click");
+
+    f.s.native.ammo_readback=f.s.native.support_loaded=6;
+    f.s.native.reserve_readback=0;
+    Check(SelectCoJDualSchofieldHand(f.s.native,f.s.head,
+        At({.3F,1.26F,-.52F}),At({-.1F,1.26F,-.35F}))==1,
+        "a full selected cylinder must be available to unload with no reserve");
+}
+
+void DualSchofieldWristClose(){
+    for(int hand:{0,1})for(bool after_eject:{false,true}){
+        Fixture f;
+        f.s.schofield_motion=true;
+        f.s.native.armed_hand=f.s.admission.armed_hand=f.s.recovery.armed_hand=hand;
+        f.s.native.weapon_class="WeaponPistolSchofield";
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=CoJManualReloadKind::clip;
+        f.s.native.capacities[0]=6;
+        f.s.native.ammo_readback=f.s.native.loaded[0]=3;
+        f.s.native.support_loaded=4;
+        f.s.admission.support_weapon_id=f.s.recovery.support_weapon_id=f.s.native.support_weapon_id=43;
+        auto& grip=hand==0?f.s.right:f.s.left;
+        grip=At({0,1.26F,-.52F});
+        f.s.armed_aim=grip;
+        f.Open();
+        Check(f.session.paired_hand()==hand,"the dual reload must retain the selected revolver hand");
+        if(after_eject){
+            f.s.armed_aim.orientation={std::sin(.325F),0,0,std::cos(.325F)};
+            Check(!f.Poll().unload,"a single dual-revolver tilt sample ejected rounds");
+            f.s.armed_aim.orientation={std::sin(.35F),0,0,std::cos(.35F)};
+            Check(f.Poll().unload,"selected dual revolver did not accept a deliberate eject tilt");
+            f.session.NoteSchofieldUnloadConfirmed();
+            f.s.native.ammo_readback=f.s.native.loaded[0]=0;
+            f.s.armed_aim.orientation={0,0,0,1};
+            Check(!f.Poll().cancel,"returning from dual ejection closed the revolver");
+            for(int i=0;i<4;++i)Check(!f.Poll().cancel,"dual ejection rest closed the revolver");
+        }
+        const auto close_stroke=[&](float angle){
+            grip.position.y-=.027F;grip.position.z-=.034F;
+            f.s.armed_aim.orientation={std::sin(angle*.5F),0,0,std::cos(angle*.5F)};
+            return f.Poll(20);
+        };
+        Check(!close_stroke(-.16F).cancel,"a short dual-revolver stroke closed prematurely");
+        const auto close=close_stroke(-.40F);
+        Check(close.cancel&&!close.unload&&!close.tracked&&!close.supervise&&
+            std::strcmp(close.reason,"schofield_wrist_close")==0,
+            "down-forward wrist flick must close either selected revolver with a companion equipped");
+        Check(f.s.native.support_weapon_id==43&&f.s.native.support_loaded==4,
+            "closing the selected revolver affected the companion's ammunition or owner");
+        f.s.native.probe_status=3;
+        (void)f.Poll();
+        f.s.native.probe_status=4;
+        (void)f.Poll();
+        f.s.native.probe_status=0;
+        (void)f.Poll();
+        Check(f.session.phase()==CoJManualReloadPhase::ready,
+            "dual wrist close did not retire the selected native reload session");
+        (hand==0?f.s.raw.fire_right:f.s.raw.fire_left)=true;
+        const auto selected_fire=f.Poll();
+        Check(after_eject?(!f.mapped.fire_right&&!f.mapped.fire_left&&
+            selected_fire.dry_fire_mask==(1U<<hand)):
+            (hand==0?f.mapped.fire_right:f.mapped.fire_left),
+            "the selected revolver did not recover its loaded or empty trigger after wrist closure");
+        f.s.raw.fire_right=f.s.raw.fire_left=false;
+        (void)f.Poll();
+        (hand==0?f.s.raw.fire_left:f.s.raw.fire_right)=true;
+        const auto companion_fire=f.Poll();
+        Check(!companion_fire.dry_fire_mask&&
+            (hand==0?f.mapped.fire_left:f.mapped.fire_right),
+            "the companion revolver lost firing after the selected wrist close");
     }
 }
 
@@ -480,8 +710,13 @@ void IndexedCycleSession() {
         Check(!out.gesture.cartridge_held&&!out.gesture.pickup_hint.visible&&!out.insert&&!f.SupportFire(),
             "replay failed to withdraw an indexed offer/carry while retaining support ownership");
         f.ArmedTrigger()=true;out=f.Poll();
-        Check(out.cancel&&!f.mapped.fire_left&&!f.mapped.fire_right,
-            "armed trigger did not close indexed replay without firing");
+        Check(!out.cancel&&out.tracked&&out.supervise&&!f.mapped.fire_left&&!f.mapped.fire_right,
+            "armed trigger interrupted the indexed replay or leaked to native fire");
+        f.s.native.probe_status=2;
+        Check(!f.Poll().cancel,"indexed replay completion converted a held trigger into a close");
+        f.s.raw.reload=true;
+        Check(f.Poll().cancel&&!f.mapped.reload,"Square must remain an explicit close during a held trigger");
+        f.s.raw.reload=false;
         f.s.enabled=false;f.s.native.probe_status=4;
         const auto support_binding=hand==0?1U:2U;
         f.s.raw.digital_available&=~support_binding;(void)f.Poll();
@@ -619,7 +854,9 @@ void ManualStartRequiresNativeRelease() {
         (void)f.Poll();
         f.s.raw.reload=!empty_trigger;
         f.s.raw.fire_right=empty_trigger;
-        Check(f.Poll().start,"fresh manual edge failed after both releases");
+        const auto fresh=f.Poll();
+        Check(empty_trigger?(!fresh.start&&fresh.dry_fire_mask==1):fresh.start,
+            "fresh manual input after both releases did not produce its intended action");
     }
 }
 void AllProfileTargetGuides(){
@@ -723,10 +960,12 @@ void ReloadPressedDuringShot() {
         (void)f.Poll();
         f.s.admission={};
         f.s.after_shot=idle;
+        f.s.native.states[0]={kind==CoJManualReloadKind::clip?31:32,1,1,1};
         f.s.native_reload_held=outcome==5;
         f.s.raw.reload=true;
         Check(!f.Poll().start&&!f.mapped.reload,"shot tail emitted reload before idle");
         f.s.raw.reload=false;
+        f.s.native.states[0]={32,1,1,1};
         Check(!f.Poll().start,"button release during the shot dispatched reload");
         if(outcome==1)f.s.native.weapon_id=43;
         if(outcome==2)for(int i=0;i<10;++i)(void)f.Poll();
@@ -741,6 +980,7 @@ void ReloadPressedDuringShot() {
             f.s.raw.fire_right=false;
         }
         f.s.after_shot={};
+        f.s.native.states[0]={1,1,1,1};
         f.s.admission=idle;
         f.s.admission.weapon_id=f.s.native.weapon_id;
         f.s.native_reload_held=outcome==6;
@@ -854,11 +1094,14 @@ int main(){
         auto inserted=cycle.Insert();Check(inserted.insert,"missing cycle insertion");
         cycle.session.CompleteInsertion(true,true,inserted);
         cycle.s.native.probe_status=1; // Native body replay after a unit.
+        cycle.s.raw.fire_right=true;
         const auto replay=cycle.Poll();
-        Check(replay.tracked&&replay.supervise&&!replay.insert&&!replay.gesture.cartridge_held&&
+        Check(replay.tracked&&replay.supervise&&!replay.cancel&&!cycle.mapped.fire_right&&
+            !replay.insert&&!replay.gesture.cartridge_held&&
             cycle.session.phase()==CoJManualReloadPhase::opening,
-            "native per-cartridge body replay still offers a waiting-state cartridge");
-        cycle.s.native.probe_status=2;(void)cycle.Poll();
+            "a fresh trigger cut short the native per-cartridge replay");
+        cycle.s.native.probe_status=2;
+        Check(!cycle.Poll().cancel,"a trigger held across replay completion closed the session");
         Check(cycle.session.phase()==CoJManualReloadPhase::manual_load,
             "body replay failed to return to supervised manual loading");
     }
@@ -868,15 +1111,25 @@ int main(){
         (void)empty.Poll();
         (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
         auto out=empty.Poll();
-        Check(out.start&&empty.mapped.reload&&!empty.mapped.fire_left&&!empty.mapped.fire_right&&
-            std::strcmp(out.reason,"empty_trigger")==0,"empty armed trigger bypassed manual preparation");
-        empty.session.NoteStart(true);
+        Check(!out.start&&!empty.mapped.reload&&!empty.mapped.fire_left&&!empty.mapped.fire_right&&
+            out.dry_fire_mask==(1U<<hand),"empty armed press must click without opening");
+        for(unsigned i=0;i<3;++i){const auto held=empty.Poll();
+            Check(!held.start&&!held.dry_fire_mask,"held dry trigger repeated or opened the session");}
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=false;
+        (void)empty.Poll();
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
+        Check(empty.Poll().dry_fire_mask==(1U<<hand),"fresh dry press did not repeat the click");
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=false;
+        empty.Open();
         empty.s.native.probe_status=1;empty.s.native.reloading=true;
-        empty.s.native.states[0]={20,21,21,21};
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=false;
+        (void)empty.Poll();
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
         out=empty.Poll();
-        Check(!out.start&&!out.cancel&&empty.session.phase()==CoJManualReloadPhase::opening,
-            "the opening empty-trigger hold immediately closed its own reload");
-        for(unsigned i=0;i<3;++i)Check(!empty.Poll().cancel,"continued opening hold closed manual session");
+        Check(!out.cancel&&out.tracked&&!empty.mapped.fire_right&&!empty.mapped.fire_left,
+            "a fresh dry trigger cut short the native opening animation");
+        empty.s.native.probe_status=2;
+        Check(!empty.Poll().cancel,"a trigger held across opening completion closed the session");
         (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=false;
         (void)empty.Poll();
         (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
@@ -1057,6 +1310,19 @@ int main(){
     Check(!unavailable.mapped.fire_left,"unavailable trigger cannot satisfy release barrier");
     Fixture unsupported;(void)unsupported.Poll();unsupported.s.admission.single_round_supported=false;unsupported.s.native_fallback_allowed=true;unsupported.s.raw.reload=true;
     Check(!unsupported.Poll().start&&unsupported.mapped.reload,"unsupported keeps native Square");
+    for (const bool manual : {false,true}) {
+        Fixture alternate;
+        alternate.s.enabled=manual;
+        alternate.s.native.weapon_class="WeaponPistolSchofield";
+        alternate.s.native.kind=CoJManualReloadKind::clip;
+        alternate.s.native.states[0]={129,129,129,129};
+        alternate.s.admission={};
+        alternate.s.native_fallback_allowed=true;
+        (void)alternate.Poll();
+        alternate.s.raw.reload=true;
+        Check(!alternate.Poll().start&&alternate.mapped.reload==!manual,
+            "alternate Schofield must not leak stock reload in manual mode");
+    }
     Fixture stale;stale.Open();stale.s.now+=300;Check(stale.Poll().cancel,"tracking publication gap closes");
     for(int fault=0;fault<3;++fault){
         Fixture x;x.Open();
@@ -1084,6 +1350,9 @@ int main(){
         Check(x.Poll().start,"fresh Square recovers after admission failure");
     }
     SchofieldMotionSession();
+    SchofieldChestSession();
+    DualSchofieldChestOnly();
+    DualSchofieldWristClose();
     SchofieldInterruptedStroke();
     WinchesterReceiverSession("WeaponRifleWinchester");
     WinchesterReceiverSession("WeaponRifleWinchesterScope");

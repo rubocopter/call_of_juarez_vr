@@ -65,6 +65,8 @@ constexpr std::size_t kGetStringUtfChars = 169;
 constexpr std::size_t kReleaseStringUtfChars = 170;
 constexpr std::size_t kGetArrayLength = 171;
 constexpr std::size_t kGetObjectArrayElement = 173;
+constexpr std::size_t kNewWeakGlobalRef = 226;
+constexpr std::size_t kDeleteWeakGlobalRef = 227;
 
 constexpr std::size_t kVmAttachCurrentThreadAsDaemon = 7;
 constexpr std::size_t kVmGetEnv = 6;
@@ -859,6 +861,9 @@ bool JavaPlayerBridge::ReleaseBodyRestoreOwner(const std::uint64_t generation) n
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    if (dynamite_motion_weapon_) ClearDynamiteMotionOwner(Environment(nullptr));
+    if (dynamite_motion_weapon_) return;
+    dynamite_motion_release_player_ = 0;
     if (!ClearLongGunGripOwner()) return;
     if (body_restore_owner_count_) return;
     fist_skin_generation_=0;fist_skin_model_=-1;
@@ -1580,6 +1585,16 @@ bool JavaPlayerBridge::TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexc
     ui={};return being_&&ReadCoJNoShoot(Environment(nullptr),being_,hand,ui);
 }
 
+bool JavaPlayerBridge::TryObserveWhip(CoJWhipSnapshot& observation) noexcept {
+    observation={};
+    void* env=Environment(nullptr),*whip=nullptr;
+    const bool owned=ReadOwnedWhip(env,0,whip,nullptr);
+    const bool observed=owned&&whip&&ReadCoJWhip(env,being_,whip,0,observation);
+    DeleteLocal(env,whip);
+    if(!observed)observation={};
+    return observed;
+}
+
 bool JavaPlayerBridge::TryObserveMovieSubtitle(runtime::HudText& text) noexcept {
     text={};
     void* env=Environment(nullptr);
@@ -1763,13 +1778,24 @@ bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
 }
 
 bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
-    const bool include_wait_probe, const int selected_index) noexcept {
+    const bool include_wait_probe, const int selected_index, int paired_hand,
+    bool read_schofield_cases) noexcept {
     trace={};
     if (!being_) return false;
     const auto player=being_;
     const auto generation=being_generation_;
-    const bool observed=ReadCoJReloadTrace(Environment(nullptr),player,trace,include_wait_probe,selected_index);
+    const bool observed=ReadCoJReloadTrace(Environment(nullptr),player,trace,include_wait_probe,
+        selected_index,nullptr,paired_hand,read_schofield_cases);
     if (player!=being_ || generation!=being_generation_) { trace={}; return false; }
+    return observed;
+}
+bool JavaPlayerBridge::TryObserveDualSchofieldReloadOwner(int hand,bool recovery,
+    CoJMotionReloadOwner& owner) noexcept {
+    owner={};
+    void* const player=being_;
+    const auto generation=being_generation_;
+    const bool observed=player&&ReadCoJDualSchofieldReloadOwner(Environment(nullptr),player,hand,recovery,owner);
+    if(player!=being_||generation!=being_generation_){owner={};return false;}
     return observed;
 }
 
@@ -1903,6 +1929,15 @@ bool JavaPlayerBridge::TryOpenSchofield(int hand,bool& accepted,std::string* err
     accepted=false;
     return single_round_reload_pending_&&manual_reload_request_pending_&&(hand==0||hand==1)&&
         CallManualReloadBoolean("cojvrOpenSchofield",accepted,error,hand);
+}
+bool JavaPlayerBridge::TryOpenDualSchofield(int hand,bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return single_round_reload_pending_&&manual_reload_request_pending_&&(hand==0||hand==1)&&
+        CallManualReloadBoolean("cojvrOpenDualSchofield",accepted,error,hand);
+}
+bool JavaPlayerBridge::TryPlayManualDryFire(int hand,bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return (hand==0||hand==1)&&CallManualReloadBoolean("cojvrPlayManualDryFire",accepted,error,hand);
 }
 
 bool JavaPlayerBridge::TryUnloadSchofield(CoJSchofieldUnloadResult& result,std::string* error) noexcept {
@@ -2079,9 +2114,16 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
         SetError(error, "pending reload ticket JNI functions unavailable"); return false;
     }
     CoJMotionReloadOwner fresh{};
-    if (!same_player() || !ReadCoJMotionReloadOwner(env, player, fresh) || !same_player() ||
-        !fresh.valid || !fresh.SupportsManual() ||
-        fresh.kind!=owner.kind || fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+    const auto reverify=[&]() noexcept {
+        if(!same_player())return false;
+        const bool observed=owner.support_weapon_id?
+            ReadCoJDualSchofieldReloadOwner(env,player,owner.armed_hand,false,fresh):
+            ReadCoJMotionReloadOwner(env,player,fresh);
+        return observed&&same_player()&&fresh.valid&&fresh.SupportsManual()&&fresh.kind==owner.kind&&
+            fresh.armed_hand==owner.armed_hand&&fresh.weapon_id==owner.weapon_id&&
+            fresh.support_weapon_id==owner.support_weapon_id;
+    };
+    if (!reverify()) {
         SetError(error, "pending reload owner changed or ineligible"); return false;
     }
     struct Locals {
@@ -2142,9 +2184,7 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     }
     // Recheck state after the acquisition and class/ID reads, then verify that
     // the acquired actual reference still denotes the freshly read actual.
-    if (!ReadCoJMotionReloadOwner(env, player, fresh) || !same_player() ||
-        !fresh.valid || !fresh.SupportsManual() ||
-        fresh.kind!=owner.kind || fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+    if (!reverify()) {
         SetError(error, "pending reload owner changed before publication"); return false;
     }
     void* actual_method = get_method(env, cls, getters[0], "(I)LWeapon;");
@@ -2385,6 +2425,187 @@ bool JavaPlayerBridge::TryObserveSubtitleState(
     return !dialog_read_failed;
 }
 
+void JavaPlayerBridge::ClearDynamiteMotionOwner(void* env) noexcept {
+    dynamite_motion_player_=0;
+    dynamite_motion_native_weapon_id_=0;
+    if (!dynamite_motion_weapon_) return;
+    const auto release=EnvFunction<DeleteGlobalRefFn>(env,kDeleteWeakGlobalRef);
+    if (!release) return;
+    release(env,dynamite_motion_weapon_);
+    dynamite_motion_weapon_=nullptr;
+}
+
+bool JavaPlayerBridge::TryObserveDynamiteMotionOwner(std::uint64_t& owner,
+    std::uint32_t* native_weapon_id) noexcept {
+    owner=0;
+    if (native_weapon_id) *native_weapon_id=0;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    if (!player || !generation) return false;
+    void* const env=Environment(nullptr);
+    const auto cls=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto weak=EnvFunction<NewGlobalRefFn>(env,kNewWeakGlobalRef);
+    if (!cls || !method || !object || !integer || !same || !weak ||
+        !EnvFunction<DeleteGlobalRefFn>(env,kDeleteWeakGlobalRef) ||
+        !EnvFunction<DeleteLocalRefFn>(env,kDeleteLocalRef) ||
+        !EnvFunction<ExceptionOccurredFn>(env,kExceptionOccurred) ||
+        !EnvFunction<ExceptionClearFn>(env,kExceptionClear)) return false;
+
+    void* const type=cls(env,player);
+    bool ok=!ClearException(env,nullptr,"dynamite motion player class") && type;
+    void* const get_owner=ok?method(env,type,"cojvrGetDynamiteMotionOwner","()LWeapon;"):nullptr;
+    ok=!ClearException(env,nullptr,"dynamite motion capability") && ok && get_owner;
+    DeleteLocal(env,type);
+    void* const weapon=ok?object(env,player,get_owner,nullptr):nullptr;
+    ok=!ClearException(env,nullptr,"dynamite motion owner") && ok && weapon;
+    void* const weapon_type=ok?cls(env,weapon):nullptr;
+    ok=!ClearException(env,nullptr,"dynamite motion weapon class") && ok && weapon_type;
+    void* const get_id=ok?method(env,weapon_type,"GetThisID","()I"):nullptr;
+    ok=!ClearException(env,nullptr,"dynamite motion weapon ID method") && ok && get_id;
+    std::uint32_t weapon_id=0;
+    if (ok) {
+        weapon_id=static_cast<std::uint32_t>(integer(env,weapon,get_id,nullptr));
+        ok=!ClearException(env,nullptr,"dynamite motion weapon ID") &&
+            IsCoJNativeObjectIdentity(weapon_id);
+    }
+    DeleteLocal(env,weapon_type);
+    if (ok && being_==player && being_generation_==generation) {
+        const bool retained=dynamite_motion_weapon_ && dynamite_motion_player_==generation &&
+            dynamite_motion_native_weapon_id_==weapon_id &&
+            same(env,weapon,dynamite_motion_weapon_)!=0;
+        ok=!ClearException(env,nullptr,"dynamite motion identity");
+        if (ok && !retained) {
+            ClearDynamiteMotionOwner(env);
+            dynamite_motion_weapon_=weak(env,weapon);
+            ok=!ClearException(env,nullptr,"dynamite motion weak reference") && dynamite_motion_weapon_;
+            if (ok) {
+                if (++dynamite_motion_serial_==0) ++dynamite_motion_serial_;
+                dynamite_motion_player_=generation;
+                dynamite_motion_native_weapon_id_=weapon_id;
+            }
+        }
+        if (ok) {
+            owner=dynamite_motion_serial_;
+            if (native_weapon_id) *native_weapon_id=weapon_id;
+        }
+    }
+    DeleteLocal(env,weapon);
+    if (!owner) ClearDynamiteMotionOwner(env);
+    return owner!=0;
+}
+
+bool JavaPlayerBridge::DynamiteMotionTargetMatches(void* env, void* targets) noexcept {
+    void* const player=being_;
+    const auto generation=being_generation_;
+    const auto find=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto get=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto eligible=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    if (!player || !generation || !find || !field || !get || !instance || !same || !eligible)
+        return false;
+    void* const controller=find(env,"PlayerController");
+    bool ok=!ClearException(env,nullptr,"dynamite motion controller class") && controller;
+    void* const controlled=ok?field(env,controller,"m_cControlledPlayer","LIControlledPlayer;"):nullptr;
+    ok=!ClearException(env,nullptr,"dynamite motion controller player field") && ok && controlled;
+    bool matched=false;
+    void* node=targets;
+    for (unsigned count=0;ok && node && count<64;++count) {
+        void* const target=get(env,node,input_target_item_target_field_);
+        ok=!ClearException(env,nullptr,"dynamite motion input target");
+        const bool executable=ok && target && eligible(env,target,input_target_can_execute_method_,nullptr);
+        ok=!ClearException(env,nullptr,"dynamite motion input eligibility") && ok;
+        const bool dispatchable=ok && executable && instance(env,target,game_object_class_);
+        ok=!ClearException(env,nullptr,"dynamite motion target type") && ok;
+        if (ok && dispatchable) {
+            const bool controller_matches=!matched && instance(env,target,controller);
+            if (ClearException(env,nullptr,"dynamite motion input controller") || !controller_matches) ok=false;
+            void* const controlled_player=ok?get(env,target,controlled):nullptr;
+            ok=!ClearException(env,nullptr,"dynamite motion controlled player") && ok;
+            matched=ok && controlled_player && same(env,player,controlled_player);
+            ok=!ClearException(env,nullptr,"dynamite motion controlled identity") && matched;
+            DeleteLocal(env,controlled_player);
+        }
+        DeleteLocal(env,target);
+        void* const next=ok?get(env,node,input_target_item_next_field_):nullptr;
+        ok=!ClearException(env,nullptr,"dynamite motion next input target") && ok;
+        if (count!=0) DeleteLocal(env,node);
+        node=next;
+    }
+    const bool exhausted=node!=nullptr;
+    if (node!=targets) DeleteLocal(env,node);
+    DeleteLocal(env,controller);
+    return ok && !exhausted && matched && being_==player && being_generation_==generation;
+}
+
+bool JavaPlayerBridge::TryObserveDynamiteTrace(CoJDynamiteTrace& trace) noexcept {
+    void* const player = being_;
+    const auto generation = being_generation_;
+    if (!player || !generation) return false;
+    void* const env = Environment(nullptr);
+    if (!env) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_int = EnvFunction<GetIntFieldFn>(env, kGetIntField);
+    const auto get_float = EnvFunction<GetFloatFieldFn>(env, kGetFloatField);
+    if (!get_class || !get_field || !get_int || !get_float ||
+        !EnvFunction<ExceptionOccurredFn>(env, kExceptionOccurred) ||
+        !EnvFunction<ExceptionClearFn>(env, kExceptionClear) ||
+        !EnvFunction<DeleteLocalRefFn>(env, kDeleteLocalRef)) return false;
+    void* const cls = get_class(env, player);
+    bool ok = !ClearException(env, nullptr, "dynamite trace player class") && cls;
+    const auto field = [&](const char* name, const char* type) noexcept -> void* {
+        if (!ok) return nullptr;
+        void* const id = get_field(env, cls, name, type);
+        ok = !ClearException(env, nullptr, "dynamite trace field lookup") && id;
+        return ok ? id : nullptr;
+    };
+    const auto integer = [&](const char* name) noexcept {
+        void* const id = field(name, "I");
+        if (!id) return 0;
+        const auto value = get_int(env, player, id);
+        ok = !ClearException(env, nullptr, "dynamite trace integer read");
+        return value;
+    };
+    const auto real = [&](const char* name) noexcept {
+        void* const id = field(name, "F");
+        if (!id) return 0.0F;
+        const auto value = get_float(env, player, id);
+        ok = !ClearException(env, nullptr, "dynamite trace float read") && std::isfinite(value);
+        return value;
+    };
+    auto latest = trace.player_generation == generation ? trace : CoJDynamiteTrace{};
+    latest.player_generation = generation;
+    const auto begin = static_cast<std::uint32_t>(integer("cojvrDynamiteBeginSerial"));
+    const auto release = static_cast<std::uint32_t>(integer("cojvrDynamiteReleaseSerial"));
+    if (ok && begin != latest.begin_serial) {
+        latest.begin_serial = begin;
+        latest.begin_weapon = static_cast<std::uint32_t>(integer("cojvrDynamiteBeginId"));
+        latest.fuse_seconds = real("cojvrDynamiteFuseSeconds");
+        latest.spark_handle = integer("cojvrDynamiteSpark");
+        latest.smoke_handle = integer("cojvrDynamiteSmoke");
+        ok = ok && latest.begin_weapon != 0;
+    }
+    if (ok && release != latest.release_serial) {
+        latest.release_serial = release;
+        latest.released_weapon = static_cast<std::uint32_t>(integer("cojvrDynamiteReleaseId"));
+        latest.origin_cm = {real("cojvrDynamiteOriginX"), real("cojvrDynamiteOriginY"),
+                            real("cojvrDynamiteOriginZ")};
+        latest.velocity_cm_s = {real("cojvrDynamiteVelocityX"), real("cojvrDynamiteVelocityY"),
+                                real("cojvrDynamiteVelocityZ")};
+        ok = ok && latest.released_weapon != 0;
+    }
+    DeleteLocal(env, cls);
+    if (!ok || player != being_ || generation != being_generation_) return false;
+    trace = latest;
+    return true;
+}
+
 bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
     const int hand, CoJWeaponShotDiagnostics& state, std::string* error) noexcept {
     state = {};
@@ -2541,6 +2762,7 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     const int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
     const bool valid, std::string* error) noexcept {
     if (hand < 0 || hand > 1 || !being_) return false;
+    if(valid&&TrackedWeaponVisualOnly(hand))return false;
     if(valid&&!ValidateTrackedLongGunOwner(hand,true,error)){
         (void)TryPublishWeaponRay(hand,{}, {},false,error);return false;
     }
@@ -3572,7 +3794,7 @@ bool JavaPlayerBridge::TryObserveRemingtonLoadingGeometry(const int hand,
 
 bool JavaPlayerBridge::TryObserveRemingtonLoadingSample(const int hand,const CoJReloadGeometrySource source,
     const std::uint64_t frame,const std::uint64_t context,const int retained_cartridge_index,
-    CoJRemingtonLoadingSample& out,std::string* error) noexcept {
+    bool physical_cartridge,CoJRemingtonLoadingSample& out,std::string* error) noexcept {
     out={};SetError(error,"");
     const auto reject=[&](const char* reason) noexcept {SetError(error,reason);return false;};
     if(hand<0 || hand>1 || !frame || !(context&1U) || !being_ || !vm_ || !being_generation_ ||
@@ -3631,7 +3853,8 @@ bool JavaPlayerBridge::TryObserveRemingtonLoadingSample(const int hand,const CoJ
         return reject("Remington sample initial native trace or owner is unavailable");
     if(!TryObserveRemingtonLoadingGeometry(hand,geometry,source,error))return false;
     if(!current())return reject("Remington sample owner changed after geometry");
-    if(retained_cartridge_index>=0 && applied){
+    // A missed release retains its diagnostic index after the pinch ends.
+    if(physical_cartridge && applied){
         if(CoJHeldReloadCartridgeAppearance(before,retained_cartridge_index)!=runtime::ReloadCartridgeAppearance::shotgun ||
             !TryReadReloadPinchFrame(1-hand,pinch) || !current())
             return reject("Remington sample displayed pinch or owner is unavailable");
@@ -3662,6 +3885,40 @@ bool JavaPlayerBridge::ValidateTrackedBowOwner(const int hand,std::string* error
         bow.hand==hand && bow.holder_element==overlay.bow_holder_element)return true;
     SetError(error,"tracked bow owner changed since capture");
     return false;
+}
+
+int JavaPlayerBridge::ReadHeldBibleMount(int hand,void* expected) noexcept {
+    if(hand<0||hand>1||!being_||!expected)return -1;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    void* env=Environment(nullptr);
+    for(int slot:{6,15,17,23,24,31,33,36,51,94,96,167})
+        if(!EnvFunction<void*>(env,slot))return -1;
+    using namespace long_gun_observer_detail;
+    Reader r{env};
+    auto actual=r.Class(expected);
+    auto bible=r.FindClass("WeaponBible");
+    if(!r.Equal(actual,bible))return -1;
+    auto player_type=r.Class(player);
+    for(const char* getter:{"GetActualWeapon","GetActiveWeapon","GetDesiredWeapon"}){
+        auto slot=r.Get(player,r.Method(player_type,getter,"(I)LWeapon;"),hand);
+        if(!r.Equal(slot,expected))return -1;
+    }
+    const auto get_parent=r.Method(actual,"GetParent","()LControlObject;");
+    Reader::Local parent{r,r.ok?r.Fn<Object>(36)(env,expected,get_parent,nullptr):nullptr};
+    if(!r.Check()||!r.Equal(parent,player))return -1;
+    const auto in_hands=r.Field(actual,"m_bInHands","Z");
+    if(!r.ok||!EnvFunction<GetBooleanFieldFn>(env,kGetBooleanField)(env,expected,in_hands)||!r.Check())return -1;
+    const Value hand_arg{.integer=hand};
+    const int native=r.Int(expected,r.Method(actual,"GetElementID","(I)I"),&hand_arg);
+    auto name=r.Text(hand==0?"HolderR":"HolderL");
+    const Value name_arg{.object=name.value};
+    const int authored=r.Int(expected,r.Method(actual,"GetElementID","(Ljava/lang/String;)I"),&name_arg);
+    return r.ok&&native>=0&&native==authored&&being_==player&&being_generation_==generation?native:-1;
+}
+
+bool JavaPlayerBridge::TrackedWeaponVisualOnly(int hand) const noexcept {
+    return hand>=0&&hand<2&&weapon_overlays_[hand].bible_holder_element>=0;
 }
 
 bool JavaPlayerBridge::BindPreparedLongGunSupport(const CoJLongGunSupportSnapshot& natural,
@@ -3722,8 +3979,20 @@ bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::st
     const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
     active=overlay.applied;
     if (!active) return true;
+    if(TrackedWeaponVisualOnly(hand)){
+        const int holder=overlay.bible_holder_element;
+        JavaPlayerPosition p{},u{},f{};
+        const auto close=[](JavaPlayerPosition a,runtime::Vec3 b,float t){
+            return std::abs(a.x-b.x)<=t&&std::abs(a.y-b.y)<=t&&std::abs(a.z-b.z)<=t;
+        };
+        const auto& target=overlay.targets[holder];
+        return ReadHeldBibleMount(hand,overlay.weapon)==holder&&
+            ReadObjectElementFrame(overlay.weapon,holder,p,u,f,error,true)&&
+            close(p,target.position,.1F)&&close(u,target.up,.02F)&&close(f,target.forward,.02F);
+    }
     if (!ValidateTrackedBowOwner(hand,error)) return false;
     if (!ValidateTrackedLongGunOwner(hand,true,error)) return false;
+    if(TrackedWeaponVisualOnly(hand)&&ReadHeldBibleMount(hand,overlay.weapon)!=overlay.bible_holder_element)return false;
     JavaPlayerPosition actual{},direction{};
     const auto close=[](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
         return std::fabs(a.x-b.x)<=tolerance && std::fabs(a.y-b.y)<=tolerance && std::fabs(a.z-b.z)<=tolerance;
@@ -3757,6 +4026,7 @@ bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosi
     // keep its preimage/reference owned even when admission has been lost.
     if (!ValidateTrackedBowOwner(hand,error)) return false;
     if (!ValidateTrackedLongGunOwner(hand,true,error)) return false;
+    if(TrackedWeaponVisualOnly(hand)&&ReadHeldBibleMount(hand,overlay.weapon)!=overlay.bible_holder_element)return false;
     const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
     for (std::size_t i=0;i<overlay.targets.size();++i) {
         const auto& target=overlay.targets[i];
@@ -3765,6 +4035,7 @@ bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosi
     overlay.applied=true;
     bool active=false;
     if (!VerifyTrackedWeapon(hand,active,error)) return false;
+    if(TrackedWeaponVisualOnly(hand))return active;
     JavaPlayerPosition direction{};
     return TryGetWeaponBarrel(hand,muzzle,direction,error);
 }
@@ -3829,6 +4100,7 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
     int barrel_element = failed ? -1 : call_int(env, weapon, barrel_method, nullptr);
     failed = ClearException(env, error, "weapon barrel index failed") || failed;
     CoJBowAimOwner qualified_bow{};
+    int bible_holder=-1;
     if (!failed && barrel_element < 0) {
         if (ReadCoJBowAimOwner(env,being_,qualified_bow,weapon)) {
             if (qualified_bow.hand != hand) {
@@ -3840,11 +4112,11 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
                 return false;
             }
             barrel_element=0;
-        }
+        }else bible_holder=ReadHeldBibleMount(hand,weapon);
     }
-    failed = failed || barrel_element < 0 || barrel_element >= count;
+    failed = failed || (bible_holder<0?(barrel_element<0||barrel_element>=count):bible_holder>=count);
     JavaPlayerPosition barrel{}, barrel_direction{};
-    if (failed || !TryGetWeaponBarrel(hand, barrel, barrel_direction, error)) { DeleteLocal(env, weapon); return false; }
+    if (failed || (bible_holder<0&&!TryGetWeaponBarrel(hand, barrel, barrel_direction, error))) { DeleteLocal(env, weapon); return false; }
     try {
         if (!TryGetPosition(overlay.actor_at_capture, error)) { DeleteLocal(env, weapon); return false; }
         overlay.natural.resize(static_cast<std::size_t>(count));
@@ -3855,7 +4127,11 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
             if (!ReadObjectElementFrame(weapon, i, p, u, f, error)) { overlay = {}; DeleteLocal(env, weapon); return false; }
             overlay.natural[static_cast<std::size_t>(i)] = {v(p), v(u), v(f), true};
         }
-        const auto plan = BuildTrackedWeaponFrame(overlay.natural[0], wrist, v(barrel), v(barrel_direction), grip, direction, up);
+        auto plan = bible_holder<0?BuildTrackedWeaponFrame(overlay.natural[0], wrist, v(barrel), v(barrel_direction), grip, direction, up):TrackedWeaponFramePlan{};
+        if(bible_holder>=0){
+            plan.root=TransformWeaponElementFrame(overlay.natural[bible_holder],{grip,up,direction,true},overlay.natural[0]);
+            plan.valid=plan.root.valid;
+        }
         if (!plan.valid) { overlay = {}; DeleteLocal(env, weapon); SetError(error, "weapon rigid mapping invalid"); return false; }
         const auto hand_target = natural_hand
             ? TransformWeaponElementFrame(overlay.natural[0],plan.root,*natural_hand)
@@ -3877,6 +4153,7 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
         overlay.plan = plan;
         overlay.barrel_element = barrel_element;
         overlay.bow_holder_element=qualified_bow.valid?qualified_bow.holder_element:-1;
+        overlay.bible_holder_element=bible_holder;
         // Parent hand writes may move the child before its explicit pose commit.
         overlay.active = true;
         if (tracked_hand) *tracked_hand = hand_target;
@@ -4533,7 +4810,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     std::string* error, const CoJInputDispatchPhase phase,
     const float head_relative_move_yaw_degrees,
     const std::uint64_t monotonic_us,
-    const CoJInputDispatchTraceContext* trace, CoJFirePresses* fire_presses) noexcept {
+    const CoJInputDispatchTraceContext* trace, CoJFirePresses* fire_presses,
+    const std::uint64_t dynamite_motion_owner) noexcept {
     if (fire_presses) *fire_presses={};
     // This scope observes this invocation only. Its sink runs once, after JNI
     // cleanup, including early failures. No extra native input call is made.
@@ -4600,7 +4878,9 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             diagnostic->turn_requested_degrees = turn_degrees;
         }
     }
-    if (!state.active && !gameplay_input_applied_ && !gameplay_analog_state_uncertain_) {
+    if (dynamite_motion_release_player_!=being_generation_) dynamite_motion_release_player_=0;
+    if (!state.active && !gameplay_input_applied_ && !gameplay_analog_state_uncertain_ &&
+        !dynamite_motion_release_player_) {
         if (diagnostic) { diagnostic->stage = "inactive_no_work"; diagnostic->success = true; }
         return true;
     }
@@ -4730,6 +5010,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         const bool previous_pressed = previous_item.value > kDigitalThreshold;
         const bool needs_digital_update = !gameplay_input_applied_ ||
             current_pressed != previous_pressed;
+        const bool motion_release=item.action==10 && dynamite_motion_release_player_!=0;
+        const bool motion_press=item.action==10 && phase==CoJInputDispatchPhase::fire &&
+            dynamite_motion_owner && state.active && !state.fire_right && !state.fire_left &&
+            !previous_pressed && !motion_release;
         const bool needs_analog_update = analog_update_needed(item.value, previous_item.value);
         const auto resolve_target_item = [&](void*& target_item) noexcept {
             target_item = nullptr;
@@ -4828,7 +5112,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             DeleteLocal(env, action);
             return invoked;
         }
-        if (digital && !needs_digital_update) {
+        if (digital && !needs_digital_update && !motion_press && !motion_release) {
             DeleteLocal(env, action);
             return true;
         }
@@ -4878,17 +5162,40 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 digital_args[0] = args[0];
                 digital_args[1] = args[1];
                 digital_args[2] = args[2];
-                digital_args[3].z = current_pressed ? 1U : 0U;
-                (void)call_boolean(
-                    env, action, digital_translate_method_, digital_args);
-                const bool translate_failed =
-                    ClearException(env, error, "InputAction.Translate failed");
-                if (translate_failed) {
+                bool sent=false;
+                const auto translate=[&](const bool down) noexcept {
+                    digital_args[3].z=down?1U:0U;
+                    sent=call_boolean(env,action,digital_translate_method_,digital_args)!=0;
+                    return !ClearException(env,error,"InputAction.Translate failed");
+                };
+                if (motion_release) {
+                    if (!DynamiteMotionTargetMatches(env,target) || !translate(false) || !sent) {
+                        DeleteLocal(env,target); DeleteLocal(env,action);
+                        return false;
+                    }
+                    dynamite_motion_release_player_=0;
+                }
+                std::uint64_t current_owner=0;
+                if (motion_press && DynamiteMotionTargetMatches(env,target) &&
+                    TryObserveDynamiteMotionOwner(current_owner) && current_owner==dynamite_motion_owner) {
+                    const auto player_generation=being_generation_;
+                    const bool press_ok=translate(true);
+                    const bool press_sent=sent;
+                    const bool release_ok=translate(false);
+                    if ((!release_ok || !sent) && (press_sent || !press_ok))
+                        dynamite_motion_release_player_=player_generation;
+                    if (fire_presses && press_ok && press_sent)
+                        fire_presses->dynamite_motion=true;
+                    DeleteLocal(env,target); DeleteLocal(env,action);
+                    return press_ok && press_sent && release_ok && sent &&
+                        !dynamite_motion_release_player_;
+                }
+                if (needs_digital_update && !translate(current_pressed)) {
                     DeleteLocal(env, target);
                     DeleteLocal(env, action);
                     return false;
                 }
-                if (fire_presses && current_pressed) {
+                if (fire_presses && needs_digital_update && current_pressed) {
                     // Logical hands of actions 9/10 match BuildCoJGameplayActionValues.
                     if (item.action==9) fire_presses->left=true;
                     if (item.action==10) fire_presses->right=true;
@@ -6505,6 +6812,9 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    ClearDynamiteMotionOwner(env);
+    if (dynamite_motion_weapon_) return;
+    dynamite_motion_release_player_=0;
     if (!ClearLongGunGripOwner()) return;
     if (body_restore_owner_count_) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReloadField(env, nullptr)) return;

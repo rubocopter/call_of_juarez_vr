@@ -108,10 +108,65 @@ void CheckOutputRoute() {
     fresh.Eye(7, 200, 1, true, false);
     fresh.Eye(7, 200, 1, false, true);
     fresh.Capture(7, 200, 1, Result::accepted);
-    fresh.Submit(7, 200, Result::rejected);
+    using Reason = FrameLumaSubmitRejection;
+    fresh.Submit(7, 200, Result::rejected, Reason::capture_epoch_missing);
+    fresh.Submit(8, 200, Result::rejected, Reason::queue_registration_rejected);
     row = fresh.Present(context);
     Check(row.frame == 200 && row.eyes[1].capture == Result::accepted &&
-          row.submit == Result::rejected, "two copies do not imply pair queue acceptance");
+          row.submit == Result::rejected && row.submit_rejection == Reason::capture_epoch_missing,
+          "two copies do not imply pair queue acceptance");
+    fresh.Begin(context, 301);
+    fresh.Eye(7, 201, 0, true, false);
+    fresh.Eye(7, 201, 0, false, true);
+    fresh.Submit(7, 201, Result::accepted, Reason::queue_registration_rejected);
+    fresh.Submit(7, 200, Result::rejected, Reason::producer_end_frame_failed);
+    row = fresh.Present(context);
+    Check(row.frame == 201 && row.submit == Result::accepted && row.submit_rejection == Reason::none,
+          "foreign frame or accepted submission retained a rejection reason");
+
+    FrameLumaOutputWitness classified;
+    for (unsigned i = 0; i < FrameLumaOutputWitness::limit_per_outcome; ++i) {
+        const auto frame = 400 + i;
+        classified.Begin(context, frame + 100);
+        classified.Eye(7, frame, 0, true, false);
+        classified.Eye(7, frame, 0, false, true);
+        classified.Capture(7, frame, 0, Result::accepted);
+        classified.Submit(7, frame, Result::accepted);
+        Check(classified.Present(context).frame == frame,
+              "incomplete pair exhausted accepted-route budget");
+    }
+    classified.Begin(context, 600);
+    classified.Eye(7, 500, 0, true, false);
+    classified.Eye(7, 500, 0, false, true);
+    classified.Capture(7, 500, 0, Result::accepted);
+    classified.Eye(7, 500, 1, true, false);
+    classified.Eye(7, 500, 1, false, true);
+    classified.Capture(7, 500, 1, Result::accepted);
+    classified.Submit(7, 500, Result::accepted);
+    Check(classified.Present(context).frame == 500,
+          "an incomplete pair consumed the accepted-route budget");
+
+    FrameLumaOutputWitness contradictory;
+    for (unsigned i = 0; i < FrameLumaOutputWitness::limit_per_outcome; ++i) {
+        const auto frame = 700 + i;
+        contradictory.Begin(context, frame + 100);
+        contradictory.Eye(7, frame, 0, true, false);
+        contradictory.Eye(7, frame, 0, false, true);
+        contradictory.Capture(7, frame, 0, Result::rejected);
+        contradictory.Submit(7, frame, Result::accepted);
+        Check(contradictory.Present(context).frame == frame,
+              "rejected capture was misclassified as accepted output");
+    }
+    contradictory.Begin(context, 900);
+    contradictory.Eye(7, 800, 0, true, false);
+    contradictory.Eye(7, 800, 0, false, true);
+    contradictory.Capture(7, 800, 0, Result::accepted);
+    contradictory.Eye(7, 800, 1, true, false);
+    contradictory.Eye(7, 800, 1, false, true);
+    contradictory.Capture(7, 800, 1, Result::accepted);
+    contradictory.Submit(7, 800, Result::accepted);
+    Check(contradictory.Present(context).frame == 800,
+          "contradictory capture consumed the accepted-route budget");
 }
 
 ComPtr<IDirect3DSurface9> Target(IDirect3DDevice9* device, UINT width = 64,

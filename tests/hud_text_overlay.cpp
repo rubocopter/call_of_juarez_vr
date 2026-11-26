@@ -486,28 +486,70 @@ int main(int argc, char** argv) {
     guide_placement.head_corners=guide.head_corners;ProjectedHudPanel guide_bounds{};
     Require(ProjectHudPanel(HolsterGuidePanels()[0],overlay.eyes[0],512,512,guide_placement,guide_bounds),
         "holster guide test projection failed");
-    const auto check_holster_coverage=[&](const auto& pixels){
+    const auto check_holster_coverage=[&](const auto& pixels,const ProjectedHudPanel& bounds){
         std::size_t changed=0;
         for(std::size_t i=0;i<pixels.size();++i)changed+=pixels[i]!=resized_world[i];
-        Require(changed>20&&changed<guide_bounds.width*guide_bounds.height/6,
+        Require(changed>20&&changed<bounds.width*bounds.height/6,
             "holster GPU pixels must retain a thin outline without flooding the world");
-        const auto centre=(guide_bounds.top+guide_bounds.height/2)*512+
-            guide_bounds.left+guide_bounds.width/2;
+        const auto centre=(bounds.top+bounds.height/2)*512+bounds.left+bounds.width/2;
         Require(pixels[centre]==resized_world[centre],"holster GPU ring obscures a world object at its centre");
     };
-    check_holster_coverage(guide_left);
+    check_holster_coverage(guide_left,guide_bounds);
     for(unsigned state=1;state<3;++state){
         guide.state=static_cast<std::uint8_t>(state);clear_world();
         Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),
             "holster state GPU draw failed");
         const auto pixels=ReadEye(device.Get(),context.Get(),targets[0].Get());
         Require(pixels!=guide_left,"holster GPU state lost its availability color");
-        check_holster_coverage(pixels);
+        check_holster_coverage(pixels,guide_bounds);
     }
     compositor.Reset();guide.state=0;clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==guide_left,
         "reset changed immutable holster ring output");
+    ProjectedHudPanel right_guide_bounds{};
+    Require(ProjectHudPanel(HolsterGuidePanels()[0],overlay.eyes[1],512,512,guide_placement,right_guide_bounds),
+        "right-eye holster guide test projection failed");
+    std::array<std::vector<std::uint32_t>,2> base_guides{guide_left,ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    std::array<std::vector<std::vector<std::uint32_t>>,2> rendered_kinds;
+    for (auto kind : {GestureGuideKind::holster_pistol, GestureGuideKind::holster_long_gun,
+                      GestureGuideKind::holster_bow}) {
+        guide.kind=kind;clear_world();
+        Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),
+            "equipment holster marker GPU draw failed");
+        for(unsigned eye=0;eye<2;++eye){
+            auto pixels=ReadEye(device.Get(),context.Get(),targets[eye].Get());
+            const auto& prior=rendered_kinds[eye];
+            Require(pixels!=base_guides[eye]&&std::find(prior.begin(),prior.end(),pixels)==prior.end(),
+                "an equipment shape was missing or duplicated in one eye");
+            check_holster_coverage(pixels,eye==0?guide_bounds:right_guide_bounds);
+            rendered_kinds[eye].push_back(std::move(pixels));
+        }
+    }
+    auto pistol_guide=guide;
+    pistol_guide.kind=GestureGuideKind::holster_pistol;
+    auto support_over_pistol=guide;
+    support_over_pistol.kind=GestureGuideKind::support_grip;
+    support_over_pistol.head_corners={{{-.1F,-.1F,-.6F},{.1F,-.1F,-.6F},{-.1F,-.3F,-.6F},{.1F,-.3F,-.6F}}};
+    const auto draw_single=[&](const HolsterGuideSurface& surface){
+        overlay.holster_guides.count=1;
+        guide=surface;
+        Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),"single guide GPU draw failed");
+    };
+    clear_world();draw_single(pistol_guide);draw_single(support_over_pistol);
+    const std::array support_on_top{ReadEye(device.Get(),context.Get(),targets[0].Get()),
+        ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    clear_world();draw_single(support_over_pistol);draw_single(pistol_guide);
+    for(unsigned eye=0;eye<2;++eye)
+        Require(ReadEye(device.Get(),context.Get(),targets[eye].Get())!=support_on_top[eye],
+            "guide coverage fixture failed to overlap in one eye");
+    clear_world();guide=pistol_guide;overlay.holster_guides.zones[1]=support_over_pistol;
+    overlay.holster_guides.count=2;
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),"overlapping guides GPU draw failed");
+    for(unsigned eye=0;eye<2;++eye)
+        Require(ReadEye(device.Get(),context.Get(),targets[eye].Get())==support_on_top[eye],
+            "equipment art obscured the priority support bracket");
+    overlay.holster_guides.count=1;guide=pistol_guide;
     guide.kind=GestureGuideKind::support_grip;clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,

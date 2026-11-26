@@ -2471,6 +2471,7 @@ thread_local std::uintptr_t g_luma_present_backbuffer = 0;
 thread_local std::uint64_t g_luma_present_reset_epoch = 0;
 
 using LumaOutputResult = cojvr::backends::d3d9::FrameLumaOutputResult;
+using LumaSubmitRejection = cojvr::backends::d3d9::FrameLumaSubmitRejection;
 
 const char* LumaOutputResultName(LumaOutputResult result) noexcept {
     switch (result) {
@@ -2478,6 +2479,17 @@ const char* LumaOutputResultName(LumaOutputResult result) noexcept {
     case LumaOutputResult::rejected: return "rejected";
     case LumaOutputResult::bypassed: return "bypassed";
     default: return "unobserved";
+    }
+}
+
+const char* LumaSubmitRejectionName(LumaSubmitRejection reason) noexcept {
+    switch (reason) {
+    case LumaSubmitRejection::source_authorization_rejected: return "source_authorization_rejected";
+    case LumaSubmitRejection::capture_epoch_missing: return "capture_epoch_missing";
+    case LumaSubmitRejection::presentation_owner_changed: return "presentation_owner_changed";
+    case LumaSubmitRejection::producer_end_frame_failed: return "producer_end_frame_failed";
+    case LumaSubmitRejection::queue_registration_rejected: return "queue_registration_rejected";
+    default: return nullptr;
     }
 }
 
@@ -2509,6 +2521,8 @@ void LogLumaOutputRoute(const HRESULT result) noexcept {
              << ";primary_backbuffer=" << g_luma_present_backbuffer
              << ";present_hr=0x" << std::hex << static_cast<unsigned long>(result)
              << ";coverage=observed_wrapper_and_present_callbacks";
+        if (const char* reason = LumaSubmitRejectionName(row.submit_rejection))
+            line << ";submit_rejection=" << reason;
         LogLine(line.str());
     } catch (...) {}
 }
@@ -3410,15 +3424,20 @@ void ObserveReloadDepth(void* context,cojvr::runtime::Eye eye,std::uint64_t fram
     }catch(...){}
 }
 
-bool SubmitStereoFrame(
+bool SubmitStereoFrameImpl(
     void* context,
     const std::uint64_t frame_sequence,
     const cojvr::runtime::PoseSample& render_hmd_pose,
     const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& gameplay_reticle,
-    const cojvr::runtime::StereoHudTextOverlay& hud_text) noexcept {
+    const cojvr::runtime::StereoHudTextOverlay& hud_text,
+    LumaSubmitRejection* rejection) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
+    const auto reject = [rejection](LumaSubmitRejection reason) noexcept {
+        if (rejection) *rejection = reason;
+        return false;
+    };
     cojvr::backends::d3d9::StereoReticleOverlay capture_reticle{};
     capture_reticle.frame_sequence = gameplay_reticle.frame_sequence;
     capture_reticle.scope_view = gameplay_reticle.scope_view;
@@ -3446,7 +3465,7 @@ bool SubmitStereoFrame(
             state->independent_render.active() || state->independent_render.restoration_pending() ||
             authorization.owner_epoch != frame_epoch || !SourceCaptureCurrent(*state, authorization)) {
             InvalidateSourceAuthority(*state);
-            return false;
+            return reject(LumaSubmitRejection::source_authorization_rejected);
         }
     }
     cojvr::games::call_of_juarez::CoJPresentationOwner presentation{};
@@ -3455,20 +3474,22 @@ bool SubmitStereoFrame(
         cojvr::runtime::CurrentCinematicMode() == cojvr::runtime::CinematicsMode::immersive;
     const bool settings = cojvr::runtime::SettingsInputCaptured() ||
         state->frame_settings_captured.load(std::memory_order_acquire);
-    if (!frame_epoch || ObserveStereoOwner(*state, presentation, observed, settings, movie) != frame_epoch)
-        return false;
+    if (!frame_epoch) return reject(LumaSubmitRejection::capture_epoch_missing);
+    if (ObserveStereoOwner(*state, presentation, observed, settings, movie) != frame_epoch)
+        return reject(LumaSubmitRejection::presentation_owner_changed);
     const bool accepted = state->capture.EndFrame(
         frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle, captured_hud_text);
     if (accepted && !state->stereo_queue.Queued(
             frame_epoch, frame_sequence, GetTickCount64())) {
         if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
-        return false;
+        return reject(LumaSubmitRejection::queue_registration_rejected);
     }
     if (accepted && state->fixed_outputs.enabled)
         state->source_capture_admission.Queued(frame_sequence);
     if (!accepted) {
         LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
         if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
+        return reject(LumaSubmitRejection::producer_end_frame_failed);
     } else if (ShouldLogStereoTiming(frame_sequence)) {
         std::ostringstream line;
         line << "native_stereo_frame_queue: status=ok frame_sequence="
@@ -3478,7 +3499,14 @@ bool SubmitStereoFrame(
                      : "classic_d3d9_locked_systemmem_fallback");
         LogLine(line.str());
     }
-    return accepted;
+    return true;
+}
+
+bool SubmitStereoFrame(void* context, std::uint64_t frame,
+    const cojvr::runtime::PoseSample& pose,
+    const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& reticle,
+    const cojvr::runtime::StereoHudTextOverlay& hud_text) noexcept {
+    return SubmitStereoFrameImpl(context, frame, pose, reticle, hud_text, nullptr);
 }
 
 bool CaptureStereoEyeWithLumaOutput(void* context, cojvr::runtime::Eye eye,
@@ -3499,10 +3527,11 @@ bool SubmitStereoFrameWithLumaOutput(void* context, std::uint64_t frame,
     const cojvr::runtime::StereoHudTextOverlay& hud_text) noexcept {
     auto& state = *static_cast<NativeStereoState*>(context);
     const bool enabled = state.capture_readback_enabled.load(std::memory_order_acquire);
-    const bool submitted = SubmitStereoFrame(context, frame, pose, reticle, hud_text);
+    auto rejection = LumaSubmitRejection::none;
+    const bool submitted = SubmitStereoFrameImpl(context, frame, pose, reticle, hud_text, &rejection);
     std::lock_guard lock(state.luma_mutex);
     state.luma_output.Submit(GetCurrentThreadId(), frame, !enabled ? LumaOutputResult::bypassed :
-        submitted ? LumaOutputResult::accepted : LumaOutputResult::rejected);
+        submitted ? LumaOutputResult::accepted : LumaOutputResult::rejected, rejection);
     return submitted;
 }
 

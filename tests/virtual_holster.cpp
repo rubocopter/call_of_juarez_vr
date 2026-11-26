@@ -31,6 +31,21 @@ struct Fixture {
 };
 }
 int main(){
+    {
+        Fixture f;
+        f.Step();
+        Check(f.gate.ready_hands()==3,"available neutral grips did not arm both markers");
+        f.s.raw.interact=true;f.Step();
+        Check(f.gate.ready_hands()==1,"consumed left grip still advertised a fresh press");
+        f.s.raw.digital_available&=~(1U<<6);
+        f.Release();
+        Check(f.gate.ready_hands()==1,"unavailable release rearmed the left marker");
+        f.s.raw.digital_available|=1U<<6;
+        f.Step();
+        Check(f.gate.ready_hands()==3,"verified release did not rearm the left marker");
+        f.gate.Invalidate();
+        Check(f.gate.ready_hands()==0,"context loss did not clear ready markers");
+    }
     for(const auto& zone:kCoJVirtualHolsterZones){
         Fixture f;const auto layout=BuildCoJVirtualHolsterLayout(f.s.head);
         const auto index=static_cast<unsigned>(&zone-kCoJVirtualHolsterZones.data());

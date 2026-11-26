@@ -8,6 +8,14 @@
 namespace cojvr::backends::d3d9 {
 
 enum class FrameLumaOutputResult { unobserved, accepted, rejected, bypassed };
+enum class FrameLumaSubmitRejection {
+    none,
+    source_authorization_rejected,
+    capture_epoch_missing,
+    presentation_owner_changed,
+    producer_end_frame_failed,
+    queue_registration_rejected,
+};
 
 struct FrameLumaOutputContext {
     std::uintptr_t device = 0;
@@ -25,6 +33,7 @@ struct FrameLumaOutputRoute {
     std::uint64_t frame = 0, pose = 0;
     std::array<Eye, 2> eyes{};
     FrameLumaOutputResult submit = FrameLumaOutputResult::unobserved;
+    FrameLumaSubmitRejection submit_rejection = FrameLumaSubmitRejection::none;
     bool natural_complete = false;
 };
 
@@ -76,8 +85,13 @@ public:
             pending_.eyes[eye].capture = result;
     }
 
-    void Submit(std::uint32_t thread, std::uint64_t frame, FrameLumaOutputResult result) noexcept {
-        if (Matches(thread, frame)) pending_.submit = result;
+    void Submit(std::uint32_t thread, std::uint64_t frame, FrameLumaOutputResult result,
+                FrameLumaSubmitRejection rejection = FrameLumaSubmitRejection::none) noexcept {
+        if (Matches(thread, frame)) {
+            pending_.submit = result;
+            pending_.submit_rejection = result == FrameLumaOutputResult::rejected
+                ? rejection : FrameLumaSubmitRejection::none;
+        }
     }
 
     void Natural(std::uint32_t thread, bool complete) noexcept {
@@ -95,7 +109,11 @@ public:
         using Result = FrameLumaOutputResult;
         const bool rejected = row.submit == Result::rejected ||
             row.eyes[0].capture == Result::rejected || row.eyes[1].capture == Result::rejected;
-        const auto outcome = row.submit == Result::accepted ? 0U : rejected ? 1U : 2U;
+        const bool accepted = row.submit == Result::accepted &&
+            row.eyes[0].wrapper_complete && row.eyes[1].wrapper_complete &&
+            row.eyes[0].capture == Result::accepted &&
+            row.eyes[1].capture == Result::accepted;
+        const auto outcome = rejected ? 1U : accepted ? 0U : 2U;
         if (logged_[outcome] == limit_per_outcome) return {};
         ++logged_[outcome];
         return row;

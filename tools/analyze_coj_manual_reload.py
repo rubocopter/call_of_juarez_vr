@@ -15,7 +15,8 @@ EVENT = re.compile(r'camera_probe_event: event=(\w+) result=(\w+) detail=(.*)$')
 # Retain malformed diagnostic results for rejection rather than silently
 # filtering them out with the legacy event grammar.
 STRICT_OBSERVATIONS = ('indexed_native_reload', 'winchester_loading_geometry', 'remington_loading_geometry',
-                       'manual_reload_mouth_preview', 'mounted_native_motion', 'mounted_comfort_motion')
+                       'manual_reload_mouth_preview', 'mounted_native_motion', 'mounted_comfort_motion',
+                       'dynamite_motion', 'dynamite_lifecycle')
 STRICT_OBSERVATION_EVENT = re.compile(
     r'camera_probe_event: event=(' + '|'.join(STRICT_OBSERVATIONS) + r') result=(.*?) detail=(.*)$')
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
@@ -1073,13 +1074,17 @@ def loading_mouth_comparisons(events, rendered, runtime_complete, manual_candida
         shotgun = weapon_class in REMINGTON_CLASSES
         if not shotgun and weapon_class not in WINCHESTER_CLASSES:
             problems.append('unsupported_weapon_class')
+        release_policy = fields.get('release_policy', 'legacy_grip_zone')
+        if release_policy != 'legacy_grip_zone' and (
+                release_policy != 'winchester_receiver' or weapon_class not in WINCHESTER_CLASSES):
+            problems.append('invalid_release_policy')
         points = [f'point{i}_cm' for i in range(2 if shotgun else 8)]
         has_tip = fields.get('tip_valid') == '1'
         required = set(ranges) | set(claims) | set(points) | {'weapon_class'}
         if has_tip:
             required |= {'tip_cm', 'tip_axis'}
         problems.extend('missing_field:'+key for key in sorted(required-fields.keys()))
-        problems.extend('unexpected_field:'+key for key in sorted(fields.keys()-required))
+        problems.extend('unexpected_field:'+key for key in sorted(fields.keys()-(required | {'release_policy'})))
         problems.extend('invalid_claim:'+key for key, value in claims.items() if fields.get(key) != value)
         numbers = {}
         for key, (low, high) in ranges.items():
@@ -1108,6 +1113,7 @@ def loading_mouth_comparisons(events, rendered, runtime_complete, manual_candida
         if 'tip_axis' in vectors and not loading_axis_unit(vectors['tip_axis']):
             problems.append('nonunit_tip_axis')
         row = dict(numbers, line=event['line'], weapon_class=weapon_class, raw_fields=dict(fields),
+                   release_policy=release_policy,
                    release=numbers['release'] == 1, grip_release_admitted=numbers['grip_release_admitted'] == 1,
                    status='rejected', reason=None, render_line=None, issues=problems,
                    mouth_point_distances_cm=None, tip_distance_cm=None, tip_axis_angle_degrees=None,
@@ -1344,17 +1350,28 @@ def schofield_unload_readback(entry):
     if any(key not in fields for key in keys):
         return 'inconclusive'
     weapon, hand, before, after, reserve, next_reserve = (integer(fields, key) for key in keys[:6])
+    spent_keys = ('spent_before', 'spent_after')
+    spent, next_spent = (integer(fields, key) if key in fields else 0 for key in spent_keys)
+    support_keys = ('support_loaded_before', 'support_loaded_after')
+    support, next_support = (integer(fields, key) if key in fields else -1 for key in support_keys)
     coherent = (weapon is not None and 0 < weapon < 0xffffffff and hand in (0, 1)
                 and ('weapon_class' not in fields or fields['weapon_class'] in SCHOFIELD_CLASSES)
-                and before is not None and 0 < before <= 6 and after is not None and 0 <= after <= 6
+                and before is not None and 0 <= before <= 6 and after is not None and 0 <= after <= 6
+                and spent is not None and 0 <= spent <= 6-before and before+spent > 0
+                and next_spent is not None and 0 <= next_spent <= 6-after
+                and support is not None and -1 <= support <= 6 and support == next_support
                 and reserve is not None and reserve >= 0 and next_reserve is not None and next_reserve >= 0
                 and yes(fields, 'native_call_completed') and yes(fields, 'same_wait_owner'))
     if coherent:
         reason = fields['reason']
-        if result == 'accepted' and reason == 'returned_to_reserve' and after == 0 and next_reserve == reserve + before:
-            return 'return_readback_reported'
+        if result == 'accepted' and after == next_spent == 0 and next_reserve == reserve + before:
+            if before and reason == 'returned_to_reserve':
+                return 'return_readback_reported'
+            if not before and reason == 'spent_cases_ejected':
+                return 'cases_ejected_readback_reported'
         if result == 'declined' and reason in ('reserve_full', 'native_guard') and (after, next_reserve) == (before, reserve):
-            return 'refusal_readback_reported'
+            if next_spent == (0 if reason == 'reserve_full' else spent):
+                return 'refusal_readback_reported'
     return 'invalid_unload_readback'
 
 
@@ -1463,6 +1480,7 @@ def analyze_evidence(directory):
                 elif e['result'] == 'rejected':
                     assessment = 'no_transfer_readback_observed' if delta == [0, 0] else 'readback_changed_after_rejection'
             mode=f.get('reload_mode','unit')
+            insertion_input=f.get('insertion_input','unrecorded')
             if mode in ('indexed','clip'):
                 # Scalar adjacent traces may describe another eligible index.
                 # Keep this as a reported synchronous vector, not a reconstructed
@@ -1475,15 +1493,21 @@ def analyze_evidence(directory):
                     integer(before['fields'],'frame_sequence') is not None and
                     integer(before['fields'],'frame_sequence')<frame and
                     yes(before['fields'],'manual_session_enabled') and yes(after['fields'],'manual_session_enabled'))
-                assessment='inconclusive'
                 if correlated and e['result']=='accepted':
                     assessment=('indexed_unit_readback_reported' if mode=='indexed' else 'clip_readback_reported') if family_readback_reported(f) else 'invalid_family_readback'
+                elif insertion_input!='chest' or assessment!='readback_changed_after_rejection':
+                    assessment='inconclusive'
+            if insertion_input=='chest' and (mode!='clip' or not yes(f,'schofield_hold_open') or
+                    (e['result']=='accepted' and integer(f,'probe_status_after')!=2)):
+                assessment='invalid_chest_route'
             insertions.append(dict(line=e['line'], frame=frame, weapon_id=integer(f, 'weapon_id'),
                                    result=e['result'], assessment=assessment, delta=delta,
-                                   reload_mode=mode,selected_index=integer(f,'selected_index'),
+                                   reload_mode=mode,insertion_input=insertion_input,
+                                   selected_index=integer(f,'selected_index'),
                                    owner_correlated=correlated,
                                    native_call_completed=yes(f, 'native_call_completed')))
-            if assessment in ('non_unit_readback', 'readback_changed_after_rejection','invalid_family_readback'):
+            if assessment in ('non_unit_readback', 'readback_changed_after_rejection','invalid_family_readback',
+                    'invalid_chest_route'):
                 issues.append(dict(line=e['line'], kind=assessment))
         elif e['event'] == 'manual_reload_geometry' and (
                 yes(f, 'manual_session') or yes(f, 'reference_pose') or
@@ -1594,6 +1618,8 @@ def analyze_evidence(directory):
                     unit_readbacks=sum(r['assessment'] == 'unit_readback_observed' for r in insertions),
                     indexed_unit_readbacks_reported=sum(r['assessment']=='indexed_unit_readback_reported' for r in insertions),
                     clip_readbacks_reported=sum(r['assessment']=='clip_readback_reported' for r in insertions),
+                    chest_clip_readbacks_reported=sum(r['insertion_input']=='chest' and
+                        r['assessment']=='clip_readback_reported' for r in insertions),
                     schofield_unload_readbacks=dict(unload_readbacks),
                     native_wait_entries=waiting_entries, issue_count=len(issues),
                     zone_entries=reported['manual_reload_zone','entered'],

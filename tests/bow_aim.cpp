@@ -19,6 +19,9 @@ namespace runtime=cojvr::runtime;
 void Require(bool v,const char* why){if(!v){std::cerr<<why<<'\n';std::exit(1);}}
 struct Vector {float x=0,y=0,z=0;};
 int player,bow,alias,replacement,replacement_alias,foreign,player_class,bow_class,other_class,vector_class,exception;
+int bible_class;
+bool bible_mode=false, bible_in_hands=true, bible_attached=true;
+int bible_native_mount=-1;
 void* active[2]{&alias,&bow};void* actual[2]{nullptr,&bow};void* desired[2]{nullptr,&bow};
 bool pending=false,exact=true,missing_holder=false,dead=false,carrying=false;
 int refs=0,steps=0,fail_step=-1,mutate_at=-1,writes=0,globals=0;
@@ -45,18 +48,24 @@ void* __stdcall Exception(void*){return pending?Local(&exception):nullptr;}
 void __stdcall Clear(void*){pending=false;}
 std::int32_t __stdcall GetEnv(void*,void** out,std::int32_t){*out=fail_environment?nullptr:&env_holder;return fail_environment?-1:0;}
 void* __stdcall Class(void*,void* p){if(!Step())return nullptr;
-    return Local(p==&player?&player_class:(exact?&bow_class:&other_class));}
+    return Local(p==&player?&player_class:(exact?(bible_mode?&bible_class:&bow_class):&other_class));}
 void* __stdcall Find(void*,const char* name){if(!Step())return nullptr;
+    if(bible_mode&&!std::strcmp(name,"WeaponBible"))return Local(&bible_class);
     Require(!std::strcmp(name,"WeaponBow")||!std::strcmp(name,"WeaponWhip"),"unqualified class search");
     return Local(!std::strcmp(name,"WeaponBow")?&bow_class:&other_class);}
 std::uint8_t __stdcall Instance(void*,void*,void*){if(!Step())return 0;return 0;}
 std::uint8_t __stdcall Same(void*,void* a,void* b){if(!Step())return 0;
     if(a==&alias)a=&bow;if(b==&alias)b=&bow;
     if(a==&replacement_alias)a=&replacement;if(b==&replacement_alias)b=&replacement;return a==b;}
-void* __stdcall Method(void*,void*,const char* name,const char*){if(!Step())return nullptr;return const_cast<char*>(name);}
+void* __stdcall Method(void*,void*,const char* name,const char* signature){if(!Step())return nullptr;
+    if(bible_mode&&!std::strcmp(name,"GetElementID")&&!std::strcmp(signature,"(I)I"))
+        return const_cast<char*>("GetElementIDForHand");
+    return const_cast<char*>(name);}
 void* __stdcall Object(void*,void* p,void* m,const JValue* args){if(!Step())return nullptr;
     if(!std::strcmp(static_cast<char*>(m),"GetPositionVectorVolatile")){
         Require(p==&player&&!args,"wrong actor position getter");vectors.back()={};return Local(&vectors.back());}
+    if(bible_mode&&!std::strcmp(static_cast<char*>(m),"GetParent")){
+        Require(IsBow(p)&&!args,"wrong Bible parent query");return Local(bible_attached?&player:nullptr);}
     Require(p==&player&&args&&args[0].i>=0&&args[0].i<2,"wrong weapon query");
     auto n=static_cast<const char*>(m);int h=args[0].i;
     if(!std::strcmp(n,"GetActiveWeapon"))return Local(active[h]);
@@ -68,7 +77,14 @@ int __stdcall Integer(void*,void* p,void* m,const JValue* args){if(!Step())retur
     if(!std::strcmp(n,"GetBarrelElement"))return barrel;
     if(!std::strcmp(n,"GetElementsNumber"))return 2;
     if(!std::strcmp(n,"GetActualHandForWeapon"))return owner;
+    if(bible_mode&&!std::strcmp(n,"GetElementIDForHand")){
+        Require(IsBow(p)&&args&&args[0].i==owner,"wrong native Bible mount query");return bible_native_mount;}
     if(!std::strcmp(n,"GetElementID")){Require(IsBow(p),"wrong holder object");
+        if(bible_mode){
+            Require(args&&!std::strcmp(static_cast<char*>(args[0].l),owner==0?"HolderR":"HolderL"),
+                "Bible mounted with the other hand's holder");
+            return missing_holder?-1:owner;
+        }
         Require(args&&!std::strcmp(static_cast<char*>(args[0].l),"DBowHolder"),"guessed bow element");return missing_holder?-1:1;}
     Require(false,"unexpected integer getter");return -1;}
 std::uint8_t __stdcall Boolean(void*,void* p,void* m,const JValue* args){if(!Step())return 0;
@@ -89,6 +105,10 @@ std::uint8_t __stdcall Boolean(void*,void* p,void* m,const JValue* args){if(!Ste
         *static_cast<Vector*>(args[1].l)={v.x,v.y,v.z};return 1;}
     Require(false,"unexpected boolean/native query");return 0;}
 void* __stdcall Text(void*,const char* name){if(!Step())return nullptr;
+    if(bible_mode){
+        Require(!std::strcmp(name,owner==0?"HolderR":"HolderL"),"unexpected Bible mount name");
+        return Local(const_cast<char*>(owner==0?"HolderR":"HolderL"));
+    }
     Require(!std::strcmp(name,"DBowHolder"),"guessed bow holder name");return Local(const_cast<char*>("DBowHolder"));}
 void* __stdcall New(void*,void*,void*,const JValue*){if(!Step())return nullptr;
     Require(allocated<static_cast<int>(vectors.size()),"vector fixture exhausted");return Local(&vectors[allocated++]);}
@@ -109,7 +129,11 @@ void __stdcall Set(void*,void* p,void* field,void* value){if(!Step())return;Requ
         if(!value&&fail_hold_clear){pending=true;return;}
         held_bow=value;if(value&&fail_hold_publish)pending=true;return;}
     caches[Cache(field)]=value;}
-std::uint8_t __stdcall BoolField(void*,void*,void*){Require(false,"unexpected field read");return 0;}
+std::uint8_t __stdcall BoolField(void*,void* p,void* field){
+    if(!Step())return 0;
+    Require(bible_mode&&IsBow(p)&&!std::strcmp(static_cast<char*>(field),"m_bInHands"),"unexpected field read");
+    return bible_in_hands;
+}
 void __stdcall NativeSet(void*,void* p,void* method,const JValue* args){if(!Step())return;
     Require(IsBow(p),"wrong native writer owner");
     Require(!std::strcmp(static_cast<char*>(method),"FromUpForwardPosElementWorld"),"unqualified native setter");
@@ -147,6 +171,70 @@ int main(int argc,char** argv){
     bridge.get_element_left_method_=const_cast<char*>("GetElementLeftVector");
     bridge.get_element_up_method_=const_cast<char*>("GetElementUpVector");
     JavaPlayerPosition origin{},direction{};ElementWorldBasisTarget frame{};std::string error;
+    if(argc>1&&!std::strcmp(argv[1],"--bible")){
+        bible_mode=true;
+        bridge.element_world_basis_lookup_attempted_=true;
+        bridge.set_element_world_basis_method_=const_cast<char*>("FromUpForwardPosElementWorld");
+        for(int hand=0;hand<2;++hand){
+            Reset();owner=hand;bible_native_mount=hand;
+            active[0]=actual[0]=desired[0]=active[1]=actual[1]=desired[1]=nullptr;
+            active[hand]=actual[hand]=desired[hand]=&bow;
+            two[0]=two[1]=false;
+            const auto natural_root=root,natural_holder=holder_frame;
+            const auto mount=hand==0?root:holder_frame;
+            const ElementWorldBasisTarget grip{{100,200,300},{0,0,-1},{0,1,0},true};
+            const ElementWorldBasisTarget natural_hand{{17,18,22},{0,1,0},{0,0,1},true};
+            ElementWorldBasisTarget tracked_hand{};
+            bool unarmed=false;
+            const auto prepare=[&]{
+                return bridge.TryPrepareTrackedWeapon(hand,mount.position,grip.position,grip.forward,grip.up,
+                    natural_hand,tracked_hand,unarmed,&error);
+            };
+            const int writes_before=writes;
+            Require(prepare()&&!unarmed&&globals==1&&writes==writes_before,
+                "exact held Bible with no barrel must capture its native mount without writing");
+            const auto expected_hand=TransformWeaponElementFrame(mount,grip,natural_hand);
+            Require(Equal(tracked_hand.position,expected_hand.position)&&Equal(tracked_hand.up,expected_hand.up)&&
+                Equal(tracked_hand.forward,expected_hand.forward),"Bible hand did not share the mount's rigid map");
+            origin={1,2,3};
+            Require(bridge.ApplyPreparedTrackedWeapon(hand,origin,&error),"Bible pose did not commit");
+            const auto posed_mount=hand==0?root:holder_frame;
+            Require(Equal(posed_mount.position,grip.position)&&Equal(posed_mount.up,grip.up)&&
+                Equal(posed_mount.forward,grip.forward),"Bible holder did not match the controller's full grip frame");
+            Require(Equal({origin.x,origin.y,origin.z},{})&&!bridge.TryGetWeaponBarrel(hand,origin,direction)&&
+                !bridge.TryPublishWeaponRay(hand,{100,200,300},{0,1,0},true),
+                "Bible visual pose gained a muzzle or a shot ray");
+            bool pose_active=false;
+            Require(bridge.VerifyTrackedWeapon(hand,pose_active)&&pose_active,"Bible pose failed readback");
+            (hand==0?root:holder_frame).position.x+=1.F;
+            Require(!bridge.VerifyTrackedWeapon(hand,pose_active)&&pose_active,"Bible mount drift passed readback");
+            Require(bridge.RestoreTrackedWeapons(&error)&&globals==0&&Equal(root.position,natural_root.position)&&
+                Equal(root.forward,natural_root.forward)&&Equal(holder_frame.position,natural_holder.position)&&
+                Equal(holder_frame.up,natural_holder.up),"Bible restoration lost its captured native frames");
+            missing_holder=true;
+            Require(!prepare()&&!unarmed&&globals==0,"Bible with a missing authored mount gained a pose");
+            missing_holder=false;
+            bible_native_mount=1-hand;
+            Require(!prepare()&&globals==0,"Bible with an unexpected native mount gained a pose");
+            bible_native_mount=hand;
+            exact=false;
+            Require(!prepare()&&globals==0,"another barrel-less class gained the Bible pose");
+            exact=true;bible_attached=false;
+            Require(!prepare()&&globals==0,"detached Bible gained a pose");
+            bible_attached=true;bible_in_hands=false;
+            Require(!prepare()&&globals==0,"Bible outside native hands gained a pose");
+            bible_in_hands=true;
+            Require(prepare(),"Bible replacement test could not capture first object");
+            active[hand]=actual[hand]=desired[hand]=&replacement;
+            const int before_replacement=writes;
+            Require(!bridge.ApplyPreparedTrackedWeapon(hand,origin,&error)&&writes==before_replacement&&globals==1,
+                "a replacement Bible inherited the old transaction");
+            Require(bridge.RestoreTrackedWeapons(&error)&&globals==0&&refs==0&&!pending,
+                "Bible replacement lost restoration ownership or leaked JNI state");
+        }
+        bridge.being_=bridge.vector_class_=bridge.vm_=nullptr;
+        return 0;
+    }
     const auto check_replacement=[&](bool before_commit){
         Reset();const auto original_root=root,original_holder=holder_frame;
         bool unarmed=false;ElementWorldBasisTarget target{};

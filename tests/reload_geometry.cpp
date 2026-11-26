@@ -54,6 +54,19 @@ void CheckSchofieldGuides() {
             Check(at_mouth(i,i,i<static_cast<unsigned>(6-loaded)?0:2),
                 "Schofield guide did not distinguish loaded rounds in rear-view order");
     }
+    geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=2;
+    native.schofield_spent=3;
+    overlay.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay,false,true)&&
+        overlay.holster_guides.count==5&&
+        overlay.holster_guides.zones[0].kind==GestureGuideKind::spent_case&&
+        overlay.holster_guides.zones[2].kind==GestureGuideKind::spent_case&&at_mouth(3,4,2),
+        "spent cases and live rounds must render with optional guides hidden");
+    native.schofield_spent=0;
+    overlay.holster_guides={};
+    Check(AppendCoJSchofieldChamberGuides(frame,geometry,native,true,overlay,true,true)&&
+        at_mouth(0,0,1)&&at_mouth(3,3,1)&&at_mouth(4,4,2),
+        "only the free chambers should highlight when carrying a compatible bundle");
 
     geometry.schofield_loaded=native.loaded[0]=native.ammo_readback=0;
     overlay.holster_guides.count=2;

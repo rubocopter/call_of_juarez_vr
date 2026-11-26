@@ -84,8 +84,14 @@ def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycl
     hand_call(c,'GetDesiredWeaponState','(I)I'); c.emit(0x10,21); c.branch(0xa0,'reject')
     for name in ('GetActualWeapon','GetActiveWeapon','GetDesiredWeapon'):
         hand_call(c,name,'(I)LWeapon;'); read(c,'Weapon','LWeapon;'); c.branch(0xa6,'reject')
+    if runtime:
+        c.emit(0x2a); c.ref(0xb4,e.ref('ArmedPlayerBeing','cojvrDualSchofieldWeapon','LWeapon;',9)); c.branch(0xc6,'empty_support')
+        c.emit(0x2a); c.ref(0xb6,method('cojvrDualSchofieldProbeMatches','()Z')); c.branch(0x99,'reject')
+        c.branch(0xa7,'support_verified'); c.label('empty_support')
+    for name in ('GetActualWeapon','GetActiveWeapon','GetDesiredWeapon'):
         c.emit(0x2a,0x2a); read(c,'Hand','I'); c.ref(0xb6,method('GetOtherHand','(I)I'))
         c.ref(0xb6,method(name,'(I)LWeapon;')); c.branch(0xc7,'reject')
+    if runtime:c.label('support_verified')
     whole_clip = False
     if _offline_indexed is not None:
         from coj_indexed_reload_session import _profile

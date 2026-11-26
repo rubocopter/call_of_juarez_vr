@@ -62,6 +62,19 @@ struct CoJWeaponShotDiagnostics {
     bool valid = false;
 };
 
+struct CoJDynamiteTrace {
+    std::uint64_t player_generation = 0;
+    std::uint32_t begin_serial = 0;
+    std::uint32_t begin_weapon = 0;
+    float fuse_seconds = -1.0F;
+    int spark_handle = 0;
+    int smoke_handle = 0;
+    std::uint32_t release_serial = 0;
+    std::uint32_t released_weapon = 0;
+    runtime::Vec3 origin_cm{};
+    runtime::Vec3 velocity_cm_s{};
+};
+
 // Value-only, game-thread snapshot for exact WeaponHands. valid describes both
 // counters; a failed optional counter read may retain independently resolved
 // owner/hand/generation. Entry/Hit-call counts are not health-damage evidence.
@@ -119,6 +132,7 @@ struct CoJGameplayActionValue {
 };
 struct CoJFirePresses {
     bool left=false,right=false;
+    bool dynamite_motion=false;
 };
 
 // Single-player shoulder ownership. IsRidingHorse is an exact-game predicate;
@@ -338,6 +352,7 @@ public:
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool ApplyPreparedTrackedWeapon(int hand, JavaPlayerPosition& muzzle,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TrackedWeaponVisualOnly(int hand) const noexcept;
     [[nodiscard]] bool BindPreparedLongGunSupport(const CoJLongGunSupportSnapshot& natural,
         const ElementWorldBasisTarget& mapped_support,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool VerifyTrackedWeapon(int hand, bool& active,
@@ -410,6 +425,9 @@ public:
         CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetWeaponReloading(
         bool& reloading, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveDynamiteTrace(CoJDynamiteTrace& trace) noexcept;
+    [[nodiscard]] bool TryObserveDynamiteMotionOwner(std::uint64_t& owner,
+        std::uint32_t* native_weapon_id = nullptr) noexcept;
     [[nodiscard]] bool TryObserveWeaponShotDiagnostics(
         int hand, CoJWeaponShotDiagnostics& state, std::string* error = nullptr) noexcept;
     // Read a measured firearm barrel, or the exact stable bow's native root
@@ -448,7 +466,10 @@ public:
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveNativeReloadFallback(CoJMotionReloadOwner* after_shot = nullptr) noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
-        bool include_wait_probe = false, int selected_index = -1) noexcept;
+        bool include_wait_probe = false, int selected_index = -1, int paired_hand=-1,
+        bool read_schofield_cases=false) noexcept;
+    [[nodiscard]] bool TryObserveDualSchofieldReloadOwner(int hand,bool recovery,
+        CoJMotionReloadOwner& owner) noexcept;
     // Only the explicitly staged manual derivative has these exact helpers.
     void NoteManualReloadRequest() noexcept {
         manual_reload_owned_=true;
@@ -458,6 +479,8 @@ public:
     [[nodiscard]] bool HasLoadedSchofieldMotionCapability() const noexcept;
     [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryOpenSchofield(int hand,bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryOpenDualSchofield(int hand,bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryPlayManualDryFire(int hand,bool& accepted,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryUnloadSchofield(CoJSchofieldUnloadResult& result,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertSchofieldBundle(bool& accepted,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr,
@@ -495,7 +518,7 @@ public:
     [[nodiscard]] bool TryObserveRemingtonLoadingGeometry(int hand,CoJRemingtonLoadingGeometry& geometry,
         CoJReloadGeometrySource source,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveRemingtonLoadingSample(int hand,CoJReloadGeometrySource source,
-        std::uint64_t frame,std::uint64_t context,int retained_cartridge_index,
+        std::uint64_t frame,std::uint64_t context,int retained_cartridge_index,bool physical_cartridge,
         CoJRemingtonLoadingSample& out,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
@@ -519,6 +542,7 @@ public:
     [[nodiscard]] bool IsDuelTutorialOwnerCurrent(const CoJDuelTutorialSample& tutorial) noexcept;
     void InvalidateDuelInput() noexcept { duel_input_state_.Invalidate(); }
     [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
+    [[nodiscard]] bool TryObserveWhip(CoJWhipSnapshot& whip) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
     // use this gaze ray; native look, ballistics, range and trigger rules remain
     // owned by the game. Context loss clears both nullable instance fields.
@@ -543,7 +567,8 @@ public:
         float head_relative_move_yaw_degrees = 0.0F,
         std::uint64_t monotonic_us = 0,
         const CoJInputDispatchTraceContext* trace = nullptr,
-        CoJFirePresses* fire_presses = nullptr) noexcept;
+        CoJFirePresses* fire_presses = nullptr,
+        std::uint64_t dynamite_motion_owner = 0) noexcept;
     [[nodiscard]] runtime::GameplayInputState AppliedGameplayCommands() const noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
@@ -709,6 +734,8 @@ private:
         void* env, void* vector, const JavaPlayerPosition& value, std::string* error) noexcept;
     [[nodiscard]] bool ClearException(void* env, std::string* error, const char* stage) noexcept;
     void ClearBeing(void* env) noexcept;
+    void ClearDynamiteMotionOwner(void* env) noexcept;
+    [[nodiscard]] bool DynamiteMotionTargetMatches(void* env, void* targets) noexcept;
     [[nodiscard]] bool ClearSingleRoundReloadField(void* env, std::string* error) noexcept;
     bool single_round_reload_pending_ = false;
     bool manual_reload_owned_ = false;
@@ -745,6 +772,7 @@ private:
         // Nonnegative only for the qualified exact-bow root fallback. Retain
         // its authored holder identity alongside the captured Java object.
         int bow_holder_element = -1;
+        int bible_holder_element = -1;
         CoJLongGunSupportSnapshot long_gun_owner{};
         ElementWorldBasisTarget long_gun_support{};
         std::uint64_t long_gun_generation=0;
@@ -752,6 +780,7 @@ private:
         bool applied = false;
     };
     bool ValidateTrackedBowOwner(int hand, std::string* error) noexcept;
+    int ReadHeldBibleMount(int hand,void* expected) noexcept;
     bool ValidateTrackedLongGunOwner(int hand,bool mapped_support,std::string* error) noexcept;
     bool CaptureTrackedWeapon(int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
         cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up, std::string* error,
@@ -898,6 +927,10 @@ private:
     bool gameplay_ui_sample_valid_ = false;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     std::array<float,33> last_gameplay_action_values_{};
+    void* dynamite_motion_weapon_ = nullptr; // Weak JNI reference.
+    std::uint64_t dynamite_motion_serial_ = 0, dynamite_motion_player_ = 0;
+    std::uint32_t dynamite_motion_native_weapon_id_ = 0;
+    std::uint64_t dynamite_motion_release_player_ = 0;
     bool gameplay_input_applied_ = false;
     bool gameplay_analog_state_uncertain_ = false;
     runtime::GameplayTurnState turn_state_{};

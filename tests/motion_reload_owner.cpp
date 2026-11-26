@@ -427,6 +427,22 @@ void NativeFallbackRegression() {
     Require(ReadCoJNativeReloadFallback(&holder,&player,&shared_rifle)&&!shared_rifle.valid,
         "shared Winchester ownership should retain native reload");
     for(int hand:{0,1}) {
+        for(void* cls:{static_cast<void*>(&schofield_class),static_cast<void*>(&schofield_a_class),
+                static_cast<void*>(&schofield_b_class)}){
+            Reset(hand);weapon_class=cls;current[hand]=31;
+            CoJMotionReloadOwner deferred{};
+            Require(!ReadCoJNativeReloadFallback(&holder,&player,&deferred)&&deferred.valid&&
+                deferred.armed_hand==hand&&deferred.kind==CoJManualReloadKind::clip&&
+                deferred.weapon_id==static_cast<std::uint32_t>(weapon_id)&&refs==0&&!pending,
+                "Schofield attack body with idle destination leaked to native reload");
+            wanted[hand]=31;
+            Require(!ReadCoJNativeReloadFallback(&holder,&player,&deferred)&&!deferred.valid,
+                "active attack request was mistaken for the observed transition to idle");
+            Reset(hand);weapon_class=cls;
+            current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=129;
+            Require(!ReadCoJNativeReloadFallback(&holder,&player,&deferred)&&!deferred.valid,
+                "alternate idle was mistaken for a transition to normal idle");
+        }
         Reset(hand);weapon_class=&schofield_class;current[hand]=32;
         CoJMotionReloadOwner after_shot{};
         Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&after_shot.valid&&
@@ -470,7 +486,8 @@ void NativeFallbackRegression() {
             (void)ReadCoJMotionReloadOwner(&holder,&player,manual,&diagnostic);
             Require(state==1||!manual.valid,"manual owner accepted an alternate state");
             const bool allowed=ReadCoJNativeReloadFallback(&holder,&player);
-            Require(allowed&&refs==0&&!pending,"alternate/native-only firearm lost native reload");
+            const bool schofield=cls==&schofield_class||cls==&schofield_a_class||cls==&schofield_b_class;
+            Require(allowed==!schofield&&refs==0&&!pending,"native fallback violated exact firearm policy");
             CoJManualReloadSession session;CoJManualReloadInput s{};s.enabled=s.allowed=true;
             s.native_fallback_allowed=allowed;s.player=7;s.context=5;s.raw.active=true;
             s.head.position_valid=s.head.orientation_valid=s.left.position_valid=s.left.orientation_valid=
@@ -479,8 +496,8 @@ void NativeFallbackRegression() {
             auto mapped=s.raw;(void)session.Update(mapped,s);
             s.raw.reload=true;++s.sequence;s.now+=50;mapped=s.raw;
             const auto out=session.Update(mapped,s);
-            Require(mapped.reload&&!out.start&&!out.insert&&!out.cancel,
-                "manual session consumed the positively observed native-only reload");
+            Require(mapped.reload==!schofield&&!out.start&&!out.insert&&!out.cancel,
+                "manual session did not honor the observed native fallback policy");
         }
     }
     for(void* cls:{static_cast<void*>(&scoped_class),static_cast<void*>(&old_schofield_b_class)}) {

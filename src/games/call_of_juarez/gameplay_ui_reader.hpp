@@ -53,4 +53,17 @@ struct CoJNoShootSnapshot {
 // Fresh native presentation/trace observation; no cached JNI references and no
 // update/trace replay. The trace producer tags its natural weapon owner.
 bool ReadCoJNoShoot(void* env, void* player, int hand, CoJNoShootSnapshot& out) noexcept;
+struct CoJWhipSnapshot {
+    runtime::Vec3 trace_start_cm{}, trace_end_cm{}, local_anchor_cm{};
+    float trace_age_seconds=0;
+    int clutch_element=-1, current_part_in_hand=-1, destination_part_in_hand=-1;
+    bool valid=false, aim_valid=false, can_fire=false, in_range=false,
+        target_valid=false, clutch_eligible=false, collision_present=false;
+    bool clutched=false, hanging=false, anchor_mesh_present=false, local_anchor_valid=false;
+};
+// Read an independently verified active, owned whip. Aim values require the
+// game's current weapon tag and a fresh native trace. Clutch/rope state is
+// observed separately so missing or stale aim data cannot mask attachment.
+bool ReadCoJWhip(void* env, void* player, void* owned_whip, int hand,
+    CoJWhipSnapshot& out) noexcept;
 } // namespace cojvr::games::call_of_juarez

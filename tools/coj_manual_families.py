@@ -7,7 +7,7 @@ The canonical builder verifies originals and owns mixed-class admission/validity
 from coj_indexed_reload import PROFILES as INDEXED_PROFILES
 from coj_indexed_reload_session import _append_indexed_session
 from coj_clip_reload import CLIP_WEAPONS, _add_offline_clip
-from coj_schofield_unload import _append_open, _append_unload
+from coj_schofield_unload import _append_dry_fire, _append_dual_ticket, _append_open, _append_unload
 from coj_reload_wait_probe import ClassEdit
 from inspect_java_bytecode import Reader, parse_class
 from patch_coj_weapon_consumers import Code, u2, u4
@@ -84,6 +84,7 @@ def append_runtime_families(player:bytes)->bytes:
     e.field('cojvrManualFamiliesActive','Z')
     e.field('cojvrManualFamiliesFaulted','Z')
     player=e.finish()
+    player=_append_dual_ticket(player)
     player=_append_indexed_session(player,helper_name='cojvrInsertManualIndexedRound',
                                    runtime=True,cycle_animation=True)
     player=_add_offline_clip(player,CLIP_WEAPONS,retained_close=True)
@@ -91,12 +92,15 @@ def append_runtime_families(player:bytes)->bytes:
                              retained_close=True,keep_waiting=True)
     player=_append_unload(player)
     player=_append_open(player)
+    player=_append_open(player,dual=True)
+    player=_append_dry_fire(player)
     targets={
         ('cojvrInsertManualIndexedRound','(I)Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertManualClip','()Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertSchofieldBundle','()Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrUnloadSchofield','()I'):RUNTIME_GUARD_FIELDS,
         ('cojvrOpenSchofield','(I)Z'):RUNTIME_GUARD_FIELDS,
+        ('cojvrOpenDualSchofield','(I)Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrInsertManualNativeCycleRound','()Z'):RUNTIME_GUARD_FIELDS,
         ('cojvrKeepManualReloadAlive','()Z'):RUNTIME_GUARD_FIELDS,
         # The only legitimate inner caller holds IndexedSessionBusy and gives

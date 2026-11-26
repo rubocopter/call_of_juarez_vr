@@ -21,11 +21,13 @@ int main(){
     Fixture cylinder;
     cylinder.r.schofield_motion=true;
     cylinder.s.native.ammo_readback=4;
+    cylinder.s.native.capacities[0]=6;
     cylinder.r.gesture.pickup_hint.visible=false;
     (void)SetActionPromptLabel(cylinder.labels,PromptAction::reload,"Cuadrado");
     auto hint=cylinder.Frame();
     Check(cylinder.hints.Append(cylinder.s,cylinder.r,17,cylinder.labels,CoJUiLanguage::spanish,true,hint)&&
         hint.text.interaction.view().find(u"inclina el revólver hacia atrás")!=std::u16string_view::npos&&
+        hint.text.interaction.view().find(u"al pecho para cargar")!=std::u16string_view::npos&&
         hint.text.interaction.view().find(u"Vuelve a nivel")!=std::u16string_view::npos&&
         hint.text.interaction.view().find(u"Cuadrado")!=std::u16string_view::npos,
         "open Schofield coaching must explain the wrist close with the current reload binding");
@@ -63,6 +65,11 @@ int main(){
     refused.Step();refused.r.tracked=false;
     notice=refused.Frame();
     Check(!refused.Draw(notice,false),"close or owner loss must retire the refusal");
+    cylinder.Step();cylinder.r.unload_refusal=CoJReloadRefusal::reserve_full;
+    notice=cylinder.Frame();
+    Check(cylinder.Draw(notice,false)&&notice.reload_result_notice&&
+        notice.text.interaction.view().find(u"chest to top up")!=std::u16string_view::npos,
+        "refused Schofield ejection should explain that a partial cylinder can still be filled");
     Fixture empty;empty.s.native.reserve_readback=0;
     (void)SetActionPromptLabel(empty.labels,PromptAction::reload,"Reload Button");
     auto empty_out=empty.Frame();

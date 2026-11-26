@@ -23,6 +23,8 @@ void* exact_class=nullptr;
 bool cogswell=false;
 void* table[174]{}, **holder = table;
 int refs = 0, steps = 0, fail_at = -1;
+int fixture_spent=0, spent_reads=0;
+bool changing_spent=false;
 bool pending = false, without_exception = false, replace = false, bad_float = false;
 bool owner_matches = true, coherent = true, known = true;
 int armed = 0;
@@ -142,7 +144,8 @@ void* JCALL Field(void*, void*, const char* name, const char* desc) {
     const bool object = !std::strcmp(name,"cOwner");
     const bool integer = !std::strcmp(name,"m_iAnimID0") || !std::strcmp(name,"nAmmoPistol") || !std::strcmp(name,"nAmmoRifle") ||
         !std::strcmp(name,"cojvrReloadProbeStatus") || !std::strcmp(name,"nAmmoShotgun") ||
-        !std::strcmp(name,"m_iAmmo0Count") || !std::strcmp(name,"m_iAmmo1Count");
+        !std::strcmp(name,"m_iAmmo0Count") || !std::strcmp(name,"m_iAmmo1Count") ||
+        !std::strcmp(name,"cojvrSchofieldSpent");
     const bool real = !std::strcmp(name,"m_fCurrentTime") || !std::strcmp(name,"m_fTime0") ||
         !std::strcmp(name,"m_fPlayTime") || !std::strcmp(name,"m_fDuration") || !std::strcmp(name,"m_fRotate") ||
         !std::strcmp(name,"cojvrReloadProbeUntil");
@@ -156,6 +159,7 @@ int JCALL GetInt(void*, void*, void* id) {
     const char* name=static_cast<char*>(id);
     if(!std::strcmp(name,"m_iAmmo0Count")){if(fail_at==-2)replace=true;return fixture_loaded[0];}
     if(!std::strcmp(name,"m_iAmmo1Count"))return fixture_loaded[1];
+    if(!std::strcmp(name,"cojvrSchofieldSpent"))return fixture_spent+(changing_spent?spent_reads++:0);
     return !std::strcmp(name,"nAmmoRifle") ? fixture_reserves[1] :
         !std::strcmp(name,"nAmmoPistol") ? fixture_reserves[0] :
         !std::strcmp(name,"nAmmoShotgun") ? fixture_reserves[2] : !std::strcmp(name,"cojvrReloadProbeStatus") ? 2 : 77;
@@ -171,6 +175,7 @@ template<class T> void Set(int i, T p) { table[i] = reinterpret_cast<void*>(p); 
 void Reset() {
     exact_class=nullptr;
     fixture_loaded={3,0};fixture_reserves={12,27,9};
+    fixture_spent=spent_reads=0;changing_spent=false;
     fixture_identity=123;
     steps = 0; fail_at = -1; pending = without_exception = replace = bad_float = false;
     owner_matches = coherent = known = true; armed = 0;
@@ -208,6 +213,17 @@ void IndexedAndClipReadback() {
         if(!clip) {
             Require(ReadCoJReloadTrace(&holder,&player,out,true,0)&&out.selected_index==0&&
                 out.ammo_readback==1,"captured index override was replaced by eligibility proposal");
+        }else{
+            fixture_spent=3;
+            Require(ReadCoJReloadTrace(&holder,&player,out,true,-1,nullptr,-1,true)&&out.schofield_spent==3,
+                "Schofield case observer did not read the native cylinder");
+            changing_spent=true;
+            Require(!ReadCoJReloadTrace(&holder,&player,out,true,-1,nullptr,-1,true)&&!out.valid,
+                "changing case count published a stale cylinder");
+            changing_spent=false;fixture_spent=5;
+            Require(!ReadCoJReloadTrace(&holder,&player,out,true,-1,nullptr,-1,true)&&!out.valid,
+                "live rounds and cases exceeded the native cylinder capacity");
+            Require(refs==0&&!pending,"case observer leaked JNI state");
         }
         setup();fixture_loaded[0]=clip?7:2;Check(false,true);
         setup();fixture_reserves[2]=-1;Check(false,true);

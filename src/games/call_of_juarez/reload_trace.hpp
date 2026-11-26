@@ -31,17 +31,21 @@ struct CoJReloadTraceSnapshot {
         CoJReloadReserveKind::pistol,CoJReloadReserveKind::pistol};
     std::array<int,2> reserve_indices{}; // Index -> reserves slot; not native ammo type.
     float drum_phase = 0;
+    int schofield_spent = 0; // Transient confirmed shot debits on this native weapon.
     bool reloading = false;
     bool probe_valid = false;
     int probe_status = 0; // 1=armed, 2=waiting, 3=closing, 4=cleared; diagnostic only.
     float probe_until = 0;
+    std::uint64_t support_weapon_id = 0;
+    int support_loaded = -1;
 };
 // Exact-build local game-thread caller only. All references are local and freed.
 // An optional caller-held local/global jobject binds acquisition to that exact
 // weapon before reading its class, identity, counters or animation parameters.
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     bool include_wait_probe = false, int selected_index = -1,
-    void* expected_weapon = nullptr) noexcept;
+    void* expected_weapon = nullptr, int paired_hand = -1,
+    bool read_schofield_cases = false) noexcept;
 
 // Game-thread identity policy. Only the opaque epoch leaves the game adapter;
 // ammunition and animation progress do not change ownership.
@@ -78,6 +82,8 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
         before.weapon_id!=0&&before.weapon_id==after.weapon_id&&before.armed_hand>=0&&before.armed_hand<2&&
         before.armed_hand==after.armed_hand&&before.probe_status==2&&before.kind==after.kind;
     if(!owner||selected_index < -1 ||selected_index>1)return false;
+    if(before.support_weapon_id!=after.support_weapon_id||
+        (before.support_weapon_id&&(before.support_loaded<0||before.support_loaded!=after.support_loaded)))return false;
     if(before.kind==CoJManualReloadKind::unit)return selected_index<=0&&
         (after.probe_status==2||after.probe_status==3||
             (after.probe_status==1&&before.native_body_cycle&&after.native_body_cycle))&&

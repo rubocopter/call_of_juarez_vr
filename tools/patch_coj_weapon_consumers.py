@@ -879,8 +879,149 @@ def patch_manual_reload_classes(player: bytes, machine: bytes):
     from coj_manual_reload import patch_manual_classes
     return patch_manual_classes(player, machine)
 
+def patch_dynamite_trace(player: bytes, weapon_throw: bytes, *, motion=False) -> tuple[bytes, bytes]:
+    """Snapshot native callbacks in transient scalar fields on their former owner."""
+    from coj_reload_wait_probe import ClassEdit
+
+    if hashlib.sha256(weapon_throw).hexdigest() != "510ef287839135a45a00c8ed8a73979c9e33f50486eb3cf60265507203ef6942":
+        raise ValueError("Unknown WeaponThrow.class SHA-256; no dynamite trace")
+    p = ClassEdit(player)
+    w = ClassEdit(weapon_throw)
+    player_class = "ArmedPlayerBeing"
+    owner_signature = "LPawnInventory;"
+    owner = p.ref("InvObject", "cOwner", owner_signature, 9)
+    stick = p.cls("WeaponDynamiteStick")
+    class_name = p.append(b"\x08" + u2(p.utf8("WeaponDynamiteStick")))
+    weapon_id = p.ref("GameObject", "GetThisID", "()I")
+    right_name, right_desc = "cojvrDynamiteRightOwner", "(LWeapon;)Z"
+    begin_name, begin_desc = "cojvrObserveDynamiteBegin", "(LWeapon;)V"
+    release_name, release_desc = "cojvrObserveDynamiteRelease", "(LWeapon;LVector;LVector;)V"
+
+    c = Code()
+    c.emit(0x2b); c.ref(0xc1, stick); c.branch(0x99, "no")
+    c.ref(0xb8, p.ref(player_class, "IsNetGame", "()Z")); c.branch(0x9a, "no")
+    c.emit(0x2b); c.ref(0xb4, owner); c.emit(0x2a); c.branch(0xa6, "no")
+    c.emit(0x2a, 0x03); c.ref(0xb6, p.ref(player_class, "GetActualWeapon", "(I)LWeapon;"))
+    c.emit(0x2b); c.branch(0xa6, "no")
+    c.ref(0x13, class_name); c.emit(0x2b)
+    c.ref(0xb6, p.ref("java/lang/Object", "getClass", "()Ljava/lang/Class;"))
+    c.ref(0xb6, p.ref("java/lang/Class", "getName", "()Ljava/lang/String;"))
+    c.ref(0xb6, p.ref("java/lang/String", "equals", "(Ljava/lang/Object;)Z"))
+    c.emit(0xac)
+    c.label("no"); c.emit(0x03, 0xac)
+    p.helper(right_name, right_desc, c.finish(), 2)
+
+    if motion:
+        def player_method(name, desc):
+            return p.ref(player_class, name, desc)
+
+        c = Code()
+        c.emit(0x2a, 0x03)
+        c.ref(0xb6, player_method("GetActualWeapon", "(I)LWeapon;")); c.emit(0x4c)
+        c.emit(0x2a, 0x2b); c.ref(0xb6, player_method(right_name, right_desc))
+        c.branch(0x99, "no")
+        c.emit(0x2a); c.ref(0xb4, p.ref(player_class, "m_bNetAttackForced", "Z", 9))
+        c.branch(0x9a, "no")
+        for getter in ("GetActiveWeapon", "GetDesiredWeapon"):
+            c.emit(0x2a, 0x03); c.ref(0xb6, player_method(getter, "(I)LWeapon;"))
+            c.emit(0x2b); c.branch(0xa6, "no")
+        # A refused right attack can retry the other hand. Require actual,
+        # active and desired to be empty there before synthesizing input.
+        for getter in ("GetActualWeapon", "GetActiveWeapon", "GetDesiredWeapon"):
+            c.emit(0x2a, 0x04); c.ref(0xb6, player_method(getter, "(I)LWeapon;"))
+            c.branch(0xc7, "no")
+        for predicate in ("IsNotAlive", "IsCarrying", "IsWeaponReloading"):
+            c.emit(0x2a); c.ref(0xb6, player_method(predicate, "()Z")); c.branch(0x9a, "no")
+        for hand in (0x03, 0x04):
+            c.emit(0x2a, hand); c.ref(0xb6, player_method("GetAttackState", "(I)Z"))
+            c.branch(0x9a, "no")
+        c.emit(0x2a, 0x2b); c.ref(0xb6, player_method("GetWeaponMoveState", "(LWeapon;)I"))
+        c.emit(0x3d)
+        for getter in ("GetActualWeaponState", "GetDesiredWeaponState", "GetHandStateMashineState"):
+            c.emit(0x2a, 0x03); c.ref(0xb6, player_method(getter, "(I)I"))
+            c.emit(0x1c); c.branch(0xa0, "no")
+        c.emit(0x2b, 0xb0)
+        c.label("no"); c.emit(0x01, 0xb0)
+        p.helper("cojvrGetDynamiteMotionOwner", "()LWeapon;", c.finish(), 3)
+
+    def field(name, desc):
+        return p.field("cojvrDynamite" + name, desc)
+
+    def record_id(c, phase):
+        c.emit(0x2a, 0x2b); c.ref(0xb6, weapon_id); c.ref(0xb5, field(phase + "Id", "I"))
+
+    def commit(c, phase):
+        serial = field(phase + "Serial", "I")
+        c.emit(0x2a, 0x2a); c.ref(0xb4, serial); c.emit(0x04, 0x60); c.ref(0xb5, serial)
+        c.label("done"); c.emit(0xb1)
+
+    c = Code()
+    c.emit(0x2a, 0x2b); c.ref(0xb6, p.ref(player_class, right_name, right_desc))
+    c.branch(0x99, "done")
+    record_id(c, "Begin")
+    for dest, source, desc in (("FuseSeconds", "m_fTimeToExplosion", "F"),
+                               ("Spark", "m_nFXFuseSparkID", "I"),
+                               ("Smoke", "m_nFXFuseSmokeID", "I")):
+        c.emit(0x2a, 0x2b); c.ref(0xc0, stick)
+        c.ref(0xb4, p.ref("WeaponExplosive", source, desc, 9)); c.ref(0xb5, field(dest, desc))
+    commit(c, "Begin")
+    p.helper(begin_name, begin_desc, c.finish(), 2)
+
+    c = Code()
+    # The caller captured the same equipped object before ThrowAway. A return
+    # from SetVelocity with no inventory owner is the handoff receipt.
+    c.emit(0x2b); c.ref(0xb4, owner); c.branch(0xc7, "done")
+    record_id(c, "Release")
+    for label, slot in (("Origin", 0x2c), ("Velocity", 0x2d)):
+        for axis in "XYZ":
+            c.emit(0x2a, slot); c.ref(0xb4, p.ref("Vector", "f" + axis, "F", 9))
+            c.ref(0xb5, field(label + axis, "F"))
+    commit(c, "Release")
+    p.helper(release_name, release_desc, c.finish(), 4)
+
+    begin_call = b"\x2a\x2b\xb6" + u2(p.ref(player_class, begin_name, begin_desc))
+
+    def observe_begin(code):
+        if len(code) != 57 or code[17:20] != b"\xb6" + u2(p.refs["Weapon.AttackBegin(ZIZ)V"]):
+            raise ValueError("Unexpected dynamite attack-begin boundary")
+        return insert_target_tag(code, 20, begin_call, p.pool)
+
+    p.changes["WeaponAttackBegin", "(LWeapon;I)V"] = observe_begin
+
+    c = Code()
+    throw_owner = w.refs["WeaponThrow.cOwnerLPawnInventory;"]
+    armed = w.cls(player_class)
+    # Slot 5's native boolean was consumed by the gate before this site.
+    c.emit(0x2a); c.ref(0xb4, throw_owner); c.emit(0x3a, 5, 0x19, 5)
+    c.ref(0xc1, armed); c.branch(0x99, "unobserved")
+    c.emit(0x19, 5); c.ref(0xc0, armed); c.emit(0x2a)
+    c.ref(0xb6, w.ref(player_class, right_name, right_desc)); c.branch(0x9a, "done")
+    c.label("unobserved"); c.emit(0x01, 0x3a, 5)
+    c.label("done")
+    retain_owner = c.finish()
+
+    c = Code()
+    c.emit(0x19, 5); c.branch(0xc6, "done")
+    c.emit(0x19, 5); c.ref(0xc0, armed); c.emit(0x2a, 0x2c)
+    c.ref(0xb2, w.refs["WeaponThrow.sm_vrLinVelLVector;"])
+    c.ref(0xb6, w.ref(player_class, release_name, release_desc))
+    c.label("done")
+    record_release = c.finish()
+    throw_pool = parse_constant_pool(Reader(u2(w.next) + weapon_throw[10:w.cp_end] + w.extra))
+
+    def observe_release(code):
+        if (len(code) != 254 or code[65:69] != b"\x2a\xb6" + u2(w.refs["WeaponThrow.ThrowAway()V"]) or
+                code[184:187] != b"\xb6" + u2(w.refs["WeaponThrow.SetVelocity(LVector;LVector;)V"])):
+            raise ValueError("Unexpected dynamite world handoff boundary")
+        code = insert_target_tag(code, 187, record_release, w.pool)
+        return insert_target_tag(code, 65, retain_owner, throw_pool)
+
+    w.changes["AttackThrow", "(LWpnAttackThrow;LVector;LVector;Z)V"] = observe_release
+    return p.finish(), w.finish()
+
+
 def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_reload=False,
-                  *, tutorial_data_en: Path | None = None):
+                  *, tutorial_data_en: Path | None = None, dynamite_trace=False, dynamite_motion=False):
     if reload_wait_probe and manual_reload:
         raise ValueError('Select only one reload archive variant')
     if source.resolve() == output.resolve() or output.exists():
@@ -927,10 +1068,19 @@ def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_re
                 original.read('ArmedPlayerBeing.class'), original.read('StateMashine.class'))
             patched['ArmedPlayerBeing.class'] = player
             patched['StateMashine.class'] = machine
+        if manual_reload:
+            from coj_schofield_unload import patch_schofield_case_classes
+            patched['WeaponFire.class'], patched['WeaponFireAmmo.class'] = patch_schofield_case_classes(
+                patched['WeaponFire.class'], original.read('WeaponFireAmmo.class'))
         from coj_physical_punch import patch_punch_classes
         player,melee=patch_punch_classes(patched['ArmedPlayerBeing.class'],original.read('WeaponMelee.class'))
         patched['ArmedPlayerBeing.class']=player
         patched['WeaponMelee.class']=melee
+        if dynamite_trace or dynamite_motion:
+            player, weapon_throw = patch_dynamite_trace(
+                player, original.read('WeaponThrow.class'), motion=dynamite_motion)
+            patched['ArmedPlayerBeing.class'] = player
+            patched['WeaponThrow.class'] = weapon_throw
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():
@@ -950,6 +1100,11 @@ if __name__ == "__main__":
         help='Experimental Square preparation, native supervised wait and immediate per-round insertion')
     p.add_argument('--tutorial-data-en', type=Path,
         help='Read exact original EN resources for scoped native tutorial presentation')
+    p.add_argument('--dynamite-trace', action='store_true',
+        help='Observe exact native dynamite attack-begin and world handoff')
+    p.add_argument('--dynamite-motion', action='store_true',
+        help='Add exact equipped dynamite ownership for the local motion candidate')
     a = p.parse_args(); patch_archive(a.source, a.output, a.reload_wait_probe, a.manual_reload,
-                                    tutorial_data_en=a.tutorial_data_en)
+                                    tutorial_data_en=a.tutorial_data_en, dynamite_trace=a.dynamite_trace,
+                                    dynamite_motion=a.dynamite_motion)
     print("Exact shot, interaction and procedural-whip consumers patched; other payloads verified unchanged")

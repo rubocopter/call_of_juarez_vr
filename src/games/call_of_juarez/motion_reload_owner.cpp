@@ -30,7 +30,7 @@ template<class T> T Fn(void* env, std::size_t index) noexcept {
 }
 struct Locals {
     void* env;
-    std::array<void*, 32> refs{};
+    std::array<void*, 48> refs{};
     std::size_t count = 0;
     void* Keep(void* ref) noexcept { if (ref) refs[count++] = ref; return ref; }
     ~Locals() { while (count) Fn<Delete>(env, 23)(env, refs[--count]); }
@@ -153,7 +153,7 @@ bool ReadCoJMotionReloadWeaponClassName(void* env, void* player, int hand,
 }
 
 static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& out,
-    CoJMotionReloadDiagnostic* diagnostic, const bool native_recovery) noexcept {
+    CoJMotionReloadDiagnostic* diagnostic, const bool native_recovery, int paired_hand=-1) noexcept {
     out = {};
     if (diagnostic) *diagnostic = {};
     const auto reject = [&](CoJMotionReloadRejectReason reason) noexcept {
@@ -190,11 +190,15 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
         classes[i] = locals.Keep(Fn<Find>(env, 6)(env, kCoJRevolvers[i].class_name));
         if (!Clean(env) || !classes[i]) return reject(CoJMotionReloadRejectReason::jni_failure);
     }
+    bool comparisons_clean=true;
     auto same = [&](void* a, void* b) noexcept {
         const bool equal = Fn<Same>(env, 24)(env, a, b) != 0;
-        return Clean(env) && equal;
+        comparisons_clean=Clean(env)&&comparisons_clean;
+        return comparisons_clean&&equal;
     };
     const CoJRevolverProfile* profile = nullptr;
+    const bool paired=paired_hand>=0;
+    void* support_class=nullptr;
     void* owner_field = nullptr;
     void* net_game = nullptr;
     auto read = [&](std::array<Hand, 2>& hands) noexcept {
@@ -270,6 +274,17 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
             void* owner=locals.Keep(Fn<GetObject>(env,95)(env,gun.weapons[0],owner_field));
             if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
             if (!owner || !same(owner,player)) return reject(CoJMotionReloadRejectReason::owner_changed);
+            if(paired){
+                if(!support.weapons[0]||!same(support.weapons[0],support.weapons[1])||
+                    !same(support.weapons[0],support.weapons[2])||same(gun.weapons[0],support.weapons[0]))
+                    return reject(CoJMotionReloadRejectReason::weapon_identity);
+                void* other_type=locals.Keep(Fn<Class>(env,31)(env,support.weapons[0]));
+                if(!Clean(env)||!other_type||!same(other_type,support_class))
+                    return reject(CoJMotionReloadRejectReason::unsupported_weapon);
+                void* other_owner=locals.Keep(Fn<GetObject>(env,95)(env,support.weapons[0],owner_field));
+                if(!Clean(env)||!other_owner||!same(other_owner,player))
+                    return reject(CoJMotionReloadRejectReason::owner_changed);
+            }
             if (net_game) {
                 const bool network=Fn<Boolean>(env,119)(env,player_class,net_game,nullptr)!=0;
                 if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
@@ -280,6 +295,11 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
         // occupation fallback. Recovery already proved no carried object in
         // this snapshot; the remaining empty-support, reload and exact-identity
         // checks must all pass before publishing any recovery owner.
+        if(paired){
+            if(support.states!=std::array<int,4>{1,1,1,1}||
+                support.two_handed!=std::array<bool,3>{}||gun.two_handed!=std::array<bool,3>{})
+                return reject(CoJMotionReloadRejectReason::support_state);
+        }else{
         if (support.occupied && !((native_recovery || profile->right_owned_only) && gun.states[0] != 0 &&
                 gun.state_machine_two_hand))
             return reject(CoJMotionReloadRejectReason::support_occupied);
@@ -287,6 +307,7 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
             return reject(CoJMotionReloadRejectReason::support_weapon);
         for (int state : support.states) if (state != 0)
             return reject(CoJMotionReloadRejectReason::support_state);
+        }
         bool has_reload_state = false;
         for (int state : gun.states) {
             const bool reload_state = state == 20 || state == 21 || state == 22;
@@ -304,7 +325,7 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
     };
     std::array<Hand, 2> first{}, second{};
     if (!read(first)) return false;
-    const int armed = first[0].weapons[0] ? 0 : 1;
+    const int armed = paired?paired_hand:(first[0].weapons[0] ? 0 : 1);
     if (!first[armed].weapons[0]) return reject(CoJMotionReloadRejectReason::no_armed_weapon);
     void* weapon_class = locals.Keep(Fn<Class>(env, 31)(env, first[armed].weapons[0]));
     if (!Clean(env) || !weapon_class) return reject(CoJMotionReloadRejectReason::jni_failure);
@@ -316,6 +337,16 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
         if (equal) profile = &kCoJRevolvers[class_index];
     }
     if (!profile) return reject(CoJMotionReloadRejectReason::unsupported_weapon);
+    if(paired){
+        if(!IsCoJSchofield(profile->class_name)||!first[1-armed].weapons[0])
+            return reject(CoJMotionReloadRejectReason::unsupported_weapon);
+        support_class=locals.Keep(Fn<Class>(env,31)(env,first[1-armed].weapons[0]));
+        if(!Clean(env)||!support_class)return reject(CoJMotionReloadRejectReason::jni_failure);
+        bool exact=false;
+        for(std::size_t i=0;i<classes.size();++i)
+            if(classes[i]&&IsCoJSchofield(kCoJRevolvers[i].class_name)&&same(support_class,classes[i]))exact=true;
+        if(!exact)return reject(CoJMotionReloadRejectReason::unsupported_weapon);
+    }
     if (profile->native_body_cycle || profile->manual_supported) {
         if (!(*static_cast<void***>(env))[94] || !(*static_cast<void***>(env))[95])
             return reject(CoJMotionReloadRejectReason::jni_unavailable);
@@ -339,11 +370,22 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
     if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
     if (!IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(id)))
         return reject(CoJMotionReloadRejectReason::invalid_weapon_id);
+    void* support_id_method=paired?Fn<Method>(env,33)(env,support_class,"GetThisID","()I"):nullptr;
+    if(paired&&(!Clean(env)||!support_id_method))return reject(CoJMotionReloadRejectReason::jni_failure);
+    const auto support_id=paired?Fn<Integer>(env,51)(env,first[1-armed].weapons[0],support_id_method,nullptr):0;
+    if(paired&&(!Clean(env)||support_id==id||!IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(support_id))))
+        return reject(CoJMotionReloadRejectReason::invalid_weapon_id);
     // Recheck on the same game owner before publication. This rejects observed
     // replacement, without claiming cross-thread atomicity or advancing state.
     if (!read(second) || !eligible(second, armed)) return false;
     if (!same(first[armed].weapons[0], second[armed].weapons[0]))
         return reject(CoJMotionReloadRejectReason::owner_changed);
+    if(paired){
+        if(!same(first[1-armed].weapons[0],second[1-armed].weapons[0]))
+            return reject(CoJMotionReloadRejectReason::owner_changed);
+        const auto repeated_id=Fn<Integer>(env,51)(env,second[1-armed].weapons[0],support_id_method,nullptr);
+        if(!Clean(env)||repeated_id!=support_id)return reject(CoJMotionReloadRejectReason::owner_changed);
+    }
     if (profile->native_body_cycle || profile->manual_supported) {
         for (int hand=0; hand<2; ++hand)
             if (first[hand].states!=second[hand].states ||
@@ -356,7 +398,9 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
         if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
         if (second_id != id) return reject(CoJMotionReloadRejectReason::owner_changed);
     }
+    if(!comparisons_clean)return reject(CoJMotionReloadRejectReason::jni_failure);
     out = {armed, static_cast<std::uint32_t>(id), true, profile->single_round,profile->kind,profile->manual_supported};
+    out.support_weapon_id=static_cast<std::uint32_t>(support_id);
     if (diagnostic) diagnostic->reason = CoJMotionReloadRejectReason::none;
     return true;
 }
@@ -367,6 +411,11 @@ bool ReadCoJMotionReloadOwner(void* env, void* player, CoJMotionReloadOwner& out
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player, CoJMotionReloadOwner& out,
     CoJMotionReloadDiagnostic* diagnostic) noexcept {
     return ReadCoJReloadOwner(env, player, out, diagnostic, true);
+}
+bool ReadCoJDualSchofieldReloadOwner(void* env, void* player, int hand, bool recovery,
+    CoJMotionReloadOwner& out) noexcept {
+    out={};
+    return hand>=0&&hand<2&&ReadCoJReloadOwner(env,player,out,nullptr,recovery,hand);
 }
 bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* after_shot) noexcept {
     if (after_shot) *after_shot={};
@@ -482,19 +531,26 @@ bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* 
     const std::string_view exact_class=manual?manual->class_name:"";
     const bool winchester=armed==0&&
         (exact_class=="WeaponRifleWinchester"||exact_class=="WeaponRifleWinchesterScope");
-    const bool defer=manual&&(manual->single_round||winchester||IsCoJSchofield(exact_class));
-    if (defer && !support.weapons[0] &&
-        support.states==std::array<int,4>{} && first[armed].states==std::array{32,1,1,1}) {
+    const bool schofield=IsCoJSchofield(exact_class);
+    const auto& armed_states=first[armed].states;
+    // CoJ also reports the Schofield attack body (31) after the other three
+    // state observations have already returned to normal idle. Defer only
+    // that exact transition and let ordinary admission recheck the owner.
+    const bool leaving_shot=(manual&&(manual->single_round||winchester||schofield)&&
+        armed_states==std::array{32,1,1,1}) || (schofield&&armed_states==std::array{31,1,1,1});
+    if (leaving_shot && !support.weapons[0] && support.states==std::array<int,4>{}) {
         if (after_shot) *after_shot={armed,static_cast<std::uint32_t>(id),true,
             manual->single_round,manual->kind,manual->manual_supported};
         return false;
     }
-    return true;
+    return !schofield;
 }
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
-    const bool include_wait_probe, const int selected_index, void* expected_weapon) noexcept {
+    const bool include_wait_probe, const int selected_index, void* expected_weapon, int paired_hand,
+    bool read_schofield_cases) noexcept {
     out = {};
-    if (!env || !player || selected_index < -1 || selected_index > 1 || !*static_cast<void***>(env)) return false;
+    if (!env || !player || selected_index < -1 || selected_index > 1 || paired_hand < -1 || paired_hand > 1 ||
+        !*static_cast<void***>(env)) return false;
     constexpr int required[]{6,15,17,23,24,31,33,36,39,51,57,94,95,100,102};
     for (int i : required) if (!(*static_cast<void***>(env))[i]) return false;
     if (!Clean(env)) return false;
@@ -548,12 +604,17 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
         Value arg{.integer=h};
         for (int i=0;i<3;++i) weapons[h][i]=object(player,weapon_methods[i],&arg);
     }
-    if (!ok || (weapons[0][0]!=nullptr)==(weapons[1][0]!=nullptr)) return false;
-    const int armed = weapons[0][0] ? 0 : 1;
+    const bool paired=paired_hand>=0;
+    if (!ok || (paired?(!weapons[0][0]||!weapons[1][0]):
+        (weapons[0][0]!=nullptr)==(weapons[1][0]!=nullptr))) return false;
+    const int armed = paired?paired_hand:(weapons[0][0] ? 0 : 1);
     void* weapon = weapons[armed][0];
+    void* support=weapons[1-armed][0];
+    if(paired&&(same(weapon,support)||!ok))return false;
     if(expected_weapon && !same(weapon,expected_weapon))return false;
     for (int i=0;i<3;++i)
-        if (weapons[1-armed][i] || !same(weapon,weapons[armed][i])) return false;
+        if ((paired?!same(support,weapons[1-armed][i]):weapons[1-armed][i]!=nullptr) ||
+            !same(weapon,weapons[armed][i])) return false;
     void* weapon_type = type(weapon);
     if (!ok) return false;
     const CoJRevolverProfile* recognized=nullptr;
@@ -574,6 +635,31 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     const int identity = integer(weapon,id_method,nullptr);
     if (!ok || !IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(identity))) return false;
     CoJReloadTraceSnapshot value{};
+    void* support_id=nullptr;
+    void* support_ammo=nullptr;
+    if(paired){
+        if(!IsCoJSchofield(recognized->class_name))return false;
+        void* other_type=type(support);
+        if(!ok)return false;
+        bool modern=false;
+        for(const auto* name:{"WeaponPistolSchofield","WeaponPistolSchofield_A","WeaponPistolSchofield_B"}){
+            void* cls=locals.Keep(Fn<Find>(env,6)(env,name));
+            if(!Clean(env)||!cls)return false;
+            modern|=same(other_type,cls);
+            if(!ok)return false;
+        }
+        if(!modern)return false;
+        void* other_owner=locals.Keep(Fn<GetField>(env,95)(env,support,owner_id));
+        if(!Clean(env)||!same(other_owner,player))return false;
+        support_id=method(other_type,"GetThisID","()I");
+        const auto id=static_cast<std::uint32_t>(integer(support,support_id,nullptr));
+        if(!ok||id==static_cast<std::uint32_t>(identity)||!IsCoJNativeObjectIdentity(id))return false;
+        value.support_weapon_id=id;
+        support_ammo=field(other_type,"m_iAmmo0Count","I");
+        if(!ok)return false;
+        value.support_loaded=Fn<GetInt>(env,100)(env,support,support_ammo);
+        if(!Clean(env)||value.support_loaded<0||value.support_loaded>6)return false;
+    }
     value.armed_hand=armed; value.weapon_id=static_cast<std::uint32_t>(identity);
     value.weapon_class=recognized->class_name;
     value.kind=recognized->kind;value.index_count=recognized->index_count;
@@ -640,6 +726,14 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     value.reserve_readback=value.reserves[value.reserve_indices[value.selected_index]];
     value.native_body_cycle=recognized->native_body_cycle;
     value.drum_phase=real_field(weapon,weapon_type,"m_fRotate");
+    void* spent_field=nullptr;
+    if(read_schofield_cases&&IsCoJSchofield(value.weapon_class)){
+        spent_field=field(weapon_type,"cojvrSchofieldSpent","I");
+        if(!ok)return false;
+        value.schofield_spent=Fn<GetInt>(env,100)(env,weapon,spent_field);
+        if(!Clean(env)||value.schofield_spent<0||value.schofield_spent>6-value.ammo_readback)
+            return false;
+    }
     void* reload = method(player_type,"IsWeaponReloading","()Z");
     if (!ok) return false;
     value.reloading=Fn<Boolean>(env,39)(env,player,reload,nullptr)!=0;
@@ -658,14 +752,25 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
         Value hand{.integer=h};
         for(void* getter:weapon_methods){
             void* observed=object(player,getter,&hand);
-            if(!ok||(h==armed?!same(weapon,observed):observed!=nullptr))return false;
+            if(!ok||(h==armed?!same(weapon,observed):paired?!same(support,observed):observed!=nullptr))return false;
         }
     }
     if (!ok || integer(weapon,id_method,nullptr)!=identity || !ok) return false;
     std::array<int,2> loaded_after{};std::array<int,3> reserves_after{};
     if(!counts(loaded_after,reserves_after)||loaded_after!=value.loaded||reserves_after!=value.reserves)return false;
+    if(spent_field){
+        const int spent_after=Fn<GetInt>(env,100)(env,weapon,spent_field);
+        if(!Clean(env)||spent_after!=value.schofield_spent)return false;
+    }
     void* owner_after=locals.Keep(Fn<GetField>(env,95)(env,weapon,owner_id));
     if(!Clean(env)||!same(owner_after,player))return false;
+    if(paired){
+        if(static_cast<std::uint32_t>(integer(support,support_id,nullptr))!=value.support_weapon_id||!ok)return false;
+        const int ammo=Fn<GetInt>(env,100)(env,support,support_ammo);
+        if(!Clean(env)||ammo!=value.support_loaded)return false;
+        void* other_owner=locals.Keep(Fn<GetField>(env,95)(env,support,owner_id));
+        if(!Clean(env)||!same(other_owner,player))return false;
+    }
     value.valid=true; out=value; return true;
 }
 CoJReloadTraceEvent CoJReloadTraceEvents::Update(bool enabled, const CoJReloadTraceSample& sample) noexcept {

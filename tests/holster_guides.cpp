@@ -7,6 +7,7 @@ using namespace games::call_of_juarez;
 void Check(bool ok,const char* why){if(!ok){std::cerr<<why<<'\n';std::exit(1);}}
 int main(){
     CoJVirtualHolsterSample s;s.allowed=s.native_ready=true;s.raw.active=true;
+    s.ready_hands=3;
     s.head={{0,1.7F,0},{},true,true};
     s.grips={runtime::Pose{{.22F,1,0},{},true,true},runtime::Pose{{-.22F,1,0},{},true,true}};
     s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=0x27;
@@ -15,6 +16,33 @@ int main(){
     Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.count==4,"owned slots must have bounded guides");
     Check(out.holster_guides.zones[0].state==1&&out.holster_guides.zones[1].state==1,
         "hand inside a hip zone must highlight its guide");
+    using Kind=runtime::GestureGuideKind;
+    Check(out.holster_guides.zones[0].kind==Kind::holster_pistol&&
+        out.holster_guides.zones[1].kind==Kind::holster_pistol&&
+        out.holster_guides.zones[2].kind==Kind::holster_long_gun&&
+        out.holster_guides.zones[3].kind==Kind::holster_bow,"slots share the wrong equipment marks");
+    CoJVirtualHolsterState readiness;
+    s.player=7;s.context=9;s.raw.input_context_generation=3;
+    const auto step=[&](bool right,bool left){
+        ++s.sequence;s.now_us+=10000;
+        auto mapped=s.raw;
+        (void)readiness.Update(s,mapped);
+        s.ready_hands=readiness.ready_hands();
+        s.selection_blocked=readiness.selection_blocked();
+        Check(BuildCoJHolsterGuides(s,true,out),"release barrier lost owned guide surfaces");
+        for(unsigned i=0;i<kCoJVirtualHolsterZones.size();++i){
+            const auto hand=kCoJVirtualHolsterZones[i].hand;
+            Check((out.holster_guides.zones[i].state!=2)==(hand==0?right:left),
+                "hip and shoulder guides disagree with their hand's release barrier");
+        }
+    };
+    step(true,true);
+    s.raw.interact=true;step(true,false);
+    s.raw.interact=false;s.raw.digital_available&=~(1U<<6);step(true,false);
+    s.raw.digital_available|=1U<<6;step(true,true);
+    s.raw.kick=true;step(false,true);
+    s.raw.kick=false;s.raw.digital_available&=~(1U<<9);step(false,true);
+    s.raw.digital_available|=1U<<9;step(true,true);
     for(unsigned z=0;z<4;++z){
         const auto& guide=out.holster_guides.zones[z];
         runtime::Vec3 centre{};for(auto c:guide.head_corners){centre.x+=c.x*.25F;centre.y+=c.y*.25F;centre.z+=c.z*.25F;}

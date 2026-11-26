@@ -46,6 +46,7 @@ struct CoJMotionReloadOwner {
     bool single_round_supported = false; // Legacy unit pacing only; never indexed/clip.
     CoJManualReloadKind kind = CoJManualReloadKind::unit;
     bool manual_supported = false;
+    std::uint64_t support_weapon_id = 0;
     [[nodiscard]] bool SupportsManual() const noexcept {
         return single_round_supported || manual_supported;
     }
@@ -72,6 +73,8 @@ bool ReadCoJMotionReloadOwner(void* env, void* player,
 // the adapter must match the result to its accepted continuation owner.
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player,
     CoJMotionReloadOwner& out, CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+bool ReadCoJDualSchofieldReloadOwner(void* env, void* player, int hand, bool recovery,
+    CoJMotionReloadOwner& out) noexcept;
 // Positive native-only firearm observation, independent of manual idle/recovery
 // states. Exact class, coherent hand slots, cOwner and object/ID stability are
 // required. A supported exact shot tail may publish an owner for a deferred

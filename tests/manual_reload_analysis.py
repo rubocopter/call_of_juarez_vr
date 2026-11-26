@@ -70,12 +70,18 @@ class GestureEvidenceTests(unittest.TestCase):
                         loaded_after='0', reserve_before='54', reserve_after='58')
         declined = dict(complete, reason='reserve_full', loaded_before='6',
                         loaded_after='6', reserve_before='97', reserve_after='97')
+        spent = dict(complete, reason='spent_cases_ejected', loaded_before='0',
+                     loaded_after='0', reserve_before='97', reserve_after='97',
+                     spent_before='6', spent_after='0', support_loaded_before='3', support_loaded_after='3')
         cases = [
             ('accepted', accepted, 'return_readback_reported'),
             ('declined', declined, 'refusal_readback_reported'),
             ('declined', dict(declined, reason='native_guard'), 'refusal_readback_reported'),
             ('accepted', dict(accepted, reserve_after='57'), 'invalid_unload_readback'),
             ('accepted', dict(accepted, same_wait_owner='0'), 'invalid_unload_readback'),
+            ('accepted', spent, 'cases_ejected_readback_reported'),
+            ('accepted', dict(spent, support_loaded_after='4'), 'invalid_unload_readback'),
+            ('accepted', dict(spent, reserve_after='98'), 'invalid_unload_readback'),
             ('declined', dict(declined, loaded_after='5'), 'invalid_unload_readback'),
             ('declined', dict(declined, loaded_before='-1'), 'invalid_unload_readback'),
             ('uncertain', dict(complete, reason='native_fault'), 'uncertain'),
@@ -282,6 +288,29 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertTrue(row['release'])
         self.assertIsNone(row['tip_distance_cm'])
         self.assertFalse(row['ammo_slot_mapping_proven'])
+
+    def test_receiver_trace_identifies_release_policy_without_claiming_socket_admission(self):
+        for policy in ({}, {'release_policy': 'winchester_receiver'}):
+            with self.subTest(policy=policy):
+                report = self.evidence([mouth_preview(release=1, **policy), winchester_loading_sample(source='post_overlay')])
+                row, = report['loading_mouth_comparisons']
+                self.assertEqual(row['status'], 'compared')
+                self.assertEqual(row['release_policy'], policy.get('release_policy', 'legacy_grip_zone'))
+                self.assertFalse(row['socket_admitted'])
+        report = self.evidence([mouth_preview(release=1, grip_release_admitted=1,
+                                              release_policy='winchester_receiver'),
+                                winchester_loading_sample(source='post_overlay')])
+        row, = report['loading_mouth_comparisons']
+        self.assertEqual(row['status'], 'pre_transfer')
+        self.assertIsNone(row['render_line'])
+        self.assertFalse(row['socket_admitted'])
+
+    def test_wrong_class_cannot_claim_receiver_release_policy(self):
+        report = self.evidence([mouth_preview(shotgun=True, release_policy='winchester_receiver'),
+                                remington_loading_sample()])
+        row, = report['loading_mouth_comparisons']
+        self.assertEqual(row['status'], 'rejected')
+        self.assertIn('invalid_release_policy', row['issues'])
 
     def test_mouth_preview_does_not_pair_across_transfer_wait_slot_or_owner(self):
         cases = (
@@ -1338,6 +1367,28 @@ class ReloadAnalysisTests(unittest.TestCase):
         report=self.evidence([trace(2),insertion(ammo_after=6,reserve_after=6,**bad),
             trace(3,status=3,ammo_readback_after=6,pistol_reserve_after=6)])
         self.assertEqual(report['insertions'][0]['assessment'],'invalid_family_readback')
+
+    def test_schofield_chest_readback_distinguishes_held_open_route(self):
+        fields=dict(reload_mode='clip',insertion_input='chest',schofield_hold_open=1,
+            weapon_class='WeaponPistolSchofield',selected_index=-1,loaded_before='2,0',
+            loaded_after='6,0',reserves_before='10,0,0',reserves_after='6,0,0',
+            capacities='6,0',reserve_indices='0,0',probe_status_after=2,
+            feedback_qualified=1,reserve_kind='pistol')
+        def report_for(result='accepted',**change):
+            values=dict(fields,**change)
+            return self.evidence([trace(2),insertion(result=result,ammo_after=6,reserve_after=6,**values),
+                trace(3,status=values['probe_status_after'],ammo_readback_after=6,pistol_reserve_after=6)])
+        report=report_for()
+        self.assertEqual(report['summary']['chest_clip_readbacks_reported'],1)
+        self.assertEqual(report['issues'],[])
+        for change in (dict(probe_status_after=3),dict(schofield_hold_open=0),dict(reload_mode='unit')):
+            report=report_for(**change)
+            self.assertEqual(report['summary']['chest_clip_readbacks_reported'],0)
+            self.assertEqual(report['insertions'][0]['assessment'],'invalid_chest_route')
+        rejected=report_for(result='rejected')
+        self.assertEqual(rejected['insertions'][0]['assessment'],'readback_changed_after_rejection')
+        self.assertIn('readback_changed_after_rejection',[issue['kind'] for issue in rejected['issues']])
+        self.assertFalse(report['headset_validated'])
 
     def test_indexed_shell_readback_retains_other_slot_and_shared_reserve(self):
         fields=dict(reload_mode='indexed',weapon_class='WeaponRifleRemington',selected_index=1,

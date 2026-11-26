@@ -1,6 +1,7 @@
 #pragma once
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/remington_loading_probe.hpp"
+#include <algorithm>
 #include <string_view>
 
 namespace cojvr::games::call_of_juarez {
@@ -13,15 +14,38 @@ struct CoJReloadMouthPreview {
     ElementWorldBasisTarget tip_cm{};
 };
 
-inline const char* CoJReloadMouthElement(const CoJReloadTraceSnapshot& native) noexcept {
-    if(!native.weapon_class||native.armed_hand<0||native.armed_hand>1)return nullptr;
-    const std::string_view name{native.weapon_class};
-    if(native.armed_hand==0&&(name=="WeaponRifleWinchester"||name=="WeaponRifleWinchesterScope"))
-        return "GunBody";
-    if(name=="WeaponRifleRemingtonSawOff"||(native.armed_hand==0&&name=="WeaponRifleRemington"))
-        return "GunBarrel";
-    return nullptr;
+inline constexpr std::array<std::string_view,4> kCoJReloadMouthModels{
+    "WeaponRifleWinchester","WeaponRifleWinchesterScope",
+    "WeaponRifleRemington","WeaponRifleRemingtonSawOff"};
+
+inline std::size_t CoJReloadMouthModelIndex(const CoJReloadTraceSnapshot& native) noexcept {
+    if(!native.weapon_class||native.armed_hand<0||native.armed_hand>1)return kCoJReloadMouthModels.size();
+    if(native.armed_hand==1&&std::string_view(native.weapon_class)!=kCoJReloadMouthModels.back())
+        return kCoJReloadMouthModels.size();
+    const auto model=std::find(kCoJReloadMouthModels.begin(),kCoJReloadMouthModels.end(),native.weapon_class);
+    return static_cast<std::size_t>(model-kCoJReloadMouthModels.begin());
 }
+
+inline const char* CoJReloadMouthElement(const CoJReloadTraceSnapshot& native) noexcept {
+    const auto model=CoJReloadMouthModelIndex(native);
+    if(model>=kCoJReloadMouthModels.size())return nullptr;
+    return model<2?"GunBody":"GunBarrel";
+}
+
+class CoJReloadMouthTraceBudget {
+public:
+    bool CanSample(const CoJReloadTraceSnapshot& native,bool release) const noexcept {
+        const auto model=CoJReloadMouthModelIndex(native);
+        return model<held_.size()&&(release?released_[model]<10:held_[model]<20);
+    }
+    bool Record(const CoJReloadTraceSnapshot& native,bool release) noexcept {
+        if(!CanSample(native,release))return false;
+        ++(release?released_:held_)[CoJReloadMouthModelIndex(native)];
+        return true;
+    }
+private:
+    std::array<unsigned,kCoJReloadMouthModels.size()> held_{},released_{};
+};
 
 inline bool SameCoJReloadMouthPhase(const CoJReloadTraceSnapshot& a,
     const CoJReloadTraceSnapshot& b) noexcept {

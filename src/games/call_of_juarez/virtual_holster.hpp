@@ -15,6 +15,7 @@ struct CoJVirtualHolsterSample {
     runtime::Pose head{};
     std::array<runtime::Pose,2> grips{}; // right, left
     std::uint64_t player=0,context=0,sequence=0,now_us=0;
+    unsigned ready_hands=0; // Presentation copy of the input release barrier, right then left.
     bool allowed=false,native_ready=false,selection_blocked=false;
 };
 struct CoJVirtualHolsterZone {
@@ -86,6 +87,9 @@ public:
     // Preserve consumed physical holds through loss, not just their old meaning.
     void Invalidate() noexcept {known_=false;armed_={};}
     bool selection_blocked() const noexcept {return selection_blocked_;}
+    unsigned ready_hands() const noexcept {
+        return (armed_[0]&&!down_[0]?1U:0U)|(armed_[1]&&!down_[1]?2U:0U);
+    }
     int Update(const CoJVirtualHolsterSample& s,runtime::GameplayInputState& out) noexcept {
         const std::array<bool,2> held{s.raw.kick,s.raw.interact};
         const std::array<bool,2> mapped{out.kick,out.interact};

@@ -5,6 +5,28 @@
 #include <string_view>
 namespace cojvr::games::call_of_juarez {
 inline constexpr double kCoJManualGripInsertionRadiusM = 0.18;
+inline bool CoJReloadChestCentre(const runtime::Pose& head,runtime::Vec3& centre) noexcept {
+    constexpr float chest_forward=.21F, chest_below_head=.34F;
+    const auto right=runtime::RotateVector(runtime::NormalizeQuaternion(head.orientation),{1,0,0});
+    const float width=std::hypot(right.x,right.z);
+    if(!head.position_valid||!head.orientation_valid||!std::isfinite(width)||width<.5F)return false;
+    centre={head.position.x+chest_forward*right.z/width,
+        head.position.y-chest_below_head,head.position.z-chest_forward*right.x/width};
+    return std::isfinite(centre.x)&&std::isfinite(centre.y)&&std::isfinite(centre.z);
+}
+inline int SelectCoJDualSchofieldHand(const CoJReloadTraceSnapshot& right,
+    const runtime::Pose& head,const runtime::Pose& right_grip,const runtime::Pose& left_grip) noexcept {
+    runtime::Vec3 chest{};
+    if(!right.valid||right.armed_hand!=0||!right.support_weapon_id||
+        right.ammo_readback<0||right.ammo_readback>6||right.support_loaded<0||right.support_loaded>6||
+        !right_grip.position_valid||!left_grip.position_valid||!CoJReloadChestCentre(head,chest))return -1;
+    const auto distance=[&](const runtime::Pose& grip){
+        return std::hypot(grip.position.x-chest.x,grip.position.y-chest.y,grip.position.z-chest.z);
+    };
+    const float r=distance(right_grip),l=distance(left_grip);
+    if(!std::isfinite(r)||!std::isfinite(l))return -1;
+    return l<r?1:0;
+}
 enum class CoJManualReloadPhase { ready, opening, manual_load, closing };
 enum class CoJReloadRefusal { none, reserve_full, native_guard };
 struct CoJSchofieldMotionSample {
@@ -31,6 +53,10 @@ struct CoJManualReloadInput {
     CoJWinchesterReceiverInput receiver{};
     CoJMotionReloadOwner admission{},recovery{},after_shot{};
     CoJReloadTraceSnapshot native{};
+    bool AllowsNativeFallback() const noexcept {
+        return native_fallback_allowed&&
+            !(native.valid&&native.weapon_class&&IsCoJSchofield(native.weapon_class));
+    }
 };
 // Receipt for this sample's active gesture centre, in tracking metres. This
 // is the current grip or the measured Winchester exterior receiver reference.
@@ -43,7 +69,8 @@ struct CoJManualReloadGestureTarget {
 };
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
-    bool schofield_motion=false,unload=false,eject_empty=false;
+    bool schofield_motion=false,unload=false,eject_empty=false,chest_insert=false;
+    std::uint8_t dry_fire_mask=0; // 0 right, 1 left, one pulse per fresh empty press.
     CoJSchofieldMotionSample schofield_sample{};
     CoJReloadRefusal unload_refusal=CoJReloadRefusal::none;
     std::uint32_t transition_controls=0; // Gameplay digital bits held by the preference transition.
@@ -116,15 +143,27 @@ public:
         const bool allowed=s.enabled&&!out.transition_controls&&s.allowed&&input.active&&s.raw.active&&poses&&!s.recentered&&!conflict&&
             source_valid&&!replacement&&!regression&&!gap&&(s.context&1U)!=0&&(s.raw.digital_available&3U)==3U;
         const bool available=allowed&&(s.raw.digital_available&8U)!=0&&s.player!=0;
+        const bool same_hand=s.native.weapon_id==reload_weapon_&&s.native.armed_hand==reload_hand_&&
+            s.native.support_weapon_id==reload_support_weapon_;
+        const bool same_pair=s.native.support_weapon_id&&reload_support_weapon_&&s.native.weapon_id==reload_support_weapon_&&
+            s.native.support_weapon_id==reload_weapon_&&s.native.armed_hand==1-reload_hand_;
         const bool reload_owner_changed=s.player!=reload_player_||s.context!=reload_context_||
-            s.raw.input_context_generation!=reload_generation_||s.native.weapon_id!=reload_weapon_||
-            s.native.armed_hand!=reload_hand_;
+            s.raw.input_context_generation!=reload_generation_||(!same_hand&&!same_pair);
         if(!available||reload_owner_changed)fire_ready_.fill(false);
         const int armed=s.native.armed_hand;
-        const bool empty_fire_edge=available&&fresh&&armed>=0&&armed<2&&fire_ready_[armed]&&
-            (armed==0?input.fire_right:input.fire_left)&&s.native.valid&&s.native.probe_valid&&
-            s.native.kind!=CoJManualReloadKind::indexed&&
-            !s.native.reloading&&s.native.ammo_readback==0&&s.native.reserve_readback>0;
+        const bool idle_dry=allowed&&phase_==CoJManualReloadPhase::ready&&armed>=0&&armed<2&&
+            s.native.valid&&s.native.probe_valid&&(s.native.probe_status==0||s.native.probe_status==4)&&
+            !s.native.reloading&&(s.native.weapon_class||MatchesIdleProbe(s.admission,s.native));
+        if(idle_dry)for(unsigned h=0;h<2;++h){
+            const bool primary=h==static_cast<unsigned>(armed);
+            const bool empty=primary?(s.native.ammo_readback==0&&
+                (s.native.kind!=CoJManualReloadKind::indexed||s.native.loaded==std::array<int,2>{})):
+                s.native.support_weapon_id&&s.native.support_loaded==0;
+            if(!empty||!(h==0?input.fire_right:input.fire_left))continue;
+            const auto mask=static_cast<std::uint8_t>(1U<<h);
+            if(fresh&&fire_ready_[h]&&!s.raw.reload)out.dry_fire_mask|=mask;
+            trigger_claims_|=mask;
+        }
         if(fresh)for(unsigned h=0;h<2;++h) {
             const bool held=h==0?s.raw.fire_right:s.raw.fire_left;
             if(held)fire_ready_[h]=false;
@@ -141,6 +180,7 @@ public:
         if(fresh&&!regression){
             reload_available_=available;reload_player_=s.player;reload_context_=s.context;
             reload_generation_=s.raw.input_context_generation;reload_weapon_=s.native.weapon_id;
+            reload_support_weapon_=s.native.support_weapon_id;
             reload_hand_=s.native.armed_hand;
             if(available&&!s.raw.reload){reload_ready_=true;reload_claim_=false;}
         }
@@ -148,20 +188,23 @@ public:
         const bool bound=phase_!=CoJManualReloadPhase::ready;
         const bool same=bound&&s.player==player_&&s.context==context_&&
             s.raw.input_context_generation==generation_&&s.native.valid&&s.native.probe_valid&&
-            s.native.weapon_id==weapon_&&s.native.armed_hand==hand_&&s.native.kind==kind_;
+            s.native.weapon_id==weapon_&&s.native.armed_hand==hand_&&s.native.kind==kind_&&
+            s.native.support_weapon_id==support_weapon_;
         const bool recovery=s.recovery.valid&&s.recovery.SupportsManual()&&
-            s.recovery.weapon_id==weapon_&&s.recovery.armed_hand==hand_&&s.recovery.kind==kind_;
+            s.recovery.weapon_id==weapon_&&s.recovery.armed_hand==hand_&&s.recovery.kind==kind_&&
+            s.recovery.support_weapon_id==support_weapon_;
         const bool ordinary=s.admission.valid&&s.admission.SupportsManual()&&
-            s.admission.weapon_id==weapon_&&s.admission.armed_hand==hand_&&s.admission.kind==kind_;
+            s.admission.weapon_id==weapon_&&s.admission.armed_hand==hand_&&s.admission.kind==kind_&&
+            s.admission.support_weapon_id==support_weapon_;
         const bool schofield=s.schofield_motion&&s.native.kind==CoJManualReloadKind::clip&&
             s.native.weapon_class&&IsCoJSchofield(s.native.weapon_class);
         if(bound&&phase_==CoJManualReloadPhase::closing&&(!same||s.native.probe_status==4||s.native.probe_status==0)){
             phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;
         }else if(bound&&phase_!=CoJManualReloadPhase::closing){
-            // Opening on an empty trigger already consumed this physical hold.
-            // Only a verified release can arm a subsequent trigger close; do
-            // not let the opening press close its own session one frame later.
-            const bool fire=(hand_==0?input.fire_right:input.fire_left)&&
+            // Only the native waiting phase accepts a trigger close. Opening
+            // and per-cartridge replay use phase 1, so a fresh press there is
+            // consumed through release even when the next sample is waiting.
+            const bool fire=!support_weapon_&&s.native.probe_status==2&&(hand_==0?input.fire_right:input.fire_left)&&
                 (trigger_claims_&(1U<<hand_))==0;
             if(!allowed||!same||(!recovery&&!ordinary)||edge||fire||cancel_pending_||
                 (schofield_motion_&&!schofield)){
@@ -191,23 +234,22 @@ public:
         if(phase_==CoJManualReloadPhase::ready&&edge&&input.reload&&shot_tail&&!armed_fire&&!s.native_reload_held)
             after_shot_at_=s.now;
         const bool deferred_start=after_shot_at_&&fresh&&manual_idle;
-        if(phase_==CoJManualReloadPhase::ready&&manual_idle&&s.native_reload_held&&empty_fire_edge)
-            trigger_claims_|=static_cast<std::uint8_t>(1U<<armed);
         if(phase_==CoJManualReloadPhase::ready&&allowed&&manual_idle&&
-            !s.native_reload_held&&((edge&&input.reload)||empty_fire_edge||deferred_start)){
+            !s.native_reload_held&&((edge&&input.reload)||deferred_start)){
             after_shot_at_=0;
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
+            support_weapon_=s.admission.support_weapon_id;
             kind_=s.native.kind;cartridge_index_=-1;
             schofield_motion_=schofield;schofield_chambers_cleared_=false;
             schofield_sweep_={};
             replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
-            out.reason=deferred_start?"reload_after_shot":empty_fire_edge?"empty_trigger":"reload_button";
+            out.reason=deferred_start?"reload_after_shot":"reload_button";
             input.reload=true;
         }
         const bool owned=phase_!=CoJManualReloadPhase::ready;
-        if(s.enabled&&!out.start&&s.raw.reload&&!s.native_fallback_allowed){
+        if(s.enabled&&!out.start&&s.raw.reload&&!s.AllowsNativeFallback()){
             input.reload=false;reload_claim_=true;reload_ready_=false;
             if(!owned)out.reason=after_shot_at_?"reload_waiting_for_shot":"manual_admission_rejected";
         }
@@ -237,7 +279,9 @@ public:
             if(sweep==SchofieldFlick::close){
                 out.cancel=Cancel();out.supervise=false;out.tracked=false;out.reason="schofield_wrist_close";
             }else if(sweep==SchofieldFlick::eject){
-                if(s.native.ammo_readback>0){out.unload=true;out.reason="schofield_eject";}
+                if(s.native.ammo_readback>0||s.native.schofield_spent>0){
+                    out.unload=true;out.reason="schofield_eject";
+                }
                 else if(s.native.ammo_readback==0&&!schofield_chambers_cleared_){
                     out.eject_empty=true;
                     out.reason="schofield_eject";
@@ -252,8 +296,16 @@ public:
         const int offered_index=cartridge_index_>=0?cartridge_index_:s.native.selected_index;
         const bool round_available=s.native.valid&&(kind_==CoJManualReloadKind::indexed?
             IndexedAvailable(s.native,offered_index):s.native.reserve_readback>0);
+        const bool chambers_available=!out.schofield_motion||s.native.schofield_spent==0;
         if(!round_available)replenish_=false;
-        gesture.valid=gesture.eligible=out.tracked&&phase_==CoJManualReloadPhase::manual_load&&round_available&&
+        const bool chest_eligible=out.tracked&&out.schofield_motion&&
+            phase_==CoJManualReloadPhase::manual_load&&round_available&&chambers_available&&s.native.ammo_readback>=0&&
+            s.native.ammo_readback<s.native.capacities[0]&&!out.cancel&&!out.unload&&!out.eject_empty&&
+            !carried&&!s.raw.fire_left&&!s.raw.fire_right;
+        if(!chest_eligible)chest_={};
+        else if(fresh)out.chest_insert=UpdateChestEntry(s);
+        gesture.valid=gesture.eligible=!support_weapon_&&out.tracked&&phase_==CoJManualReloadPhase::manual_load&&
+            round_available&&chambers_available&&!out.unload&&!out.eject_empty&&
             (!out.schofield_motion||(s.native.ammo_readback>=0&&s.native.ammo_readback<s.native.capacities[0]));
         gesture.player_identity=player_;gesture.weapon_identity=weapon_;
         gesture.armed_hand=static_cast<std::uint8_t>(hand_);
@@ -280,7 +332,7 @@ public:
         if(kind_==CoJManualReloadKind::indexed&&out.gesture.cartridge_held&&cartridge_index_<0)
             cartridge_index_=offered_index;
         if(gesture.replenish_cartridge)replenish_=false;
-        out.insert=out.gesture.reload&&gesture.valid&&!out.cancel;
+        out.insert=out.chest_insert||(out.gesture.reload&&gesture.valid&&!out.cancel);
         if(kind_==CoJManualReloadKind::indexed){
             // The release sample can still consume the trigger after it ends
             // the carry. Keep the slot only for a carried or submitted round.
@@ -313,7 +365,7 @@ public:
             cartridge_index_=-1;
             if(kind_!=CoJManualReloadKind::unit)replenish_=false;
             if(kind_==CoJManualReloadKind::clip&&schofield_motion_){
-                schofield_sweep_={};
+                if(!out.chest_insert||!schofield_sweep_.locked)schofield_sweep_={};
                 out.gesture={};out.reason="schofield_bundle_inserted";
             }else if(kind_==CoJManualReloadKind::clip){
                 phase_=CoJManualReloadPhase::closing;out.supervise=false;
@@ -337,8 +389,40 @@ public:
     bool native_cleanup_pending() const noexcept {return native_cleanup_pending_;}
     bool waiting_for_shot_reload() const noexcept {return after_shot_at_!=0;}
     int selected_index() const noexcept {return cartridge_index_;}
+    int paired_hand() const noexcept {return phase_!=CoJManualReloadPhase::ready&&support_weapon_?hand_:-1;}
     runtime::MotionReloadGestureStage gesture_stage() const noexcept {return gesture_.stage();}
 private:
+    bool UpdateChestEntry(const CoJManualReloadInput& s) noexcept {
+        constexpr float enter_radius=.11F;
+        constexpr float exit_radius=.23F;
+        const auto grip=hand_==0?s.right.position:s.left.position;
+        // Use the headset's horizontal right axis so looking down does not
+        // pull the target upward or toward the controller.
+        runtime::Vec3 centre{};
+        if(!CoJReloadChestCentre(s.head,centre)){chest_={};return false;}
+        const runtime::Vec3 offset{grip.x-centre.x,grip.y-centre.y,grip.z-centre.z};
+        const float distance=std::hypot(offset.x,offset.y,offset.z);
+        const auto prior=chest_;
+        chest_={.grip=grip,.offset=offset,.at=s.now};
+        if(!prior.at||s.now<=prior.at||s.now-prior.at>90)return false;
+        const runtime::Vec3 step{grip.x-prior.grip.x,grip.y-prior.grip.y,grip.z-prior.grip.z};
+        const float grip_step=std::hypot(step.x,step.y,step.z);
+        const float relative_step=std::hypot(offset.x-prior.offset.x,offset.y-prior.offset.y,
+            offset.z-prior.offset.z);
+        const float max_step=std::min(.12F,.003F*static_cast<float>(s.now-prior.at));
+        if(grip_step>max_step||relative_step>max_step)return false;
+        if(distance>=exit_radius){chest_.arm_grip=grip;chest_.outside=true;return false;}
+        if(!prior.outside)return false;
+        if(distance>enter_radius){chest_.arm_grip=prior.arm_grip;chest_.outside=true;return false;}
+        const float prior_distance=std::hypot(prior.offset.x,prior.offset.y,prior.offset.z);
+        const float against_prior_centre=std::hypot(prior.offset.x+step.x,
+            prior.offset.y+step.y,prior.offset.z+step.z);
+        // Require motion of the gun hand as well as a relative zone crossing.
+        // This permits slow approaches and rejects a stationary gun during a lean.
+        const float total_inward=-((grip.x-prior.arm_grip.x)*prior.offset.x+
+            (grip.y-prior.arm_grip.y)*prior.offset.y+(grip.z-prior.arm_grip.z)*prior.offset.z);
+        return prior_distance>enter_radius&&against_prior_centre<=enter_radius&&total_inward>=.03F*prior_distance;
+    }
     enum class SchofieldFlick { none, eject, close };
     SchofieldFlick UpdateSchofieldSweep(const CoJManualReloadInput& s,CoJSchofieldMotionSample& sample) noexcept {
         const auto& grip=hand_==0?s.right:s.left;
@@ -393,10 +477,16 @@ private:
         sample.progress_m=schofield_sweep_.distance;
         const bool settled=speed<=.20F&&std::abs(pitch)*velocity_scale<=.9F;
         if(prior.locked){
-            if(aim.y<=neutral_tilt_y&&settled){
+            const float rest_travel=std::hypot(position.x-prior.rest_position.x,
+                position.y-prior.rest_position.y,position.z-prior.rest_position.z);
+            const bool inside_rest=prior.rest_since&&rest_travel<=.035F&&std::abs(aim_pitch-prior.rest_pitch)<=.055F;
+            if(aim.y<=neutral_tilt_y&&(inside_rest||settled)){
                 sample.state="settling";
-                if(!prior.rest_since)schofield_sweep_.rest_since=prior.last;
-                else if(s.now-prior.rest_since>=110)schofield_sweep_=baseline;
+                if(!inside_rest){
+                    schofield_sweep_.rest_since=s.now;
+                    schofield_sweep_.rest_position=position;
+                    schofield_sweep_.rest_pitch=aim_pitch;
+                }else if(settled&&s.now-prior.rest_since>=110)schofield_sweep_=baseline;
             }else{
                 sample.state="locked_until_rest";
                 schofield_sweep_.rest_since=0;
@@ -466,7 +556,7 @@ private:
     static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
         return owner.valid&&owner.SupportsManual()&&native.valid&&native.probe_valid&&
             (native.probe_status==0||native.probe_status==4)&&native.weapon_id==owner.weapon_id&&
-            native.armed_hand==owner.armed_hand&&native.kind==owner.kind;
+            native.armed_hand==owner.armed_hand&&native.kind==owner.kind&&native.support_weapon_id==owner.support_weapon_id;
     }
     static bool IndexedAvailable(const CoJReloadTraceSnapshot& n,int index) noexcept {
         if(n.index_count!=2||index<0||index>=2)return false;
@@ -483,16 +573,22 @@ private:
     runtime::MotionReloadGesture gesture_;
     CoJManualReloadPhase phase_=CoJManualReloadPhase::ready;
     std::uint64_t player_=0,weapon_=0,context_=0,generation_=0,sequence_=0,fresh_at_=0,observed_=0;
-    std::uint64_t reload_player_=0,reload_context_=0,reload_generation_=0,reload_weapon_=0;
+    std::uint64_t reload_player_=0,reload_context_=0,reload_generation_=0,reload_weapon_=0,reload_support_weapon_=0;
+    std::uint64_t support_weapon_=0;
     std::uint64_t after_shot_at_=0;
     int reload_hand_=-1;
     int hand_=-1;
     int cartridge_index_=-1;
     CoJManualReloadKind kind_=CoJManualReloadKind::unit;
+    struct ChestEntry {
+        runtime::Vec3 grip{},offset{},arm_grip{};
+        std::uint64_t at=0;
+        bool outside=false;
+    } chest_{};
     struct SchofieldSweep {
-        runtime::Vec3 position{};
+        runtime::Vec3 position{},rest_position{};
         std::uint64_t last=0,start=0,rest_since=0;
-        float pitch=0,distance=0,peak_speed=0;
+        float pitch=0,rest_pitch=0,distance=0,peak_speed=0;
         unsigned raised_samples=0;
         bool tilt_ready=false,locked=false;
     } schofield_sweep_{};

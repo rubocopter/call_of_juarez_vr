@@ -138,6 +138,12 @@ int main() {
         ParseCameraProbeCommand(R"({"enabled":false,"renderResourceProbeEnabled":1})",command,&error)) {
         std::cerr << "invalid resource probe control\n"; return 1;
     }
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"dynamiteMotion":true})",command,&error) ||
+        !command.dynamite_motion || command.render_resource_probe_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"dynamiteMotion":1})",command,&error) ||
+        !ParseCameraProbeCommand(R"({"enabled":false})",command,&error) || command.dynamite_motion) {
+        std::cerr << "invalid dynamite motion opt-in/default\n"; return 1;
+    }
     if (!ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":true})",command,&error) ||
         !command.frame_luma_probe_enabled ||
         ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":1})",command,&error) ||
