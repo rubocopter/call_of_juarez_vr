@@ -1,8 +1,10 @@
 # Validation
 
-<a id="current-state--12-november-2026"></a>
-
 ## Current state
+
+Snapshot reviewed against current source and collected evidence on 26 November
+2026. The table distinguishes earlier exercised behavior from unexercised
+changes in the current checkout.
 
 Validation states remain distinct:
 `planned → implemented → host-tested → live-tested → headset-validated → supported`.
@@ -21,9 +23,10 @@ Publication and a staged manifest do not establish headset or campaign support.
 | Left hand and grip | The operator reports aligned hands in the latest PS VR2 session. Earlier intermittent free-left index posture and grip intersections remain separate from that scoped verdict. Native-completion cleanup recovery is host-tested for a verified idle rifle. The Quest free-left tilt remains a separate open observation. |
 | Monitor output and flicker | The operator reported no flicker during ordinary play in the 10 November 2026 native 2804×2860 diagnostic session. The bounded eye and desktop pixel samples met no bright-jump threshold. Sampled rejected submission callbacks still occurred after both eye captures completed. The earlier report of desktop silhouettes and visor flicker remains unattributed. Earlier capture-pressure failures could skip right-eye replay and invoke a natural-camera fallback. The old blackout transaction remains retired. |
 | New exact reload profiles | Sixteen exact firearm profiles are runtime-integrated and host-tested. Henry is a pinned right-owned 12-round Winchester alias. Latest correlated transfers include Winchester and base Schofield; neither establishes all models, contact, playback or interruption recovery. |
-| Schofield unload and chamber guide | The finished tilt-back run records 13 intact transfers to reserve, 10 capacity refusals and eight gesture closes with native phase 3 and unchanged ammunition, across both hands. The operator confirms visible loaded and empty positions in the exercised model. Host regressions cover shorter wrist strokes, rebounding motion, interrupted cadence, capacity refusal and retained Square exit. The A/B variants have host coverage under the same exact-class transaction. |
+| Schofield unload and chamber guide | The finished tilt-back run records 13 intact transfers to reserve, 10 capacity refusals and eight gesture closes with native phase 3 and unchanged ammunition, across both hands. That run did not record a wrist-close request with two revolvers equipped. The operator confirms visible loaded and empty positions in the exercised model. Host regressions cover shorter wrist strokes, rebounding motion, interrupted cadence, capacity refusal and retained Square exit. Paired-revolver wrist closure is now host-tested for either selected hand before and after ejection, with independent loaded/empty trigger and companion-fire recovery; native close and ammunition conservation with two revolvers still need visor evidence. The A/B variants have host coverage under the same exact-class transaction. |
 | Winchester receiver | The operator accepts the ordinary rifle's manual loading. Correlated native readback confirms successive side-port transfers with matching reserve debits, intermediate re-entry to wait and native closure on filling. The lever gesture was retired. The Square route and fresh shot after early closure have host coverage. Support regrip, scoped Winchester and exact visual fit remain open. |
-| Schofield motion in visor | The operator reports that gestures sometimes felt inactive after loading a save, then worked, with closing harder to execute. The trace records native wait and classified requests. The missed attempts right after loading remain uncorrelated. A host regression covers a raised first pose on opening and after a tracking gap, followed by a fresh intentional close once settled. The shorter closing flick and the A/B variants await headset confirmation. Refusal notice readability and visible falling rounds remain separate checks. |
+| Schofield motion in visor | The operator accepts single-Schofield chest loading. A finished dual run records five chest bundle transfers across both hands with the companion's ammunition unchanged. The operator reported a visually empty open cylinder after transfer and native reload with a solo revolver. The native dispatches occurred in alternate-fire idle. The paired wrist-close guard has been corrected after that run and awaits a new headset check. The corrected fallback and per-hand display, dual tilt and spent-case cycle are new host candidates. Verify their playback, click audibility and A/B presentation in visor. |
+| Bible and dynamite motion | Ray's Bible now has an exact-owner controller-mounted hand/book candidate. The optional right-hand dynamite backswing-to-throw path retains the native trigger, fuse and owner guards. Both have source and host verification; tracked mount fit, deliberate throw, release, trajectory, and interruptions await a physical run. |
 | Player ZIP and Winchester reload after firing | An interactive Steam installation on the development PC exercised the public configuration. Three base-Schofield bundle transfers matched reserve debits. The public configuration omits Schofield motion and the receiver/lever option, so the reported absence of Schofield gestures and chamber displays does not exercise those features. In the same run, three ordinary Winchester presses at 9 or 10 rounds fell through to native reload during the observed shot tail. The exact right-owned Winchester now reuses deferred manual opening in host tests. Verify that path in visor. Fractal and the campaign remain separate gates. |
 | Pacing of the reload candidate | The operator reports poor pacing while another task ran on the development PC. Telemetry shows repeated submissions and timing outliers with the gameplay shared transport active. Core telemetry checks passed. This run establishes the exercised reload transactions and leaves representative pacing and the source of the stalls unresolved. |
 | Duel and bow instruction | The operator confirms the bow and guide work on foot and confirms mounted shooting with the exact native alternate-fire route. The collected run records mounted ready-state shot requests. Mounted movement interruptions and broader weapon, guide and duel-coach coverage remain unqualified. |
@@ -48,6 +51,27 @@ Publication and a staged manifest do not establish headset or campaign support.
   locates the provisional target; green reflects release readiness. Neither ring
   size nor color proves a free chamber, caliber, opening clearance or native index.
   Bounded measured-mouth observers remain research rather than production HUD.
+- **Reload animation continuity:** a fresh armed trigger closed a base
+  Schofield during native opening in the exercised session. The host-tested
+  correction consumes trigger presses during opening and cartridge replay
+  through release. Square remains an explicit close. Three native dispatches
+  from the Schofield attack-body tuple motivate a bounded same-owner deferral
+  to normal idle, now host-tested. Alternate-mode and occupied-support
+  fallback retain their native route. The fix awaits headset verification.
+- **Measured reload geometry:** the trace requests a same-frame render sample
+  for carried rounds and missed releases on both Winchester and both Remington
+  models. For an indexed miss it retains the pre-release index for observation.
+  The receiver option exposes its exact pre-transfer geometry. Qualified live
+  pairs and the relationship between Remington ammo indices and rims are pending.
+- **Desktop output trace:** the opt-in Present route can report which producer
+  check rejected a captured stereo pair. The reason is tied to the same route
+  identity as the native wrapper and capture results. Live use during flat
+  theater exit and the cause of the visor symptom remain pending.
+- **Equipment and support guides:** pistol, long-gun and bow holsters have
+  distinct low-coverage markers at the existing ergonomic zones. Availability
+  follows the physical grip release barrier. The L1 fore-end bracket retains
+  the measured acquisition point. Host projection and binocular pixels pass;
+  readability, fit and behavior through interruption await headset evidence.
 - **Finger recovery:** only positively observed terminal probe status4 plus
   repeated complete idle-rifle owner/state proof admits the retained-cleanup
   exception. Opening/waiting/closing, unavailable reads, attack, replacement and
@@ -399,8 +423,8 @@ laboratory metadata reported ignored defaults. See the corrected
 [profile and crop semantics](research/COJ_NEURAL_HUMAN_TARGETING.md#operator-profile-and-crop-semantics).
 No runtime quality or cadence gate is promoted.
 
-The operator has authorized renewed autonomous offline DLSS/Neural investigation.
-The image lab now exposes bounded one-to-four model passes and reports completed
+The optional DLSS/Neural track is deferred. Its image lab exposes bounded
+one-to-four model passes and reports completed
 D3D12 timestamp averages separately from blocking CPU roundtrips. Synthetic
 one-to-four-pass pixel/alpha/order fixtures and real-model one/two-pass runs are
 host-tested. Static CoJ JPEG crops and reduced flat-frame proxies show changes
@@ -424,6 +448,7 @@ No whole-campaign or other-headset support is established. Community projection/
 | Combined L3 and physical crouch | Host tests reproduce overlapping camera descents with the previous policy. The revised path preserves the greater of the two, including trackable descent before the physical Duck threshold, both input orders, rising while L3 remains engaged and controller release during native recovery. | In visor, toggle L3 on while standing, crouch physically and straighten, then toggle L3 off. Check eye height and controller alignment during each transition. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. An earlier free-left-finger correction had scoped acceptance; later recurrent poses reject general stability. The attached bimanual rifle path now forwards left finger data and host-tests a native/retained-owner gate for the pre-commit hand phase, including finger retarget and restorative rollback. | Latest extended session rejects stability of the free LEFT hand with long guns: the index intermittently freezes pointing upward, sometimes recovering. The current host fixes cover pre-commit support input, inactive desired pointers and terminal reload-cleanup ownership, with **no new headset acceptance**; native firing/alternate/reload and unknown owners still reject retarget. Sampled prior VR/native transitions did not prove all remaining pose causes. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. Dual reticles and Clyde draw/raise/fire have scoped operator confirmation. Duel pitch gates the physical gesture; the right stick retains native lateral aim. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Current manual-option source integrates additional long-gun/indexed/clip candidates; physical playback remains unqualified. |
+| Billy whip native observation (post-.5 source) | Implemented/host-tested passive `native_whip` telemetry after paired-eye and tracked-hand restoration. The exact owned active whip supplies separate native aim permissions/trace and actual clutch/hanging/rope-part/anchor state. JNI fixtures reject foreign or stowed weapons, stale or malformed aim, and read faults. | Same-run physical correlation of native collision, VR ray, clutch, drag in both directions and release remains pending. Trace pairing is explicitly unverified; no clutch-eligibility or attached stereo cue is admitted. |
 | Indexed reload groundwork (post-.5 source) | Implemented/host-tested for exact Remington/SawOff/Derringer/Lemant two-index observation, native object/owner/hand stability, typed reserves counted once, JNI failure/null/cleanup and LAA-safe identities. A separate pure classifier checks a retained synchronous pair. Inventoried finished-evidence analysis now retains raw indexed observations and rejects malformed claims, invalid counts/pools and repeated numeric-owner clocks; sparse samples cannot qualify a transfer. | Current manual-option source separately integrates selected-index unit transactions/gesture dispatch. Passive observers grant no write authority; per-model phase/HUD, shell/port, animation and physical recovery remain unqualified. |
 | Physical bow | The operator confirms drawing, firing and the native-nock guide on foot and firing while mounted. The mounted trace records the ready native gate and attack requests. The guide uses the current measured nock with owner/pose guards. | Mounted movement interruptions, arrow mesh/string agreement, concentration optics and guide occlusion remain open. |
 | Physical duel posture | Correct hand-at-hip draw/raise and rejection of exercised incorrect/cheating positions have operator acceptance: actions were permitted only in the correct position. | Native early-draw timing, retry/recenter and ownership recovery remain separate where not exercised. Measured holster contact is not implemented. |
@@ -433,7 +458,7 @@ No whole-campaign or other-headset support is established. Community projection/
 | Two-hand rifles | **Remington bimanual grip is headset-validated in the exercised PS VR2 context:** the operator confirms it now works after the mesh-contact correction. Earlier free-L2 suppression is also accepted in its exercised context. Exact Winchester/Remington/SawOff transactions have host coverage for paired hands, muzzle/ray verification, replacement rejection, restoration and input guards. Scoped Winchester grip/discharge and large scope visibility retain acceptance. **Ordinary Winchester R2 firing is physically accepted.** The latest session notices longer Winchester/other long-gun presentation. | Reload mechanics work in exercised play, but visible cartridge insertion remains offset from the real loading opening; exact on-screen alignment is rejected. Finished-run offline evidence includes accepted native unit readbacks but does not prove accurate visible contact or model-wide recovery. Scoped zoom reticle vs impact remains rejected; other fingers, cycles and interruption recovery remain unqualified. |
 | Mirrored rifle trigger routing (post-.5 source) | Implemented/host-tested: a sole exact Winchester/Remington/SawOff in either native hand consumes the empty hand's trigger. Both release claims are independent; unavailable input, repeated poses and changed equipment cannot release a consumed hold. JNI fault and post-classification owner-replacement fixtures reject stale verdicts. After failed parent/child restoration, verified cleanup permits ordinary-fire recovery through available release while tracked writes remain quarantined. | Earlier Remington free-L2 acceptance does not qualify the new free-R2 route with a left-owned SawOff. Confirm that case only when naturally available; no new bimanual or manual-reload whitelist is admitted. Unknown ownership withholds both ordinary triggers until available release. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
-| Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
+| Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. The operator again reports Ray's Bible works in the latest PS VR2 trial, consistent with its scoped selection/use acceptance. On-foot kick retains scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
 | Native VR options | Operator reports native options work well, including enabling/disabling the holster assistance in exercised play. Shared preferences and cinematic/turning selectors retain scoped physical usability acceptance. Native Options > Game includes a host-tested Manual Reload selector, distinct from the public installer's capability switch. | Unreported restart persistence, OK/Cancel/Defaults variants, the reload selector's whole-control layout and live switching with held inputs remain open. |
 | Public installer and diagnostic report | The operator completed public .6 install/prepare and saved a local support ZIP. Manifest identifies the exact known game/build, selected manual reload On, and the retained run log closes normally without compositor copy/open/submit errors. A separate candidate WinForms GUI wraps six verified actions, saved resolution profiles and advanced reload selection; encoded argument handling and launcher/release fixtures passed host tests. Steam AppID 3020 discovery checks cover additional libraries, manifest-defined install folders, ambiguity, deduplication and incomplete paths. The Western GDI+ header is implemented and included in .7. Exact Steam/GOG isolated integration covers installation, updates, saved resolution/reload preferences, fresh sessions, uninstall and injected-failure restoration. Clean-source release packaging retains its independent inventory/hash and dependency gates. | The operator found the numbered interface difficult and saw the initial GUI as visually acceptable and easier to navigate. The revised install selection/rescan UI, DPI/layout inspection, full interactive flow remain unverified; script/ZIP checks are not a user-flow test. The GUI does not implement native Options > Game Manual Reload On/Off. The operator's support ZIP is noncanonical (`headsetAcceptance=not_evaluated`); physical observations above remain separately scoped. |
 | Secret-scroll chests | Conditional preservation of the same still-active native render level is implemented/host-tested for the reported null-level crash. Latest operator session successfully collected hidden scrolls from chests and continued play without reported issue: scoped physical pickup acceptance. | Original callback cause and unexercised failure/recovery paths are unobserved; no repeat chest trip is required. |
@@ -441,9 +466,9 @@ No whole-campaign or other-headset support is established. Community projection/
 | Mounted play and mod-added DLC | The exercised session confirms mounting, improved default Walk with optional R1 acceleration, substantially better control after the shallow-reverse filter and working mounted bow fire. | The report does not qualify deliberate reverse, mounted free-look or broader aim, DLC and interruption recovery. |
 | HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Latest session reports correct appearance/disappearance of subtitles, working continuation screens, coherent HUD/effects, no perceived flashes and apparently smooth visor presentation. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped acceptance. | Subjective fluidity is not a measured FPS or pacing guarantee. New Western wheel styling, wrist health styling, concentration glyphs and horse meters are host-tested only; unreported movie/special HUD contexts and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
-| Persistent manual reload | Earlier revolver unit loading retains scoped acceptance. The latest run confirms 16 whole-clip Schofield transfers and seven ordinary Winchester unit transfers with matching reserve debits. | Check visible contact and early Winchester closure, comfortable Schofield closing after loading a save, and broader model and interruption recovery. |
+| Persistent manual reload | Revolver unit loading and ordinary Winchester receiver transfers retain scoped headset acceptance. Subsequent native readbacks confirm selected Schofield dual-hand chest transfers without companion debits. The latest paired-hand wrist-close and case/ejection changes have host coverage only. | Check dual native close and case presentation, exact contact, scoped and post-shot Winchester replay, preference transitions, and broader model/interruption recovery. |
 | Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. The later displayed-finger tangent is host-tested only. | The reviewed close-up predates that tangent and still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
-| Native loading port | Operator confirms the port looks correct in exercised reload. Read-only gate/drum motion and six-mouth pivot rankings have bounded live evidence. Generic tip/socket policy has synthetic host tests. | Active manual loading uses the provisional 18 cm grip zone with scoped operator acceptance of improved loading. Phase-bound mouth geometry, precise insertion, independent mechanics and ejection remain planned. |
+| Native loading port | Operator confirms the port looks correct in exercised reload. Read-only gate/drum motion and six-mouth pivot rankings have bounded live evidence. Generic tip/socket policy has synthetic host tests. | The default manual path uses the provisional 18 cm grip zone. Phase-bound exact mouth geometry, precise insertion and independent native chamber mechanics remain open. Schofield aggregate case/ejection visuals are host-tested pending visor confirmation. |
 | Death and save/load | Corrected failure-screen visibility and latest exercised boxing death/recovery have scoped operator acceptance. Exercised narrated loading after reversible LAA correction and save/load with the thumbnail workaround accepted. | Broader retry/back/held-input recovery, manual-session save roundtrip and allocation pressure remain open. |
 | Transport and shutdown | Primary D3D9Ex GPU sharing and normal shutdown have bounded headset/live acceptance. Independent consumer-query recovery, retained quarantine on failed recovery proof, ResetEx/replacement admission and cleanup hardening are host-tested only. | Sustained pacing, abnormal exit, arbitrary reset/device loss and Steam recording-associated microskips. Automatic continuation after a native failure is not live/headset-validated. |
 | Ownership recovery | Global input release barriers/failed-poll rollback, partial stereo invalidation, pointer resize cancellation and latest manual-session recovery have host tests. Camera-owned pelvis/diagnostic-arm restores retain the original actor through failures; consumed bow R2 survives repeated owner-proof loss and input-source replacement. | Physical focus/dashboard/tracking/held-control and eligible resize recovery remain open; earlier menu/reload acceptance does not qualify these changes. Host fault injection does not qualify a live actor-replacement failure. |
@@ -488,7 +513,10 @@ or change hand-pose acceptance.
 | Prepared temporal-source diagnostic | When the opt-in consecutive mode is staged, collect two bounded four-attempt bursts, requiring an actual adjacent stereo pair with matching owner, pose, optics and native source identity. Gaps are inconclusive; do not claim live reconstruction or force a dedicated session solely for this probe. |
 | Later focused session — previously failing animation | One fresh skip request should either reach the permitted native consumer or leave unchanged immersive stereo stable after refusal. Record scene/button, skip versus native rejection, and any flash or theater transition. No requirement to force-skip an unskippable scene. |
 | Schofield/Winchester guide | With Weapon Guides enabled and ammunition carried, require one marker at the active acceptance target, green only when policy is ready. Check one native transfer, no debit on a miss and disappearance on release, close, cancellation, owner loss or Off. |
-| Schofield base/A/B with `-SchofieldMotion` | After loading a save, release the controls and open with a fresh Square press from level, with the other hand empty. Check tilt-back reserve return, falling rounds, pulse and six empty outlines. Check the refusal feedback with insufficient reserve space. Lower to level, pause briefly and verify a separate short downward wrist flick closes at empty, partial and full load. Check both hands, the A/B variants when encountered, Square recovery and a fresh shot. Check localized coaching in both eyes. |
+| Schofield base/A/B with `-SchofieldMotion` | Open with a fresh Square press from level in normal-fire mode. Fire some rounds and reopen. Check dark brass for spent cases, the existing live-round color, and no transfer before a back tilt. After ejecting, check the fall and pulse. Verify chamber highlights while holding the hip bundle with Weapon Guides On, and verify a separate chest load from outside its zone. With insufficient reserve space, verify cases still eject, live rounds stay and the top-up hint appears. Check the down-forward close, Square recovery, both hands and A/B when encountered. In alternate-fire mode verify Square withholds native reload with Manual Reload On and ordinary reload is available with the preference Off. |
+| Dynamite motion with `-DynamiteMotion` | With the modern stick equipped on the right, compare a deliberate back-to-forward throw with the normal trigger. Match native attack-begin and world release to the same stick, and check visible fuse, held-object retirement and initial trajectory. Moving slowly or interrupting the backswing by switching equipment, pausing or losing tracking must leave the gesture idle. Verify one native request per deliberate swing. |
+| Two Schofields and empty triggers | In manual mode, bring the intended revolver nearer the chest and press Square before entering the chest zone. Tilt to eject and verify the companion stays equipped and retains its rounds. Load at the chest and look toward the back of the open drum for newly inserted rounds. Close with a deliberate down-forward wrist gesture while holding both revolvers, verify native phase 3, unchanged ammunition and independent shots after closure. Repeat with the other hand, including a completely spent cylinder (fresh empty-trigger click) and a full cylinder selected for unload. Check the wrist gesture both before and after ejection; retain Square as the close fallback. At zero ammunition check one audible click per fresh press with one gun and with two. |
+| Bible | Equip Ray's Bible and move and rotate the owning controller. Check that the floating hand and book stay together and that the native Bible action still works. Check draw, stow and interruption or scene transitions. |
 | Winchester with `-WinchesterReceiver` | Ordinary rifle side-port insertion, intermediate replay and final-round native closure have scoped acceptance. With the scoped rifle, start two rounds short, press Square after a shot, release a cartridge at the side port and wait for the renewed native wait. Check an early Square close, support regrip and a fresh shot. |
 | Later focused session — LEFT fingers after completion | Close reload, release triggers and inspect the idle rifle support hand, then detach/regrip once. Distinguish waiting, carrying, closing and returned-to-idle failures. The terminal cleanup correction does not promise a fixed active-loading pose or grip fit. |
 | Another immersive movie or sequence | Check the naturally encountered end-of-chapter movie in Immersive and note its chapter and transition if theater appears. At the next chapter opening, check binocular fusion and line clearing. Match the report to source, pose, generation and per-eye subtitle projection records. |
@@ -502,6 +530,8 @@ or change hand-pose acceptance.
 | Scope after a relevant source change | Reticle versus native impact and head-yaw/Focus isolation remain rejected/unqualified. Test only a revision addressing that boundary; preserve accepted ordinary Winchester R2 and exercised Remington/scoped grasp. |
 | Horse with mounted comfort policy | On clear ground, check left/right from a centered stick, small diagonals during forward motion, deliberate turns and normal pace versus R1. If comfortable, check reverse separately. Bounded motion bursts correlate native reins, horse look direction and natural camera yaw. With the horse stopped and R1 released, check whether the bow can enter draw and release a single arrow. Then check the native refusal/cancellation behavior when movement resumes. |
 | Broader recovery/HUD/compatibility opportunity | Remaining loading-select telemetry, held-input behavior during save/death/retry, device/reset/allocation pressure, full graphical HUD, other headsets/controllers, OneDrive and sustained/recorded pacing stay conditional gates. Native exception fixtures do not establish their physical behavior. |
+
+For a collected dynamite candidate, `python -B tools/analyze_coj_dynamite.py <evidence-dir> --output <new-report.json>` verifies the inventoried run/build/process before reporting gesture, attack-begin and native-release observations. The report must be written outside the evidence directory. Its 90-frame gesture-to-begin and 900-frame begin-to-release horizons are provisional offline analysis bounds, not game timing or gesture thresholds. Both native callback serials must be observed without gaps within each player generation; any skipped counter invalidates that receipt and its candidate pairing. Even a unique ordered sequence is only an observational candidate; gesture and native receipts have no shared causal identifier. Headset fuse, trajectory, owner and interruption checks remain pending.
 
 Already accepted checks need no repeat solely because source/candidate changed:
 ordinary menus/options/HUD/effects, revised subtitle readability in its scene,
@@ -756,7 +786,7 @@ Additional Frontier, Walker and Cogswell exact profiles are implemented/host-tes
 for the same native unit-loading route. Cogswell observes rifle reserve; the
 other admitted revolvers observe pistol reserve. Current source additionally
 integrates the indexed, native-cycle and Schofield whole-clip manual routes in
-[the source batch below](#manual-reload-source-batch--awaiting-live-and-visor-qualification).
+[the implementation boundary below](#manual-reload-implementation-and-remaining-qualification).
 Unknown variants retain their separately qualified native fallback boundaries.
 Exercise each new model only when available in the combined campaign session:
 Square opening/closing, one loaded round/matching reserve decrement per release,
@@ -823,8 +853,10 @@ frame. The base Schofield now has bounded same-owner live observations of native
 phase and displayed rear-mouth geometry during its ordinary manual waiting
 phase. This establishes a diagnostic transform reference. Visible clearance,
 binocular fit and true per-chamber state remain open.
-No independent gate/drum writer, spent-case simulation or chamber occupancy is
-implemented. See [exact reload research](research/COJ_RELOAD_OWNERSHIP.md).
+No independent native gate/drum writer or authoritative per-chamber state is
+implemented. The new Schofield source derives aggregate spent/live case visuals
+and a short ejection fall from verified shot/unload receipts. That visual and
+its headset fit remain host-tested. See [exact reload research](research/COJ_RELOAD_OWNERSHIP.md).
 
 Optional acceptance haptics require coherent native unit readbacks and fresh
 capture/tracking/gameplay ownership. Host tests cover duplicate/stale captures,
@@ -872,7 +904,7 @@ records. Physical interpretation remains pending a correlated headset sample.
 
 <a id="consolidated-candidate-batch--host-tested-awaiting-runtime-and-visor"></a>
 
-## Manual-reload source batch — awaiting live and visor qualification
+## Manual-reload implementation and remaining qualification
 
 The current manual-option source is implemented and host-tested for sixteen
 exact firearm classes through common native opening/wait/closing ownership.
@@ -919,9 +951,10 @@ pinch callbacks; matching numeric IDs alone cannot validate a replacement.
 JNI fixtures reject actual/active replacement, player/generation changes,
 non-rigid or mismatching displayed frames, missing accessors and exceptions.
 The analyzer preserves malformed or promotion-claiming rows as rejected.
-No new live/headset evidence follows: loading clearance, release trajectories,
-miss/retry ergonomics and the physically rejected generic Winchester insertion
-remain open. Include its bounded trace in the existing combined loading check;
+These observers add no new headset evidence: loading clearance, release trajectories,
+miss/retry ergonomics and precise cartridge-to-port contact remain open. The
+ordinary Winchester receiver's native transfer is physically accepted, while
+the earlier generic insertion's visible fit was rejected. Include its bounded trace in the existing combined loading check;
 no separate headset run or repeated accepted firing/grip check is required.
 Both-hand geometry and rotated-camera tests, fresh/duplicate/invalid gestures,
 haptic priority/freshness and context/disable barriers have host coverage.
@@ -962,49 +995,16 @@ reversed, duplicated, cross-generation/device and invalid-metadata fixtures.
 It reports correlated/incomplete/rejected diagnostic groups without granting
 capture correspondence, scene/hand coverage or a physical occlusion gate.
 
-Use one fresh canonical candidate when the operator is available. There is no
-request to repeat separate micro-tests or unavailable campaign contexts.
-
-1. **Grip:** open an eligible revolver, wait with an empty support hand, take a
-   cartridge with its trigger. Inspect close-up, wrist roll and palm-up/down.
-   The port's accepted visual presentation needs no separate repeat check.
-   Check the bullet follows the pinching fingers rather than cutting through
-   them. The current compositor still cannot hide it behind fingers/walls;
-   record that limitation separately from position/axis fit.
-2. **Feedback and transfer:** carry into the grip zone while held. Expect one
-   soft entry cue and no ammunition change. Small boundary oscillation must not
-   repeatedly vibrate. Release for one stronger cue and exactly one native round.
-   On a continuing load, the cartridge disappears and the support thumb makes a
-   brief push before relaxing; it must not restart after an interruption or
-   override a new pickup. Native final-round closing can suppress the gesture.
-   Repeat several insertions; withdraw clearly to rearm entry feedback.
-3. **Drop and closure:** release away from the gun, close with Square, reopen,
-   close with the armed trigger, then release/press to fire. No extra insertion,
-   retained pinch or firing on the closing press.
-   After filling the gun, fire one round with a fresh press and reopen: the first
-   cartridge of the new session must require pickup at waist. This extends the
-   same batch, not a separate physical test.
-4. **Held-control recovery:** carry a round, pause/change weapon/recenter or
-   temporarily lose tracking, then recover with Square/triggers still held.
-   No stale round, queued insertion or automatic reopening. Release and press
-   deliberately to recover; also check returning from a menu while already
-   `READY` with Square held.
-5. **Lifecycle:** in eligible scenes, save/load, die/retry and use canonical
-   `disable` during manual loading. Confirm restored control and conventional
-   reload after releasing/pressing Square. Unavailable cases remain pending.
-6. **Interaction and coverage:** left-Sense L1 drawer/pickup/carry/put-down while
-   looking elsewhere; cyan reference only while held. Repeat reload with a
-   left-hand assignment or Frontier if available in the same session.
-7. **Menu/gameplay and HUD:** include the combined ownership regression below,
-   holding mapped controls across pause/dashboard/tracking loss. If damage or
-   healing is available, check the wrist meter against native health text,
-   ammunition readability and hiding on blocking UI. Include source-size recovery
-   only if a resolution transition occurs. If concentration or horse feedback is
-   naturally available, check the discrete badge against its native text and
-   the paired meters against health/fatigue percentages. Fatigue is not stamina;
-   no cooldown duration/progress is inferred. Hidden owners must leave no stale
-   glyph/bar, and essential health/ammo/countdown rows retain priority. These
-   additions join the later combined session; no separate physical test is needed.
+The sole physical checklist is [Pending headset checks](#pending-headset-checks).
+In its naturally encountered manual-loading and recovery checks, examine
+cartridge/pinch alignment, the soft held-zone cue versus the stronger
+native-confirmed transfer cue, thumb relaxation, drop outside the zone, fresh
+pickup after a completed session and held-input release barriers. Check
+tracking/menu interruption, manual preference disable, left-L1 interactions,
+and visible HUD priority only when those contexts occur. These checks need no
+separate micro-test or repeated proof of already accepted behavior. Compositor
+finger/scene occlusion, exact port fit and broad interruption recovery remain
+unqualified.
 
 The default-off trace records zone entry/withdrawal, visual position/tip axis,
 native insertions and submitted haptic type. Up to six `manual_reload_depth`
@@ -1342,6 +1342,20 @@ sessions are symptom-free and sampled source data has no detected white jump.
 The intermittent cause remains unknown, so retain the default-off luma observer
 without declaring a root-cause fix. The independent private-bank prototype remains
 rejected and off. Archived general-verifier failures retain their own verdicts.
+An offline join of the inventoried 2804×2860 material run found five sampled
+producer submission rejections on recenter poses during returns from flat
+theater to native stereo. Both native eye captures completed and D3D9 Present
+succeeded. All five matching 16×16 desktop RGB
+grids were black, with nonzero samples on the next desktop sequence on the
+same backbuffer. A second run's saved luma analysis contains both black and
+lit samples after producer rejection. The sparse archives leave the rejected
+frames' eye pixels and visor output unobserved, so the translucent flicker
+and the branch that rejected the producer submission remain open.
+The reusable offline route analyzer also associates eight of the archived 32
+accepted routes with a unique presenter upload and successful new OpenVR Submit
+receipt. None of the five sampled rejected routes has that association. This
+host-side correlation leaves the actual headset pixels and intermittent
+translucent flicker unqualified.
 Head-turn stability with Steam recording off and good current gameplay have
 operator acceptance. Recording-associated microskips remain an observation without
 an established cause; no additional recording test is requested here.
@@ -1468,7 +1482,7 @@ active recovery data or user assets as evidence cleanup.
 <a id="pc-mechanics-and-gameplay-hud-completeness"></a>
 ## Related acceptance boundaries
 
-Legacy section anchors above are retained for existing links. Current acceptance is in the state table and pending checklist. Native controls and exact reload/weapon facts belong in focused research. Native permissions, original animation/ballistics and supervised inventory remain authoritative. Hybrid/cartridge-paced reload and the bounded zero-transfer wait probe retain their limited legacy evidence; none establishes physical chamber loading. Full graphical HUD capture, physical-walk animation, precise loading sockets, chamber occupancy and ejection remain unimplemented or unqualified.
+Legacy section anchors above are retained for existing links. Current acceptance is in the state table and pending checklist. Native controls and exact reload/weapon facts belong in focused research. Native permissions, original animation/ballistics and supervised inventory remain authoritative. Hybrid/cartridge-paced reload and the bounded zero-transfer wait probe retain their limited legacy evidence; none establishes physical chamber loading. Full graphical HUD capture, physical-walk animation and precise loading sockets remain unimplemented or unqualified. Schofield aggregate case display and visual ejection are host candidates, with no native per-chamber identity or physical ejection acceptance.
 
 For ownership changes, combine menu/gameplay/wheel/pause/dashboard with available tracking, save/load and death/retry. Hold then release controls before fresh actions; require no queued shot, click, transfer or haptic and coherent stereo. Eligible resize recovery is separate. Host fault injection cannot qualify physical recovery. Mounted corrections remain host-tested; mount/dismount acceptance does not qualify reins, gallop, free look or mounted HUD.
 

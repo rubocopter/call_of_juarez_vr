@@ -94,6 +94,16 @@ release stays a pre-transfer prediction because native playback can advance
 before rendering. Missing, ambiguous and mismatched pairs remain separate
 from compared rows. This is an offline measurement of reported geometry.
 
+Each of the four exact models has separate held and release quotas, totalling
+at most 120 predictions per diagnostic lifetime. A held sample or a missed
+release requests the matching frame's scoped render observation even outside
+the periodic render sample. For an indexed miss, the observer uses the input
+snapshot's selected index after the carry releases its claim. The Winchester
+receiver option reports the same read-only geometry used by that frame's
+receiver test and labels the release policy. Displayed samples still require
+native restoration and a verified submitted pair. These diagnostics leave
+transfer, port clearance and index-to-rim correspondence to their own evidence.
+
 ## Exact revolver profiles
 
 Current passive admission uses an exact concrete-class table, not a pistol base
@@ -134,6 +144,24 @@ context clears the press. This routing change has host coverage and bounded
 live evidence of deferred base-Schofield presses reaching idle manual opening
 and native clip transfer. The operator reports improved loading with the
 18 cm insertion zone. Broader interrupted requests retain their physical gate.
+Three later native dispatches also observed `31,1,1,1` on the armed Schofield
+and a zero support tuple. The original state router maps 31 to `Attack` and
+32 to `AttackEnd`. The same bounded deferred request now covers the exact
+31-to-normal-idle tuple for base/A/B. Stable alternate idle `129,129,129,129`
+has the native alternate flag. A finished visor trace records nine solo native
+reload dispatches in that bank while manual reload was enabled. The adapter now
+withholds native reload for exact base/A/B in manual mode. Alternate-fire idle
+still uses its authored handling when the preference is Off.
+
+The pinned original `WeaponFire.AttackInside(ZIZ)V` debits the selected ammo slot
+through `SetAmmoCount(II)V` at offset 190. The Schofield candidate observes this
+particular confirmed slot-zero debit and stores the number of cases on the
+exact weapon object. `WeaponFireAmmo.SetAmmoCount` resets the transient count
+when its native backing storage changes, and the shot wrapper reinstates the
+incremented count after its verified write. Shots fired before this runtime
+have no case history. The native weapon supplies aggregate counts and measured
+drum poses. A retained 21-state ticket governs case ejection and bundle loading,
+including the selected hand of an exact pair.
 The ordinary right-owned `WeaponRifleWinchester` with empty support showed
 the same `32,1,1,1` tuple during the authored 0.6-second fire tail. Square
 then reached action 31 and the original body cycle refilled two or three

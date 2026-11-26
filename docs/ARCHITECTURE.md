@@ -34,11 +34,10 @@ the live retained-frame presentation remains rejected for cadence/quality.
 Core VR work does not depend on resuming this track. The implementation below
 records its existing boundary, not an active development or support commitment.
 
-Renewed operator-authorized autonomous research is limited to offline DLSS/Neural
-feasibility until fresh game inputs and delivery are qualified. The image lab
-can compare one-to-four consecutive NR model passes, reports effective whole-eye
-coverage and separates D3D12 timestamp averages from CPU roundtrips. It does not
-change the deferred/default-Off game presenter or the rejected frame-hold policy.
+DLSS and Neural feasibility work is deferred in the optional roadmap. The
+retained offline image lab can compare one-to-four consecutive NR model passes,
+reports effective whole-eye coverage and separates D3D12 timestamp averages
+from CPU roundtrips.
 
 The optional `cojvr_neural_lab` library and separate x64 `tools/neural_host`
 companion adapt Penumbra DirectNR over a versioned CPU-pixel pair protocol.
@@ -779,8 +778,10 @@ meshes. Looking down does not pitch the zones. Earlier exercised holsters/guides
 and assistance on/off retain scoped acceptance; broader fit/recovery remains open.
 Current hip zones use 11 cm radii and shoulder zones retain 24 cm; visual half-extents
 share those actual interaction radii. Thin antialiased 128x128 rings retain clear
-centres and existing availability colors, without changing other ammunition or
-support glyphs. A positively observed native world selection preserves fresh
+centres and carry small pistol, long-gun or bow marks below the centre. The
+available color requires the same hand to be armed for a fresh grip edge. The
+fore-end guide draws a thin L1 bracket at the existing acquisition point.
+A positively observed native world selection preserves fresh
 left-grip Action near the hips over holster intent; ordinary front selection does
 not block a valid behind-shoulder gesture. Native nearby-weapon/ready guards
 remain authoritative. Prior consumed holds still require release.
@@ -1099,7 +1100,9 @@ Native animation owns conventional reload. The persistent manual route keeps
 scoped weapon/independent-hand presentation only under positively verified native
 reload ownership. Its exact policy is `READY -> OPENING -> MANUAL_LOAD -> CLOSING
 -> READY`: fresh Square prepares/closes, free-hand trigger pickup/journey/release
-requests one synchronous operation, and armed-trigger closing cannot shoot.
+requests one synchronous operation, and the armed trigger can close only in
+the native waiting phase. A press during opening or per-cartridge replay is
+consumed through physical release, including across the return to waiting.
 Exact profiles distinguish one native unit, a selected indexed unit and one
 native whole-clip operation. Native ammunition, reserve, capacity and mechanical animation remain
 authoritative. Invalid/unknown ownership cannot fall through to conventional
@@ -1233,20 +1236,41 @@ and empty support hand still verified. The
 retained wait accepts a back tilt to unload. From a neutral baseline, two
 fresh samples above the rearward tilt threshold request one transfer.
 Returning from the tilt requires a brief neutral hold before closure can
-classify. A wrist flick down and forward closes at any load count.
+classify. Small motion around the neutral hold anchor may preserve that dwell;
+its start and completion still require a settled sample. A wrist flick down
+and forward closes at any load count.
 Classification uses the tracked aim elevation and the hand's horizontal reach
 relative to the player. A substantial reversal or broken stroke across a pose
 gap requires a fresh neutral hold. If the first sample in native wait or the
 first sample after a gap is already above the neutral tilt threshold, the
 classifier also requires a neutral hold before interpreting another motion.
-A partial drum can accept a bundle sized to the missing rounds and available reserve.
-An empty eject pulses the armed hand once per wait. Confirmed reserve transfers
-queue a short 3D cartridge fall from the sampled rear drum face. The renderer
-uses the verified quantity with one shared mesh and bounded stereo instances.
-The unload helper checks the original pistol counter's capacity inside the
-retained wait before calling native `AddAmmo`. A verified refusal leaves the
-drum open with unchanged counters, qualifies an armed-hand pulse and offers a
-short notice with the reload binding even when Weapon Guides are Off. An
+A partial drum can accept a bundle sized to the missing rounds and available
+reserve. With the verified cylinder open, the armed grip can also enter a
+head-relative chest zone from outside after a continuous tracked approach.
+That entry calls the same native bundle transaction once. Opening inside the
+zone, passive head motion, tracking jumps, held triggers and a carried bundle
+do not grant another insertion. The native transfer and matching reserve debit
+qualify haptics on the armed controller. With two exact modern Schofields,
+Square selects the revolver closest to the chest, including a full cylinder.
+The paired ticket
+retains both objects and hand machines. Only the selected weapon's 20/21/22
+states override native two-hand arbitration. Chest entry transfers the selected
+bundle once, with readback of its reserve debit and the companion's unchanged
+rounds. The tilt can unload the selected cylinder through the same retained
+ticket, with companion readback. Square requests closure. Manual mode consumes
+verified empty-hand fire through physical release and plays one dry click per
+fresh press. Exact modern Schofields withhold native action 31 while Manual
+Reload is On, including alternate-fire idle. Manual opening uses normal-fire
+idle. With the preference Off, the original input path owns reload.
+The pinned player shot debit records transient spent cases on the exact weapon.
+The ordinary ammo setter retires them on a non-shot count change. Native bundle
+insertion requires the cases to be ejected first. A tilt clears cases without
+changing reserve. The unload helper checks the original pistol counter's
+capacity inside the retained wait before calling native `AddAmmo` for live
+rounds. If reserve is full, the cases fall and the live rounds stay in the
+drum. Verified ejections cue the armed hand and queue a short 3D fall from the
+sampled rear drum face. A refusal offers a short notice even with Weapon
+Guides Off. An
 uncertain native result retires the session. Square keeps the normal close
 route. Optional reload telemetry samples the classifier only during this
 session, with phase changes and classified requests recorded immediately.
@@ -1254,11 +1278,12 @@ The offline analyzer checks the reported synchronous unload counts and
 same-wait owner, preserving classification samples and player feedback as
 separate observations.
 The native watchdog and ownership retirement still
-control the animation lifecycle. A visual guide projects the six measured
-radial positions onto the positive-Z drum face and shows the aggregate live
-count as brass heads in a non-spinning rear view. Empty outlines remain visible
-while waiting after a confirmed transfer to reserve. This guide carries no
-contact or ammunition authority.
+control the animation lifecycle. Rear-view markers use the six measured
+positions on the positive-Z drum face for either selected hand. They depict
+aggregate live and spent counts as brass and dark brass heads. With Weapon
+Guides On, free chambers have outlines that highlight while carrying a bundle
+that can be inserted. The visual markers carry no contact or ammunition
+authority.
 Shared transaction guards prevent cross-family callback reentry.
 All new paths remain source/host candidates with generic grip-zone interaction;
 per-model ports, shell/calibre fidelity, native mechanical playback and physical acceptance
@@ -1415,6 +1440,22 @@ observations. Only a fresh available release from the current input source
 discharges it, and that release sample remains consumed. A replacement source
 establishes its own baseline; repeated or retired observations cannot resume
 ordinary native fire or release the old claim.
+
+Ray's held Bible maps its exact authored hand mount and the owning hand
+through the same reversible tracked pose transaction. The exact attached book
+and mount are verified again before commit and after the write. Native Bible
+actions keep their original dispatch and the visual map carries no shot ray.
+
+The optional dynamite motion candidate retains the exact right-hand
+`WeaponDynamiteStick` identity while the actual, active and desired slots agree
+and the opposite slots are empty. A fresh preparation behind the torso and
+forward swing request one pulse on the original action 10. The adapter checks
+native controller ownership and current inventory again at dispatch. The game
+owns fuse ignition, inventory removal and trajectory. Physical triggers take
+priority. The exact archive observers retain the weapon ID at attack-begin
+and after the native world velocity call so a future visor run can correlate
+both receipts for one stick.
+
 Stationary Cannon ownership is independent of retained hand inventory. The
 adapter brackets the current player's native IsUsingCannon/GetCannon and the
 Cannon/controller identities, then routes physical R2 to action9/Attack(1) through
@@ -1665,6 +1706,18 @@ disables only the diagnostic stream. Its resources release before Reset/ResetEx
 attempts, device replacement and shutdown. It does not change rendering effects
 or the ordinary stereo/interaction paths. Binding-census collection is a separate
 diagnostic and is not required for this pixel investigation.
+
+When enabled, the matching D3D9 Present route can carry the exact producer
+rejection from the submission callback. Missing capture authority, changed
+presentation ownership, source authorization, producer EndFrame failure and
+queue registration are distinct receipts. The route retains its original
+frame, pose, device, generation and thread checks. OpenVR delivery and the
+pixels the operator saw require their own evidence.
+The offline luma analyzer can associate a route with one later presenter upload
+and successful native OpenVR Submit calls when frame/pose, device generation,
+reset epoch and log order are unambiguous. Legacy or malformed presenter
+observations disable that association while retaining native pixel analysis.
+Submission success is an API receipt, not proof of compositor display.
 
 The exact pre-DestroyGame import boundary stops producers/restores hooks, joins the
 presenter, drains pending GPU copies, releases capture resources and forwards
